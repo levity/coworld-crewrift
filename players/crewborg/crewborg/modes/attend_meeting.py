@@ -28,6 +28,13 @@ from crewborg.strategy.meeting.imposter import (
 )
 from crewborg.strategy.meeting import chat_nlp, chat_read
 from crewborg.strategy.suspicion import chat_suspect, top_suspect
+from crewborg.strategy.meeting.solver import (
+    enabled as solver_enabled,
+    solver_pick,
+    solver_report,
+    solver_vetoes,
+    veto_enabled as solver_veto_enabled,
+)
 from crewborg.types import ActionState, Belief, ChatEvent, Intent
 from players.player_sdk import EmptyModeParams, Mode
 
@@ -127,12 +134,28 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         """Accuse + vote a clear leading suspect; else SHARE a read on a softer suspect
         (chat only, no vote) rather than going silent — vote restraint is unchanged."""
 
+        if solver_enabled() or solver_veto_enabled():
+            return self._decide_crewmate_deferred(belief)
+
         if not self._deterministic_chatted:
             self._deterministic_chatted = True
             target = top_suspect(belief)  # the clear leading suspect, or None (flat field)
+            self._solver_report = solver_report(belief)  # social-deduction solver (env CREWBORG_SOLVER)
+            _solver_target = self._solver_report.get("pick")
+            if _solver_target is not None:
+                target = _solver_target
+            elif solver_vetoes(self._solver_report, target):
+                # fused solver says the crowd evidence doesn't support our own suspect
+                # (that band is 29-53% imposters) -> don't vote or accuse them; pin the
+                # tentative vote to SKIP so the fallback resolver can't re-derive them
+                self._solver_report["vetoed"] = target
+                self._tentative_vote = VOTE_SKIP
+                target = None
             if target is not None:
                 self._tentative_vote = target  # couple the vote to whoever we accuse
                 accusation = build_accusation(belief, target)
+                if accusation is None and _solver_target is not None:
+                    accusation = f"{target} sus: multiple players flagged them"
                 if accusation is not None:
                     self._trace_meeting_decision(belief, role="crewmate", path="accuse", target=target)
                     return self._send_chat_intent(belief, accusation, reason="accusing clear suspect")
@@ -147,6 +170,47 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
                     return self._send_chat_intent(belief, read, reason="sharing read (no vote)")
                 self._trace_meeting_decision(belief, role="crewmate", path="silent_skip", target=None)
         return self._submit_vote_intent(belief, reason="deterministic meeting vote")
+
+    def _decide_crewmate_deferred(self, belief: Belief) -> Intent:
+        """Late-binding crew vote (env CREWBORG_SOLVER / CREWBORG_SOLVER_VETO).
+
+        Meetings are simultaneous broadcasts: deciding on the first meeting tick sees an
+        *empty* ``chat_log`` (measured — every opponent accusation lands one tick after we
+        speak), which makes the whole "model what others assert" strategy inert. So we
+        GATHER: stay idle through the voting window and only decide near the auto-submit
+        deadline, when the full round of accusations has arrived. Then the fused solver
+        runs on the complete chat_log — accuse+vote its pick, veto our own weak suspect,
+        or (nothing convincing) skip. Chat and vote stay coupled: we accuse exactly whom
+        we then vote."""
+
+        if not self._should_auto_submit(belief):
+            return Intent(kind="idle", reason="gathering meeting chat before deciding")
+
+        # Deadline reached. If we already accused last tick, cast the coupled vote now.
+        if self._deterministic_chatted:
+            return self._submit_vote_intent(belief, reason="deterministic vote (post-chat solve)")
+        self._deterministic_chatted = True
+
+        report = solver_report(belief)  # runs once, on the full accumulated chat_log
+        self._solver_report = report
+        target = report.get("pick")
+        if target is None:
+            base = top_suspect(belief)
+            if base is not None and solver_vetoes(report, base):
+                report["vetoed"] = base  # crowd evidence contradicts our own read -> drop it
+                base = None
+            target = base
+
+        if target is not None:
+            self._tentative_vote = target
+            accusation = build_accusation(belief, target) or f"{target} sus: multiple players flagged them"
+            path = "accuse" if report.get("pick") else "accuse_own"
+            self._trace_meeting_decision(belief, role="crewmate", path=path, target=target)
+            return self._send_chat_intent(belief, accusation, reason="accuse (post-chat solve)")
+
+        self._tentative_vote = VOTE_SKIP
+        self._trace_meeting_decision(belief, role="crewmate", path="silent_skip", target=None)
+        return self._submit_vote_intent(belief, reason="deterministic skip (post-chat solve)")
 
     def _decide_imposter(self, belief: Belief) -> Intent:
         """Deflect onto crewmates, never teammates. Prefer a **real** accusation against
@@ -230,6 +294,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             "target": target,
             "fabricated": fabricated,
             "top_suspect": top_suspect(belief),
+            "solver": getattr(self, "_solver_report", None),
         }
         if role == "imposter":
             data["votes"] = votes_against(belief)
