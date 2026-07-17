@@ -19,6 +19,7 @@ mismatch is the signal to re-run ``nav_bake`` (the map changed).
 from __future__ import annotations
 
 import gzip
+import io
 import pickle
 from importlib import resources
 from typing import TYPE_CHECKING, Any
@@ -37,12 +38,30 @@ NAVBAKE_RESOURCE = "croatoan_navbake.pkl.gz"
 # are ignored rather than mis-loaded).
 NAVBAKE_FORMAT = 1
 
+_LEGACY_MODULE_ALIASES = {
+    "crewrift.crewborg.agent_tracking": "crewborg.agent_tracking",
+    "crewrift.crewborg.nav": "crewborg.nav",
+}
+
+
+class _NavbakeUnpickler(pickle.Unpickler):
+    """Resolve classes from assets baked before ``crewborg`` became top-level."""
+
+    def find_class(self, module: str, name: str) -> Any:
+        return super().find_class(_LEGACY_MODULE_ALIASES.get(module, module), name)
+
 
 def serialize_navbake(nav: "NavGraph", substrate: "OccupancySubstrate") -> bytes:
     """Gzip-pickle the (nav, substrate) pair for vendoring as the bake asset."""
 
     payload = {"format": NAVBAKE_FORMAT, "nav": nav, "substrate": substrate}
     return gzip.compress(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
+
+
+def _deserialize_navbake(data: bytes) -> Any:
+    """Decode a current or pre-package-move navbake payload."""
+
+    return _NavbakeUnpickler(io.BytesIO(gzip.decompress(data))).load()
 
 
 def _read_payload() -> dict[str, Any] | None:
@@ -57,7 +76,7 @@ def _read_payload() -> dict[str, Any] | None:
         resource = resources.files(NAVBAKE_PACKAGE).joinpath(NAVBAKE_RESOURCE)
         if not resource.is_file():
             return None
-        payload = pickle.loads(gzip.decompress(resource.read_bytes()))
+        payload = _deserialize_navbake(resource.read_bytes())
     except Exception:  # noqa: BLE001 - any load failure must degrade to the live build.
         return None
     if not isinstance(payload, dict) or payload.get("format") != NAVBAKE_FORMAT:

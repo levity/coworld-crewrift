@@ -67,7 +67,7 @@ def test_load_navbake_accepts_exact_mask_and_rejects_changes() -> None:
 
     from importlib import resources
 
-    from crewborg.navbake import NAVBAKE_PACKAGE, NAVBAKE_RESOURCE
+    from crewborg.navbake import NAVBAKE_PACKAGE, NAVBAKE_RESOURCE, _deserialize_navbake
 
     resource = resources.files(NAVBAKE_PACKAGE).joinpath(NAVBAKE_RESOURCE)
     if not resource.is_file():
@@ -75,7 +75,7 @@ def test_load_navbake_accepts_exact_mask_and_rejects_changes() -> None:
 
         pytest.skip("no vendored navbake asset (run tools/nav_bake.py to create it)")
 
-    payload = pickle.loads(gzip.decompress(resource.read_bytes()))
+    payload = _deserialize_navbake(resource.read_bytes())
     baked_mask = payload["nav"].walkability
 
     loaded = load_navbake(baked_mask)
