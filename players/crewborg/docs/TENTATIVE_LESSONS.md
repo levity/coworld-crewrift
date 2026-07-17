@@ -16,3 +16,20 @@ nudges once per session if substantive work ends with this buffer untouched.
 optional `Status:` note. Terse. One lesson per `###`.
 
 ---
+
+### Preserve relational evidence before reducing it to per-player counters
+Evidence: The fitted social counters persisted across meetings but discarded speaker-target
+edges, meeting identity, disjunctions, and source provenance, making joint constraints
+unrecoverable. A parallel structured ledger restored those capabilities without disturbing
+the fitted model.
+
+### Deadline deferral can suppress chat in homogeneous self-play
+Evidence: In the solver-enabled `scn_vote_basic` smoke, all crewborg seats waited until the
+same 48-tick backstop, so their accusations were simultaneous and unavailable to that
+meeting's own solve. Mixed-field evaluation is required to measure the intended benefit from
+other policies' earlier utterances.
+
+### Vendored pickle assets need narrow module-path compatibility
+Evidence: The committed navbake remained structurally valid but referenced two pre-package-move
+`crewrift.crewborg.*` modules. An exact unpickler alias restored it; broad import aliases or
+rebaking unrelated data were unnecessary.

@@ -151,7 +151,7 @@ def test_attend_meeting_uses_advertised_vote_deadline() -> None:
     assert vote.target_color == "red"
 
 
-def test_solver_gather_window_is_independent_of_vote_deadline(monkeypatch) -> None:
+def test_solver_uses_most_of_the_advertised_vote_deadline(monkeypatch) -> None:
     monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
     monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
     monkeypatch.setattr(
@@ -162,17 +162,17 @@ def test_solver_gather_window_is_independent_of_vote_deadline(monkeypatch) -> No
     monkeypatch.setattr(attend_meeting, "build_accusation", lambda belief, target: f"{target} sus")
 
     mode = AttendMeetingMode()
-    belief = _meeting_belief(tick=191)
+    belief = _meeting_belief(tick=1151)
     belief.self_role = "crewmate"
     belief.vote_timer_ticks = 1200
     assert mode.decide(belief, ActionState()).kind == "idle"
 
-    belief.last_tick = 192
+    belief.last_tick = 1152
     chat = mode.decide(belief, ActionState())
     assert chat.kind == "chat"
     assert chat.text == "red sus"
 
-    belief.last_tick = 193
+    belief.last_tick = 1153
     vote = mode.decide(belief, ActionState())
     assert vote.kind == "vote"
     assert vote.target_color == "red"

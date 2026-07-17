@@ -1,38 +1,60 @@
-"""Social-deduction solver (env-gated: CREWBORG_SOLVER).
+"""Persistent joint-hypothesis social-deduction solver.
 
-Models what the OTHER players assert via meeting chat and finds the imposter-assignment
-most consistent with all the accusations. crewborg (self) is crew, so among the votable
-players there are (at most) 2 imposters -> enumerate C(n,2) hypotheses and Bayesian-update
-each per accusation: a CREW speaker tends to accuse a real imposter; an IMPOSTER speaker
-deflects onto crew. Convergence (many accusers of X) and bifurcation (mutual accusations)
-fall out for free. Reuses crewborg's spaCy accusation parser (chat_read/_chat_nlp).
+The solver is opt-in (``CREWBORG_SOLVER``). It enumerates every fixed-size
+impostor assignment over the original roster, including dead players, then scores
+each assignment against episode-persistent claims and public meeting votes.
+Speaker reliability is role-conditioned inside the hypothesis: a likely crew
+speaker is expected to identify impostors, while a likely impostor is expected to
+deflect onto crew and avoid accusing a partner.
 
-Returns the color to vote+accuse iff its marginal P(imposter) clears CREWBORG_SOLVER_P and
-clearly leads the field; else None (fall back to crewborg's normal behavior). Never raises.
-
-v2 fuses crewborg's OWN hard observations into the enumeration:
-- pins: players we directly witnessed killing/venting (P(imposter)=100% in field data,
-  36/36) — hypotheses that exclude them are impossible, which turns every claim BY the
-  pinned player into a near-certain deflection and sharpens partner inference;
-- clears: players whose task completions we watched (field P(imposter) 15% vs 36% base)
-  down-weight hypotheses containing them by CLEAR_LR.
-It also exposes a veto (CREWBORG_SOLVER_VETO): crewborg's own would-vote target is
-dropped when the fused marginal says the crowd evidence doesn't support it — offline,
-would-votes at marginal >=0.65 were 89% imposters vs 29-53% below.
+Repeated lines from the same speaker about the same target collapse within a
+meeting. Repetition across later meetings still contributes, with configurable
+decay. Evidence wording, body reporters, direct observations, and a tempered copy
+of crewborg's existing suspicion posterior provide additional provenance.
 """
+
 from __future__ import annotations
-import os, math
+
+import math
+import os
+from dataclasses import dataclass
 from itertools import combinations
-from typing import Any
+from typing import Any, Iterable
 
-from crewborg.strategy.meeting import chat_nlp
-from crewborg.strategy.meeting.chat_read import _accused_for
 from crewborg.strategy.suspicion import witnessed_imposters
+from crewborg.types import MeetingRecord, SocialClaim
 
-# mild, deliberately conservative likelihoods (tunable / fittable later)
-P_HIT, P_MISS = 0.55, 0.12      # crew accuses imposter vs crew
-P_DEFL, P_COVER = 0.45, 0.03    # imposter accuses crew vs (never) a teammate
-CLEAR_LR = 0.31                 # odds factor for a watched-task player being imposter
+
+@dataclass(frozen=True)
+class SolverConfig:
+    crew_accuse_hit: float = 0.58
+    crew_accuse_miss: float = 0.15
+    imp_accuse_crew: float = 0.42
+    imp_accuse_partner: float = 0.08
+    crew_defend_crew: float = 0.50
+    crew_defend_imp: float = 0.08
+    imp_defend_crew: float = 0.16
+    imp_defend_partner: float = 0.34
+    crew_vote_imp: float = 0.48
+    crew_vote_crew: float = 0.18
+    imp_vote_crew: float = 0.38
+    imp_vote_partner: float = 0.08
+    clear_lr: float = 0.31
+    prior_strength: float = 0.20
+    repeat_decay: float = 0.70
+    vote_weight: float = 0.35
+    reporter_weight: float = 1.15
+    bare_weight: float = 0.25
+    body_weight: float = 1.00
+    vent_weight: float = 1.10
+    sighting_weight: float = 0.85
+    claimed_vote_weight: float = 0.50
+
+
+@dataclass(frozen=True)
+class WeightedClaim:
+    claim: SocialClaim
+    weight: float
 
 
 def enabled() -> bool:
@@ -50,31 +72,199 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _config() -> SolverConfig:
+    defaults = SolverConfig()
+    values = {
+        field: _env_float(f"CREWBORG_SOLVER_{field.upper()}", getattr(defaults, field))
+        for field in SolverConfig.__dataclass_fields__
+    }
+    return SolverConfig(**values)
+
+
 def _threshold() -> float:
     return _env_float("CREWBORG_SOLVER_P", 0.65)
 
 
 def _margin() -> float:
-    return _env_float("CREWBORG_SOLVER_MARGIN", 0.10)  # gap between the imposter pair and the 3rd player
+    return _env_float("CREWBORG_SOLVER_MARGIN", 0.10)
 
 
 def _veto_keep() -> float:
     return _env_float("CREWBORG_SOLVER_VETO_P", 0.65)
 
 
-def _accusation_claims(belief: Any, votable: set[str]) -> list[tuple[str, str]] | None:
-    nlp = chat_nlp.get_model()
-    if nlp is None:  # spaCy not ready -> no chat signal (deliberately no keyword fallback)
-        return None
-    cache: dict[str, set[str]] = {}
-    claims: list[tuple[str, str]] = []
-    for ev in getattr(belief, "chat_log", []) or []:
-        speaker = ev.speaker_color
-        accused = _accused_for(ev.text or "", votable | ({speaker} if speaker else set()), nlp, cache)
-        for target in accused:
-            if target in votable and target != speaker:
-                claims.append((speaker, target))
-    return claims
+def _imposter_count(belief: Any) -> int:
+    configured = getattr(belief, "imposter_count", None)
+    if configured is not None:
+        return configured
+    total = getattr(belief, "total_player_count", 0)
+    return 0 if total < 5 else max(0, min((total - 3) // 2, total - 1))
+
+
+def _evidence_weight(claim: SocialClaim, config: SolverConfig) -> float:
+    return {
+        "bare": config.bare_weight,
+        "body": config.body_weight,
+        "vent": config.vent_weight,
+        "sighting": config.sighting_weight,
+        "vote": config.claimed_vote_weight,
+    }.get(claim.evidence_kind, config.bare_weight)
+
+
+def _weighted_claims(
+    claims: Iterable[SocialClaim],
+    meetings: Iterable[MeetingRecord],
+    players: set[str],
+    config: SolverConfig,
+) -> list[WeightedClaim]:
+    """Deduplicate per meeting/speaker/target and decay repeats across meetings."""
+
+    reporters = {
+        meeting.meeting_id: meeting.caller_color
+        for meeting in meetings
+        if meeting.call_kind == "body"
+    }
+    best: dict[tuple[int, str, str, tuple[str, ...]], tuple[SocialClaim, float]] = {}
+    for claim in claims:
+        speaker = claim.speaker_color
+        targets = tuple(sorted(set(claim.targets)))
+        if speaker not in players or not targets or speaker in targets:
+            continue
+        if any(target not in players for target in targets):
+            continue
+        weight = _evidence_weight(claim, config)
+        if reporters.get(claim.meeting_id) == speaker:
+            weight *= config.reporter_weight
+        key = (claim.meeting_id, speaker, claim.stance, targets)
+        previous = best.get(key)
+        if previous is None or weight > previous[1]:
+            best[key] = (claim.model_copy(update={"targets": targets}), weight)
+
+    repeated: dict[tuple[str, str, tuple[str, ...]], int] = {}
+    weighted: list[WeightedClaim] = []
+    for claim, base_weight in sorted(best.values(), key=lambda item: (item[0].meeting_id, item[0].tick)):
+        identity = (claim.speaker_color or "", claim.stance, claim.targets)
+        repeat_index = repeated.get(identity, 0)
+        repeated[identity] = repeat_index + 1
+        weighted.append(
+            WeightedClaim(
+                claim=claim,
+                weight=base_weight * (config.repeat_decay ** repeat_index),
+            )
+        )
+    return weighted
+
+
+def _claim_probability(hypothesis: frozenset[str], claim: SocialClaim, config: SolverConfig) -> float:
+    speaker_is_imp = claim.speaker_color in hypothesis
+    target_is_imp = any(target in hypothesis for target in claim.targets)
+    if claim.stance in {"accuse", "at_least_one"}:
+        if speaker_is_imp:
+            return config.imp_accuse_partner if target_is_imp else config.imp_accuse_crew
+        return config.crew_accuse_hit if target_is_imp else config.crew_accuse_miss
+    if speaker_is_imp:
+        return config.imp_defend_partner if target_is_imp else config.imp_defend_crew
+    return config.crew_defend_imp if target_is_imp else config.crew_defend_crew
+
+
+def _vote_probability(
+    hypothesis: frozenset[str],
+    voter: str,
+    target: str,
+    config: SolverConfig,
+) -> float:
+    voter_is_imp = voter in hypothesis
+    target_is_imp = target in hypothesis
+    if voter_is_imp:
+        return config.imp_vote_partner if target_is_imp else config.imp_vote_crew
+    return config.crew_vote_imp if target_is_imp else config.crew_vote_crew
+
+
+def _logit(probability: float) -> float:
+    probability = min(max(probability, 0.01), 0.99)
+    return math.log(probability / (1.0 - probability))
+
+
+def solve_hypotheses(
+    players: list[str],
+    imposter_count: int,
+    claims: Iterable[SocialClaim],
+    meetings: Iterable[MeetingRecord] = (),
+    *,
+    pins: frozenset[str] | set[str] = frozenset(),
+    clears: frozenset[str] | set[str] = frozenset(),
+    priors: dict[str, float] | None = None,
+    config: SolverConfig | None = None,
+) -> dict[str, Any]:
+    """Return normalized joint hypotheses, marginals, and evidence counts."""
+
+    config = config or _config()
+    players = list(dict.fromkeys(players))
+    player_set = set(players)
+    if imposter_count <= 0 or imposter_count > len(players):
+        return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
+
+    hypotheses = [
+        frozenset(combo)
+        for combo in combinations(players, imposter_count)
+        if set(pins) <= set(combo)
+    ]
+    if not hypotheses:
+        return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
+
+    meeting_list = list(meetings)
+    weighted_claims = _weighted_claims(claims, meeting_list, player_set, config)
+    public_votes = [
+        (voter, target)
+        for meeting in meeting_list
+        for voter, target in meeting.votes.items()
+        if voter in player_set and target in player_set and voter != target
+    ]
+    base_probability = imposter_count / len(players)
+    log_weights: dict[frozenset[str], float] = {}
+    for hypothesis in hypotheses:
+        log_weight = sum(
+            math.log(max(config.clear_lr, 1e-6))
+            for color in clears
+            if color in hypothesis
+        )
+        for color, probability in (priors or {}).items():
+            if color in hypothesis and color in player_set:
+                log_weight += config.prior_strength * (
+                    _logit(probability) - _logit(base_probability)
+                )
+        for weighted in weighted_claims:
+            probability = _claim_probability(hypothesis, weighted.claim, config)
+            log_weight += weighted.weight * math.log(max(probability, 1e-6))
+        for voter, target in public_votes:
+            probability = _vote_probability(hypothesis, voter, target, config)
+            log_weight += config.vote_weight * math.log(max(probability, 1e-6))
+        log_weights[hypothesis] = log_weight
+
+    maximum = max(log_weights.values())
+    unnormalized = {
+        hypothesis: math.exp(log_weight - maximum)
+        for hypothesis, log_weight in log_weights.items()
+    }
+    total = sum(unnormalized.values()) or 1.0
+    probabilities = {
+        hypothesis: weight / total
+        for hypothesis, weight in unnormalized.items()
+    }
+    marginals = {
+        player: sum(probability for hypothesis, probability in probabilities.items() if player in hypothesis)
+        for player in players
+    }
+    ranked_hypotheses = sorted(probabilities.items(), key=lambda item: -item[1])
+    return {
+        "marginals": marginals,
+        "hypotheses": [
+            {"imposters": sorted(hypothesis), "p": probability}
+            for hypothesis, probability in ranked_hypotheses
+        ],
+        "n_claims": len(weighted_claims),
+        "n_votes": len(public_votes),
+    }
 
 
 def solve_marginals(
@@ -83,78 +273,161 @@ def solve_marginals(
     pins: frozenset[str] | set[str] = frozenset(),
     clears: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, float]:
-    hyps = [frozenset(c) for c in combinations(votable, 2)]
-    if pins:
-        pinned = [h for h in hyps if set(pins) <= h] if len(pins) <= 2 else [h for h in hyps if h <= set(pins)]
-        if pinned:  # inconsistent pins (shouldn't happen) -> fall back to the full space
-            hyps = pinned
-    logw = {h: sum(math.log(CLEAR_LR) for c in clears if c in h) for h in hyps}
-    for speaker, target in claims:
-        for h in hyps:
-            s_imp = speaker in h
-            t_imp = target in h
-            p = (P_COVER if t_imp else P_DEFL) if s_imp else (P_HIT if t_imp else P_MISS)
-            logw[h] += math.log(max(p, 1e-6))
-    m = max(logw.values())
-    ws = {h: math.exp(logw[h] - m) for h in hyps}
-    tot = sum(ws.values()) or 1.0
-    return {o: sum(w for h, w in ws.items() if o in h) / tot for o in votable}
+    """Compatibility wrapper for the original pair-claim solver API."""
+
+    structured = [
+        SocialClaim(
+            meeting_id=0,
+            tick=index,
+            speaker_color=speaker,
+            targets=(target,),
+            stance="accuse",
+            evidence_kind="body",
+            text=f"{target} accused",
+        )
+        for index, (speaker, target) in enumerate(claims)
+    ]
+    result = solve_hypotheses(
+        votable,
+        min(2, len(votable)),
+        structured,
+        pins=pins,
+        clears=clears,
+        config=SolverConfig(prior_strength=0.0, repeat_decay=1.0),
+    )
+    return result["marginals"]
 
 
-def solver_report(belief: Any) -> dict:
-    """Full diagnostics for one meeting: {fired, pick, top_p, second_p, n_claims, n_accusers}.
-    ``pick`` is non-None only when the top marginal clears the threshold AND clearly leads."""
-    out = {"fired": False, "pick": None, "top_p": None, "second_p": None, "n_claims": 0,
-           "n_accusers": 0, "pins": [], "clears": [], "marginals": None, "vetoed": None}
+def _live_vote_targets(belief: Any, players: set[str]) -> list[str]:
+    candidates = [
+        candidate.color
+        for candidate in getattr(getattr(belief, "voting", None), "candidates", ())
+        if candidate.alive and candidate.color in players and candidate.color != belief.self_color
+    ]
+    if candidates:
+        return candidates
+    return [
+        color
+        for color, record in (getattr(belief, "roster", {}) or {}).items()
+        if color in players
+        and color != getattr(belief, "self_color", None)
+        and getattr(record, "life_status", "unknown") != "dead"
+    ]
+
+
+def solver_report(belief: Any) -> dict[str, Any]:
+    """Build serializable diagnostics and, when decisive, a live vote target."""
+
+    out: dict[str, Any] = {
+        "fired": False,
+        "pick": None,
+        "top_p": None,
+        "second_p": None,
+        "n_claims": 0,
+        "n_raw_claims": 0,
+        "n_accusers": 0,
+        "n_votes": 0,
+        "n_meetings": 0,
+        "pins": [],
+        "clears": [],
+        "marginals": None,
+        "hypotheses": [],
+        "vetoed": None,
+        "error": None,
+    }
     try:
         if not (enabled() or veto_enabled()):
             return out
-        votable = list(getattr(belief, "suspicion", {}).keys())
-        if len(votable) < 3:
-            return out
         self_color = getattr(belief, "self_color", None)
-        pins = {c for c in witnessed_imposters(belief) if c in votable and c != self_color}
         roster = getattr(belief, "roster", {}) or {}
-        clears = {
-            c for c in votable
-            if c not in pins and getattr(roster.get(c), "tasks_completed_watched", 0) > 0
-        }
-        out["pins"] = sorted(pins)
-        out["clears"] = sorted(clears)
-        claims = _accusation_claims(belief, set(votable))
-        if not claims:
+        players = [color for color in roster if color != self_color]
+        imposter_count = _imposter_count(belief)
+        if len(players) < 2 or imposter_count <= 0:
             return out
-        out["n_claims"] = len(claims)
-        out["n_accusers"] = len({sp for sp, _ in claims})
-        marg = solve_marginals(votable, claims, pins=pins, clears=clears)
-        out["marginals"] = {c: round(p, 3) for c, p in marg.items()}
-        ranked = sorted(marg.items(), key=lambda kv: -kv[1])
+
+        player_set = set(players)
+        pins = witnessed_imposters(belief) & player_set
+        clears = {
+            color
+            for color, record in roster.items()
+            if color in player_set
+            and color not in pins
+            and getattr(record, "tasks_completed_watched", 0) > 0
+        }
+        claims = list(getattr(belief, "social_claims", ()) or ())
+        meetings = list(getattr(belief, "meeting_history", ()) or ())
+        priors = {
+            color: probability
+            for color, probability in (getattr(belief, "suspicion", {}) or {}).items()
+            if color in player_set
+        }
+        result = solve_hypotheses(
+            players,
+            imposter_count,
+            claims,
+            meetings,
+            pins=pins,
+            clears=clears,
+            priors=priors,
+        )
+        marginals = result["marginals"]
+        if not marginals:
+            return out
+
+        out.update(
+            n_claims=result["n_claims"],
+            n_raw_claims=len(claims),
+            n_accusers=len(
+                {
+                    claim.speaker_color
+                    for claim in claims
+                    if claim.speaker_color in player_set
+                }
+            ),
+            n_votes=result["n_votes"],
+            n_meetings=len(meetings),
+            pins=sorted(pins),
+            clears=sorted(clears),
+            marginals={color: round(probability, 3) for color, probability in marginals.items()},
+            hypotheses=[
+                {"imposters": item["imposters"], "p": round(item["p"], 4)}
+                for item in result["hypotheses"][:5]
+            ],
+        )
+
+        live = _live_vote_targets(belief, player_set)
+        ranked = sorted(
+            ((color, marginals[color]) for color in live if color in marginals),
+            key=lambda item: (-item[1], item[0]),
+        )
+        if not ranked:
+            return out
         out["top_p"] = round(ranked[0][1], 3)
         out["second_p"] = round(ranked[1][1], 3) if len(ranked) > 1 else 0.0
-        # There are 2 imposters, so the top TWO marginals are both expected to be high
-        # (they carry the mass: marginals sum to the imposter count). Gating on the #1-vs-#2
-        # gap would make us abstain exactly when we've correctly nailed the pair. The
-        # meaningful separation is the gap AFTER the pair — top-1 vs the 3rd-ranked player
-        # (the leading crewmate). pick = top-1 (a witnessed-kill pin, if any, sits at 1.0
-        # here and is the best possible vote).
-        third = ranked[2][1] if len(ranked) > 2 else 0.0
-        if enabled() and ranked[0][1] >= _threshold() and (ranked[0][1] - third) >= _margin():
+
+        threshold = _threshold()
+        competitor = ranked[imposter_count][1] if len(ranked) > imposter_count else 0.0
+        has_relational_evidence = bool(result["n_claims"] or result["n_votes"] or pins)
+        if (
+            enabled()
+            and has_relational_evidence
+            and ranked[0][1] >= threshold
+            and ranked[0][1] - competitor >= _margin()
+        ):
             out["fired"] = True
             out["pick"] = ranked[0][0]
-    except Exception:
-        pass
+    except Exception as exc:
+        out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
 
 def solver_pick(belief: Any) -> str | None:
-    """The color to vote+accuse if the logic-table strongly implicates one, else None."""
     return solver_report(belief).get("pick")
 
 
-def solver_vetoes(report: dict, target: str | None) -> bool:
-    """True when crewborg's own would-vote ``target`` should be dropped: the fused
-    marginal exists (there was chat signal) and sits below the keep bar, and the target
-    is not hard-witnessed. Offline: kept votes 89% imposters, dropped ones 29-53%."""
+def solver_vetoes(report: dict[str, Any], target: str | None) -> bool:
+    """Whether joint social evidence is strong enough to reject a base-policy vote."""
+
     try:
         if not veto_enabled() or target is None:
             return False
@@ -162,7 +435,7 @@ def solver_vetoes(report: dict, target: str | None) -> bool:
             return False
         marginals = report.get("marginals")
         if not marginals or target not in marginals:
-            return False  # no chat signal -> leave crewborg's behavior unchanged
+            return False
         return marginals[target] < _veto_keep()
     except Exception:
         return False

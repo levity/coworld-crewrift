@@ -30,7 +30,6 @@ from crewborg.strategy.meeting import chat_nlp, chat_read
 from crewborg.strategy.suspicion import chat_suspect, top_suspect
 from crewborg.strategy.meeting.solver import (
     enabled as solver_enabled,
-    solver_pick,
     solver_report,
     solver_vetoes,
     veto_enabled as solver_veto_enabled,
@@ -42,10 +41,6 @@ LLM_MIN_CALL_INTERVAL_TICKS = 12
 DEADLINE_LLM_REMAINING_TICKS = 96
 AUTO_SUBMIT_REMAINING_TICKS = 48
 MEETING_TICKS_PER_SECOND = 24
-# Preserve the evidence horizon exercised by the hosted solver experiment. The
-# real vote deadline is variant-configured and can be much later; replay analysis
-# shows that treating the whole timer as an evidence window reduces precision.
-SOLVER_GATHER_TICKS = 192
 LLM_TIMEOUT_MARGIN_TICKS = LLM_MIN_CALL_INTERVAL_TICKS
 DEFAULT_LLM_TIMEOUT_SECONDS = 3.0
 
@@ -179,12 +174,11 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         """Late-binding crew vote (env CREWBORG_SOLVER / CREWBORG_SOLVER_VETO).
 
         Meetings are simultaneous broadcasts: deciding on the first meeting tick sees an
-        empty ``chat_log``. Gather for a bounded evidence window, then solve; the
-        advertised vote deadline is a separate safety concern and can be much later.
-        Chat and vote stay coupled: we accuse exactly whom we then vote."""
+        empty ``chat_log``. Gather until the learned deadline backstop, then solve
+        over the episode-persistent ledger. Chat and vote stay coupled: we accuse
+        exactly whom we then vote."""
 
-        meeting_age = max(0, belief.last_tick - belief.phase_start_tick)
-        if meeting_age < SOLVER_GATHER_TICKS and not self._should_auto_submit(belief):
+        if not self._should_auto_submit(belief):
             return Intent(kind="idle", reason="gathering meeting chat before deciding")
 
         # Evidence window elapsed. If we already accused last tick, cast the coupled vote now.
@@ -192,7 +186,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             return self._submit_vote_intent(belief, reason="deterministic vote (post-chat solve)")
         self._deterministic_chatted = True
 
-        report = solver_report(belief)  # runs once, on the bounded accumulated chat_log
+        report = solver_report(belief)  # runs once, after the persistent ledger is current
         self._solver_report = report
         target = report.get("pick")
         if target is None:

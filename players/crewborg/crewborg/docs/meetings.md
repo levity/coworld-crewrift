@@ -137,6 +137,27 @@ It then submits the staged vote. Loose accusing is negative-EV for crew, so sile
 the default, not a failure mode. The *when-to-accuse* policy lives in
 [`./crewmate-play.md`](./crewmate-play.md); the ranking lives in [`./suspicion.md`](./suspicion.md).
 
+With `CREWBORG_SOLVER=1`, crew instead waits until the learned 48-tick deadline
+backstop and runs `strategy/meeting/solver.py` once. The solver:
+
+- keeps structured accusations, defenses, disjunctions, vote tallies, callers,
+  and ejections across every meeting;
+- de-duplicates a speaker/stance/target set within one meeting, then lets the
+  same relation contribute with decay when it recurs in later meetings;
+- enumerates the fixed-size impostor assignments over the original roster,
+  including dead players, and conditions each assertion on whether its speaker
+  is crew or an impostor in that assignment;
+- weights body, vent, sighting, bare, and vote evidence separately, boosts a
+  body reporter's evidence, applies witnessed-impostor pins and watched-task
+  clears, and uses the fitted suspicion posterior only as a tempered prior; and
+- votes only when the top live marginal clears `CREWBORG_SOLVER_P` and separates
+  from the first player outside the available impostor slots by
+  `CREWBORG_SOLVER_MARGIN`.
+
+The report placed in the meeting trace contains global marginals and the five
+highest-probability joint assignments. `CREWBORG_SOLVER_VETO=1` can independently
+use those marginals to reject a base-policy vote.
+
 ### Imposter (`_decide_imposter`)
 
 Deflect heat onto crewmates, never teammates, and survive the meeting. Order of preference:
@@ -394,9 +415,10 @@ never miss the vote. The guards:
   so the final prompt is never scheduled too late to finish.
 - `_should_auto_submit` force-submits the staged vote at `AUTO_SUBMIT_REMAINING_TICKS` (48)
   regardless of LLM state.
-- Solver-enabled deterministic crew gathers for `SOLVER_GATHER_TICKS` (192)
-  independently of the advertised vote deadline; the deadline remains a safety
-  backstop rather than an evidence-window parameter.
+- Solver-enabled deterministic crew gathers until the same learned
+  `AUTO_SUBMIT_REMAINING_TICKS` (48) backstop, then solves once over its
+  episode-persistent claim and meeting ledger. On the standard 1200-tick timer
+  this consumes 1152 ticks of utterances before deciding.
 - `_decide_after_llm_failure`: at the `deadline` trigger a failure force-submits; at
   `meeting_start` it falls through to the deterministic path; otherwise it idles and waits for
   the next trigger.

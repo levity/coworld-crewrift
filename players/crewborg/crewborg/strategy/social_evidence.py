@@ -28,7 +28,14 @@ from __future__ import annotations
 
 import re
 
-from crewborg.types import Belief
+from crewborg.types import (
+    Belief,
+    ChatEvent,
+    MeetingRecord,
+    SocialClaim,
+    SolverClaimStance,
+    SolverEvidenceKind,
+)
 
 # A real task completion requires TaskCompleteTicks (72) of standing at the site.
 # We credit a watched completion only if we observed most of that dwell — slack
@@ -42,6 +49,14 @@ DWELL_END_GRACE_TICKS = 4
 # Offline-mirrored stance heuristics (features.py ACCUSE_HINT / DEFEND_HINT).
 ACCUSE_HINT = re.compile(r"\bsus\b|\bvote\b|\bsaw (?:them|him|her|it)\b", re.IGNORECASE)
 DEFEND_HINT = re.compile(r"\bclear(?:ed)?\b|\bsafe\b|\binnocent\b|\bnot sus\b|\bwasn'?t\b", re.IGNORECASE)
+SOLVER_ACCUSE_HINT = re.compile(
+    r"\bsus(?:picious)?\b|\bvote\b|\bimp(?:oster|ostor)?\b|\bvent(?:ed|ing|s)?\b|"
+    r"\bkill(?:ed|ing|s)?\b|\bfak(?:e|ed|ing)\b|\b(?:lie|lied|lying)\b|"
+    r"\bfollow(?:ed|ing)?\b|\bsaw\b",
+    re.IGNORECASE,
+)
+CLAUSE_SPLIT = re.compile(r"[,.;!?]|\bbut\b", re.IGNORECASE)
+DISJUNCTION_HINT = re.compile(r"\beither\b|\bor\b|\bone of\b", re.IGNORECASE)
 
 SKIP_VOTE_TARGET = -2  # perception.entities.VoteDot sentinel
 
@@ -53,6 +68,8 @@ def update_social_evidence(belief: Belief) -> None:
     intervals that logger maintains) and before ``update_suspicion``.
     """
 
+    _record_solver_claims(belief)
+    _track_solver_meeting(belief)
     _count_chat_stances(belief)
     _track_meeting_votes(belief)
     _bank_meeting_caller(belief)
@@ -68,6 +85,135 @@ def _color_pattern(belief: Belief) -> re.Pattern | None:
         return None
     alternation = "|".join(sorted((re.escape(c) for c in colors), key=len, reverse=True))
     return re.compile(rf"\b({alternation})\b", re.IGNORECASE)
+
+
+def parse_social_claims(
+    event: ChatEvent,
+    *,
+    meeting_id: int,
+    colors: set[str],
+) -> list[SocialClaim]:
+    """Extract conservative relational claims without depending on spaCy readiness."""
+
+    if not colors or not event.text:
+        return []
+    canonical = {color.lower(): color for color in colors}
+    alternation = "|".join(
+        sorted((re.escape(color) for color in canonical), key=len, reverse=True)
+    )
+    color_pattern = re.compile(rf"\b({alternation})\b", re.IGNORECASE)
+    claims: list[SocialClaim] = []
+    for raw_clause in CLAUSE_SPLIT.split(event.text):
+        clause = raw_clause.strip()
+        if not clause:
+            continue
+        named = []
+        for match in color_pattern.finditer(clause):
+            color = canonical[match.group(1).lower()]
+            if color != event.speaker_color and color not in named:
+                named.append(color)
+        if not named:
+            continue
+
+        defended = [color for color in named if _target_defended(clause, color)]
+        for target in defended:
+            claims.append(
+                _claim(event, meeting_id, (target,), "defend", _evidence_kind(clause))
+            )
+
+        accused = [
+            color
+            for color in named
+            if color not in defended and not _target_is_victim(clause, color)
+        ]
+        if not accused or not SOLVER_ACCUSE_HINT.search(clause):
+            continue
+        if len(accused) > 1 and DISJUNCTION_HINT.search(clause):
+            claims.append(
+                _claim(
+                    event,
+                    meeting_id,
+                    tuple(sorted(accused)),
+                    "at_least_one",
+                    _evidence_kind(clause),
+                )
+            )
+        else:
+            claims.extend(
+                _claim(event, meeting_id, (target,), "accuse", _evidence_kind(clause))
+                for target in accused
+            )
+    return claims
+
+
+def _claim(
+    event: ChatEvent,
+    meeting_id: int,
+    targets: tuple[str, ...],
+    stance: SolverClaimStance,
+    evidence_kind: SolverEvidenceKind,
+) -> SocialClaim:
+    return SocialClaim(
+        meeting_id=meeting_id,
+        tick=event.tick,
+        speaker_color=event.speaker_color,
+        targets=targets,
+        stance=stance,
+        evidence_kind=evidence_kind,
+        text=event.text,
+    )
+
+
+def _target_defended(clause: str, color: str) -> bool:
+    escaped = re.escape(color)
+    return bool(
+        re.search(
+            rf"\b{escaped}\b.{{0,20}}\b(?:clear(?:ed)?|safe|innocent|not sus|wasn'?t|with me|was with)\b|"
+            rf"\b(?:vouch|trust|with|not)\b.{{0,20}}\b{escaped}\b",
+            clause,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _target_is_victim(clause: str, color: str) -> bool:
+    escaped = re.escape(color)
+    return bool(
+        re.search(
+            rf"\b{escaped}\b.{{0,8}}\b(?:died|dead)\b|"
+            rf"\b(?:kill(?:ed)?|body of)\b.{{0,8}}\b{escaped}\b",
+            clause,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _evidence_kind(clause: str) -> SolverEvidenceKind:
+    lowered = clause.lower()
+    if "vent" in lowered:
+        return "vent"
+    if re.search(r"\b(?:kill|killed|dead|died|body|report)\b", lowered):
+        return "body"
+    if re.search(r"\b(?:saw|follow|following|followed)\b", lowered):
+        return "sighting"
+    if re.search(r"\bvote\b", lowered):
+        return "vote"
+    return "bare"
+
+
+def _record_solver_claims(belief: Belief) -> None:
+    colors = set(belief.roster)
+    meeting_id = belief.phase_start_tick
+    if belief.phase != "Voting" and belief.meeting_history:
+        meeting_id = belief.meeting_history[-1].meeting_id
+    for event in belief.chat_log:
+        key = (event.tick, event.speaker_color, event.text)
+        if key in belief.solver_counted_chats:
+            continue
+        belief.solver_counted_chats.add(key)
+        belief.social_claims.extend(
+            parse_social_claims(event, meeting_id=meeting_id, colors=colors)
+        )
 
 
 def _count_chat_stances(belief: Belief) -> None:
@@ -103,6 +249,36 @@ def _count_chat_stances(belief: Belief) -> None:
 
 
 # --- vote tallies ---------------------------------------------------------------
+
+
+def _track_solver_meeting(belief: Belief) -> None:
+    """Upsert the current meeting's public metadata and latest attributed tally."""
+
+    if belief.phase != "Voting":
+        return
+    meeting_id = belief.phase_start_tick
+    meeting = next(
+        (record for record in reversed(belief.meeting_history) if record.meeting_id == meeting_id),
+        None,
+    )
+    if meeting is None:
+        meeting = MeetingRecord(
+            meeting_id=meeting_id,
+            caller_color=belief.meeting_caller_color,
+            call_kind=belief.meeting_call_kind,
+        )
+        belief.meeting_history.append(meeting)
+    else:
+        meeting.caller_color = meeting.caller_color or belief.meeting_caller_color
+        meeting.call_kind = meeting.call_kind or belief.meeting_call_kind
+
+    slots = {candidate.slot: candidate.color for candidate in belief.voting.candidates}
+    if slots and belief.voting.dots:
+        meeting.votes = {
+            slots[vote.voter]: None if vote.target == SKIP_VOTE_TARGET else slots.get(vote.target)
+            for vote in belief.voting.dots
+            if vote.voter in slots
+        }
 
 
 def _track_meeting_votes(belief: Belief) -> None:

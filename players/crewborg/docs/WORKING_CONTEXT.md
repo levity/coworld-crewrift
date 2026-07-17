@@ -23,15 +23,25 @@ This is *not* a log or archive: finished work lives in git history / the
 - League telemetry: upload with `CREWBORG_METRICS=1 CREWBORG_TRACE_GROUPS=all` (see
   user_preferences.md); league artifacts are EPHEMERAL (~one round) — harvest promptly.
 
-## ▶ Open threads (2026-07-01)
+**Current experiment branch (2026-07-17):** `worktree-crewborg-solver-deferred` carries an
+opt-in persistent joint-hypothesis meeting solver. It stores relational claims and meeting
+outcomes across the episode, enumerates the original roster including dead players, weights
+source reliability/provenance/repetition, and decides at the learned 48-tick deadline
+backstop (1152/1200 standard ticks observed). Full suite: 501 passed, 13 skipped; local
+solver-enabled vote scenario passed Gate 1. It has not been uploaded or competitively
+evaluated.
+
+## ▶ Open threads (2026-07-17)
 
 1. **Crew vote rate is evidence-limited, not gate-limited.** Crew votes only at fitted P≥0.9
    (`CREWBORG_WEIGHTS_VOTE_P`, `strategy/suspicion.py`); live posteriors cross it in only ~23% of
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **`VOTE_TIMER_TICKS = 240` is stale** (`strategy/meeting/context.py`) — the live game uses 1200;
-   crewborg stops listening ~16% into the meeting. Align before meeting-coordination work.
+2. **Persistent solver needs a role-pinned field evaluation.** The implementation fixes the
+   previous current-meeting-only, duplicate-amplifying model, but its likelihoods and provenance
+   weights are deliberately conservative hand priors. Measure crew vote precision/coverage and
+   inspect top-hypothesis calibration before enabling vetoes or considering submission.
 3. **Slot-4 role-limbo**: a crew seat at slot 4 can miss the CREWMATE reveal text entirely →
    `self_role=None` forever → frozen, 0 task attempts (~15% of crew games). Needs a bounded
    fallback-to-crew escape in `types.py` (keep the positive latch as primary).
