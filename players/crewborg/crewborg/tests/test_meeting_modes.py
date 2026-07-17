@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import crewborg.modes.attend_meeting as attend_meeting
+
 from crewborg.action import BTN_A, BTN_DOWN, resolve_action
 from crewborg.modes import AccuseMode, AttendMeetingMode, ReportBodyMode
 from crewborg.perception.entities import VoteCandidate, VotingState
@@ -126,6 +128,73 @@ def test_attend_meeting_llm_tentative_vote_auto_submits_near_deadline() -> None:
     assert mode.decide(_meeting_belief(tick=0), ActionState()).kind == "idle"
 
     vote = mode.decide(_meeting_belief(tick=193), ActionState())
+    assert vote.kind == "vote"
+    assert vote.target_color == "red"
+
+
+def test_attend_meeting_uses_advertised_vote_deadline() -> None:
+    client = _FakeMeetingClient([MeetingDecision(action="set_tentative_vote", vote_target="red")])
+    mode = AttendMeetingMode(llm_client=client)
+    belief = _meeting_belief(tick=0)
+    belief.vote_timer_ticks = 1200
+
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+    belief = _meeting_belief(tick=1151)
+    belief.vote_timer_ticks = 1200
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+    belief = _meeting_belief(tick=1152)
+    belief.vote_timer_ticks = 1200
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote"
+    assert vote.target_color == "red"
+
+
+def test_solver_gather_window_is_independent_of_vote_deadline(monkeypatch) -> None:
+    monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_report",
+        lambda belief: {"pick": "red", "marginals": {"red": 0.9}},
+    )
+    monkeypatch.setattr(attend_meeting, "build_accusation", lambda belief, target: f"{target} sus")
+
+    mode = AttendMeetingMode()
+    belief = _meeting_belief(tick=191)
+    belief.self_role = "crewmate"
+    belief.vote_timer_ticks = 1200
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+    belief.last_tick = 192
+    chat = mode.decide(belief, ActionState())
+    assert chat.kind == "chat"
+    assert chat.text == "red sus"
+
+    belief.last_tick = 193
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote"
+    assert vote.target_color == "red"
+
+
+def test_solver_gather_window_yields_to_a_short_vote_deadline(monkeypatch) -> None:
+    monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
+    monkeypatch.setattr(attend_meeting, "solver_report", lambda belief: {"pick": "red"})
+    monkeypatch.setattr(attend_meeting, "build_accusation", lambda belief, target: f"{target} sus")
+
+    mode = AttendMeetingMode()
+    belief = _meeting_belief(tick=71)
+    belief.self_role = "crewmate"
+    belief.vote_timer_ticks = 120
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+    belief.last_tick = 72
+    assert mode.decide(belief, ActionState()).kind == "chat"
+
+    belief.last_tick = 73
+    vote = mode.decide(belief, ActionState())
     assert vote.kind == "vote"
     assert vote.target_color == "red"
 

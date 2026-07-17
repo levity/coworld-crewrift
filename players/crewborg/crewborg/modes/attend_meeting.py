@@ -19,7 +19,7 @@ from crewborg.strategy.meeting import (
 from crewborg.strategy.meeting.accusation import build_accusation, fabricate_accusation
 from crewborg.strategy.meeting.context import (
     CHAT_COOLDOWN_TICKS,
-    VOTE_TIMER_TICKS,
+    effective_vote_timer_ticks,
 )
 from crewborg.strategy.meeting.imposter import (
     bandwagon_target,
@@ -41,7 +41,11 @@ from players.player_sdk import EmptyModeParams, Mode
 LLM_MIN_CALL_INTERVAL_TICKS = 12
 DEADLINE_LLM_REMAINING_TICKS = 96
 AUTO_SUBMIT_REMAINING_TICKS = 48
-MEETING_TICKS_PER_SECOND = VOTE_TIMER_TICKS // 10
+MEETING_TICKS_PER_SECOND = 24
+# Preserve the evidence horizon exercised by the hosted solver experiment. The
+# real vote deadline is variant-configured and can be much later; replay analysis
+# shows that treating the whole timer as an evidence window reduces precision.
+SOLVER_GATHER_TICKS = 192
 LLM_TIMEOUT_MARGIN_TICKS = LLM_MIN_CALL_INTERVAL_TICKS
 DEFAULT_LLM_TIMEOUT_SECONDS = 3.0
 
@@ -175,23 +179,20 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         """Late-binding crew vote (env CREWBORG_SOLVER / CREWBORG_SOLVER_VETO).
 
         Meetings are simultaneous broadcasts: deciding on the first meeting tick sees an
-        *empty* ``chat_log`` (measured — every opponent accusation lands one tick after we
-        speak), which makes the whole "model what others assert" strategy inert. So we
-        GATHER: stay idle through the voting window and only decide near the auto-submit
-        deadline, when the full round of accusations has arrived. Then the fused solver
-        runs on the complete chat_log — accuse+vote its pick, veto our own weak suspect,
-        or (nothing convincing) skip. Chat and vote stay coupled: we accuse exactly whom
-        we then vote."""
+        empty ``chat_log``. Gather for a bounded evidence window, then solve; the
+        advertised vote deadline is a separate safety concern and can be much later.
+        Chat and vote stay coupled: we accuse exactly whom we then vote."""
 
-        if not self._should_auto_submit(belief):
+        meeting_age = max(0, belief.last_tick - belief.phase_start_tick)
+        if meeting_age < SOLVER_GATHER_TICKS and not self._should_auto_submit(belief):
             return Intent(kind="idle", reason="gathering meeting chat before deciding")
 
-        # Deadline reached. If we already accused last tick, cast the coupled vote now.
+        # Evidence window elapsed. If we already accused last tick, cast the coupled vote now.
         if self._deterministic_chatted:
             return self._submit_vote_intent(belief, reason="deterministic vote (post-chat solve)")
         self._deterministic_chatted = True
 
-        report = solver_report(belief)  # runs once, on the full accumulated chat_log
+        report = solver_report(belief)  # runs once, on the bounded accumulated chat_log
         self._solver_report = report
         target = report.get("pick")
         if target is None:
@@ -495,7 +496,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         return self._last_chat_tick is None or belief.last_tick - self._last_chat_tick >= CHAT_COOLDOWN_TICKS
 
     def _remaining_ticks(self, belief: Belief) -> int:
-        return max(0, VOTE_TIMER_TICKS - max(0, belief.last_tick - belief.phase_start_tick))
+        timer = effective_vote_timer_ticks(belief)
+        return max(0, timer - max(0, belief.last_tick - belief.phase_start_tick))
 
     def _should_auto_submit(self, belief: Belief) -> bool:
         return not self._vote_submitted and self._remaining_ticks(belief) <= AUTO_SUBMIT_REMAINING_TICKS

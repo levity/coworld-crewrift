@@ -61,6 +61,16 @@ def test_meeting_context_serializes_timer_chat_votes_and_suspicion() -> None:
     assert context["suspicion"]["would_vote"] == "red"
 
 
+def test_meeting_context_uses_advertised_vote_timer() -> None:
+    belief = _belief()
+    belief.vote_timer_ticks = 1200
+
+    context = serialize_meeting_context(belief, trigger="meeting_start")
+
+    assert context["meeting"]["vote_timer_ticks"] == 1200
+    assert context["meeting"]["estimated_remaining_ticks"] == 1176
+
+
 def test_chat_sanitizer_keeps_printable_ascii_and_truncates() -> None:
     assert sanitize_chat("  héllo\nthere  ") == "hllothere"
     assert len(sanitize_chat("x" * 500)) == 160

@@ -15,10 +15,19 @@ from crewborg.strategy.suspicion import (
 )
 from crewborg.types import Belief, PlayerEvent, PlayerRecord
 
+# Safe fallback for older servers without the GameInfo interstitial. Assuming a
+# short timer submits early; assuming a long timer on a short variant misses the
+# deadline and incurs the no-vote penalty.
 VOTE_TIMER_TICKS = 240
 # Min ticks between our own chats. Kept well under VOTE_TIMER_TICKS so a proactive
 # meeting voice can speak more than once (share a read, then react/follow up).
 CHAT_COOLDOWN_TICKS = 60
+
+
+def effective_vote_timer_ticks(belief: Belief) -> int:
+    """Return this episode's advertised meeting length, or the safe fallback."""
+
+    return belief.vote_timer_ticks or VOTE_TIMER_TICKS
 
 
 def serialize_meeting_context(
@@ -32,8 +41,9 @@ def serialize_meeting_context(
     """Serialize belief into the compact, explicit context the meeting LLM sees."""
 
     sent_chat_texts = sent_chat_texts or set()
+    vote_timer_ticks = effective_vote_timer_ticks(belief)
     age_ticks = max(0, belief.last_tick - belief.phase_start_tick)
-    remaining_ticks = max(0, VOTE_TIMER_TICKS - age_ticks)
+    remaining_ticks = max(0, vote_timer_ticks - age_ticks)
     legal_targets = sorted(valid_vote_targets(belief))
     fallback_vote = _fallback_vote_target(belief)
     return {
@@ -45,7 +55,7 @@ def serialize_meeting_context(
             "tick": belief.last_tick,
             "age_ticks": age_ticks,
             "estimated_remaining_ticks": remaining_ticks,
-            "vote_timer_ticks": VOTE_TIMER_TICKS,
+            "vote_timer_ticks": vote_timer_ticks,
         },
         "self": {
             "color": belief.voting.self_marker_color,

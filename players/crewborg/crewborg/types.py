@@ -367,6 +367,8 @@ class Belief(BaseModel):
     # Phase machine (design §5 phase).
     phase: Phase = "unknown"
     phase_start_tick: int = 0
+    # Live meeting length learned from the pre-game GameInfo interstitial.
+    vote_timer_ticks: int | None = None
     # Gameplay-commander priorities. ``None`` is the disabled-path default.
     commander: CommanderPriorities | None = None
     # Transient commander danger events produced outside a Mode emitter and drained
@@ -674,6 +676,9 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     # The vote-result interstitial names the player the meeting ejected.
     if resolved.ejected_color is not None:
         _record_death(belief, resolved.ejected_color, percept.tick, "ejection")
+
+    if resolved.vote_timer_ticks is not None:
+        belief.vote_timer_ticks = resolved.vote_timer_ticks
 
     phase = derive_phase(resolved, belief.phase)
     if phase != belief.phase:

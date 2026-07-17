@@ -286,7 +286,8 @@ the caller falls back. The result carries the decision plus call metadata
 One pre-digested, side-effect-free projection of belief per LLM tick. It spells out, so the
 model reasons over already-computed signals rather than re-deriving them:
 
-- `meeting` — id, tick, age, estimated remaining ticks (`VOTE_TIMER_TICKS = 240`).
+- `meeting` — id, tick, age, and estimated remaining ticks from the live
+  `VOTE TIMER` GameInfo value (conservative 240-tick fallback on older servers).
 - `self` — our color, role, and teammate colors.
 - `constraints` — the action menu, `valid_vote_targets` (§3), `CHAT_MAX_CHARS`, printable-ASCII
   requirement, and chat-cooldown readiness (`CHAT_COOLDOWN_TICKS = 100`).
@@ -393,6 +394,9 @@ never miss the vote. The guards:
   so the final prompt is never scheduled too late to finish.
 - `_should_auto_submit` force-submits the staged vote at `AUTO_SUBMIT_REMAINING_TICKS` (48)
   regardless of LLM state.
+- Solver-enabled deterministic crew gathers for `SOLVER_GATHER_TICKS` (192)
+  independently of the advertised vote deadline; the deadline remains a safety
+  backstop rather than an evidence-window parameter.
 - `_decide_after_llm_failure`: at the `deadline` trigger a failure force-submits; at
   `meeting_start` it falls through to the deterministic path; otherwise it idles and waits for
   the next trigger.

@@ -47,6 +47,18 @@ def test_phase_transitions_role_reveal_into_playing() -> None:
     assert belief.phase_start_tick == 2
 
 
+def test_game_info_vote_timer_is_latched() -> None:
+    belief = Belief()
+
+    _fold(
+        belief,
+        1,
+        vote_timer_ticks=1200,
+    )
+
+    assert belief.vote_timer_ticks == 1200
+
+
 def test_crew_role_is_latched_positively_from_the_crewmate_reveal() -> None:
     # Crew is a positively-detected role, exactly like imposter: the "CREWMATE" reveal
     # text sets it. With no reveal seen, the role stays None ("not yet known") — we do
