@@ -142,11 +142,12 @@ backstop and runs `strategy/meeting/solver.py` once. The solver:
 
 - keeps structured accusations, defenses, disjunctions, vote tallies, callers,
   and ejections across every meeting;
-- de-duplicates a speaker/stance/target set within one meeting, then lets the
-  same relation contribute with decay when it recurs in later meetings;
+- separates the current speaker from an attributed source, discounts relays,
+  and de-duplicates an original-source/stance/target set within one meeting,
+  then lets the same relation contribute with decay in later meetings;
 - enumerates the fixed-size impostor assignments over the original roster,
-  including dead players, and conditions each assertion on whether its speaker
-  is crew or an impostor in that assignment;
+  including dead players, and conditions direct assertions on their speaker and
+  relays on both the attributed source and current speaker;
 - weights body, vent, sighting, bare, and vote evidence separately, boosts a
   body reporter's evidence, applies witnessed-impostor pins and watched-task
   clears, and uses the fitted suspicion posterior only as a tempered prior; and
@@ -418,7 +419,9 @@ never miss the vote. The guards:
 - Solver-enabled deterministic crew gathers until the same learned
   `AUTO_SUBMIT_REMAINING_TICKS` (48) backstop, then solves once over its
   episode-persistent claim and meeting ledger. On the standard 1200-tick timer
-  this consumes 1152 ticks of utterances before deciding.
+  this consumes 1152 ticks of utterances before deciding. If the solver abstains,
+  it may use only the legacy target captured when the meeting opened, not one
+  recomputed from the late chat it just consumed.
 - `_decide_after_llm_failure`: at the `deadline` trigger a failure force-submits; at
   `meeting_start` it falls through to the deterministic path; otherwise it idles and waits for
   the next trigger.

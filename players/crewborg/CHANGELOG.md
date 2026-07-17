@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-17 - Predicate-aware claim parsing
+
+- Separated the current chat speaker from the attributed claim source and marked
+  relayed assertions explicitly.
+- Replaced the all-mentioned-colors accusation heuristic with predicate-target
+  extraction for direct observations, compact `X sus Y` syntax, attributed
+  witnesses, pronouns, votes, defenses, and disjunctions.
+- Deduplicated relays by original source-target relation, discounted their
+  weight, and conditioned them on both the attributed source and current speaker
+  so suspected impostors cannot launder trust through another player.
+- Preserved the legacy fallback target at meeting entry so late chat cannot
+  mutate both the joint solver and its fallback.
+- Added `tools/analyze_solver_history.py` and replayed 125 hosted histories before
+  another upload. On solver-arm history, social-only pick precision improved
+  from 73.0% to 84.4%, false picks fell 10 to 5, and yellow picks fell 5 to 1.
+- Verified 40 focused solver/meeting tests, the full suite (`511 passed, 13
+  skipped`), changed-file Ruff, and `git diff --check`.
+
 ## 2026-07-17 - Persistent solver plan
 
 Before implementation:

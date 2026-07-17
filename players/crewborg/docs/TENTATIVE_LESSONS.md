@@ -33,3 +33,20 @@ other policies' earlier utterances.
 Evidence: The committed navbake remained structurally valid but referenced two pre-package-move
 `crewrift.crewborg.*` modules. An exact unpickler alias restored it; broad import aliases or
 rebaking unrelated data were unnecessary.
+
+### Closed-vocabulary NLP still needs grammatical roles
+Evidence: Treating every color near an accusation cue as a target made `Yellow saw cyan vent`
+accuse both players. Predicate-aware source/target extraction halved false targets in 125 hosted
+replays and reduced social-only false solver picks from 10 to 5 on solver-arm history.
+
+### Relayed evidence has two trust surfaces
+Evidence: A relay can be false because the attributed source lied or because the current speaker
+fabricated the attribution. Conditioning likelihood on both actors prevents a suspected impostor
+from laundering a claim through a named trusted player; original-source dedup prevents repeated
+relays from amplifying it.
+
+### Public-history replay is a useful solver gate, not an outcome estimate
+Evidence: Reconstructing 243 meetings through the real parser/solver exposed pick precision and
+coverage before another hosted run, but the warehouse cannot reproduce private witness pins,
+task clears, or fitted suspicion priors. Use it to reject parser/inference regressions, then use a
+matched hosted A/B for crew-win judgment.

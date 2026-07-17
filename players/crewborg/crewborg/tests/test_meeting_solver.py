@@ -16,11 +16,15 @@ def _claim(
     stance: str = "accuse",
     evidence: str = "body",
     tick: int | None = None,
+    source: str | None = None,
+    provenance: str = "direct",
 ) -> SocialClaim:
     return SocialClaim(
         meeting_id=meeting_id,
         tick=meeting_id if tick is None else tick,
         speaker_color=speaker,
+        source_color=source,
+        provenance=provenance,
         targets=targets,
         stance=stance,
         evidence_kind=evidence,
@@ -69,6 +73,122 @@ def test_parser_handles_with_me_and_ignores_neutral_body_report() -> None:
         for claim in parse_social_claims(defense, meeting_id=10, colors=colors)
     ] == [("defend", ("red",))]
     assert parse_social_claims(report, meeting_id=10, colors=colors) == []
+
+
+def test_parser_separates_attributed_witness_from_accusation_target() -> None:
+    event = ChatEvent(
+        tick=40,
+        speaker_color="purple",
+        text="Yellow saw cyan at a vent. Red and yellow, where were you near green?",
+    )
+
+    claims = parse_social_claims(
+        event,
+        meeting_id=10,
+        colors={"red", "green", "yellow", "cyan", "purple"},
+    )
+
+    assert [
+        (claim.speaker_color, claim.source_color, claim.provenance, claim.targets)
+        for claim in claims
+    ] == [("purple", "yellow", "relayed", ("cyan",))]
+
+
+def test_parser_resolves_saw_it_to_the_attributed_source() -> None:
+    event = ChatEvent(
+        tick=40,
+        speaker_color="purple",
+        text="Red vented. Yellow saw it. Red is the clear threat here.",
+    )
+
+    claims = parse_social_claims(
+        event,
+        meeting_id=10,
+        colors={"red", "yellow", "purple"},
+    )
+
+    assert [
+        (claim.source_color, claim.provenance, claim.targets, claim.evidence_kind)
+        for claim in claims
+    ] == [("yellow", "relayed", ("red",), "vent")]
+
+
+def test_parser_ignores_dead_reporter_and_location_mentions() -> None:
+    event = ChatEvent(
+        tick=40,
+        speaker_color="yellow",
+        text=(
+            "Orange is dead. Red reported. "
+            "Cyan, pink, purple all near Bridge need to pin down movements."
+        ),
+    )
+
+    assert parse_social_claims(
+        event,
+        meeting_id=10,
+        colors={"red", "orange", "yellow", "cyan", "pink", "purple"},
+    ) == []
+
+
+def test_parser_preserves_multiple_attributed_sources_for_one_target() -> None:
+    event = ChatEvent(
+        tick=40,
+        speaker_color="purple",
+        text="Red and yellow both called cyan out. Pink and yellow voting cyan.",
+    )
+
+    claims = parse_social_claims(
+        event,
+        meeting_id=10,
+        colors={"red", "yellow", "pink", "cyan", "purple"},
+    )
+
+    assert {
+        (claim.source_color, claim.provenance, claim.targets)
+        for claim in claims
+    } == {
+        ("red", "relayed", ("cyan",)),
+        ("yellow", "relayed", ("cyan",)),
+        ("pink", "relayed", ("cyan",)),
+    }
+
+
+def test_parser_does_not_turn_accuser_into_target_in_compact_sus_syntax() -> None:
+    event = ChatEvent(
+        tick=40,
+        speaker_color="purple",
+        text="Yellow sus orange for venting. Who else saw orange near vents?",
+    )
+
+    claims = parse_social_claims(
+        event,
+        meeting_id=10,
+        colors={"yellow", "orange", "purple"},
+    )
+
+    assert [
+        (claim.source_color, claim.provenance, claim.targets)
+        for claim in claims
+    ] == [("yellow", "relayed", ("orange",))]
+
+
+def test_parser_resolves_transitive_me_to_the_current_speaker() -> None:
+    event = ChatEvent(
+        tick=40,
+        speaker_color="purple",
+        text="Yellow sus me for following. Who was near pink?",
+    )
+
+    claims = parse_social_claims(
+        event,
+        meeting_id=10,
+        colors={"yellow", "pink", "purple"},
+    )
+
+    assert [
+        (claim.source_color, claim.provenance, claim.targets)
+        for claim in claims
+    ] == [("yellow", "relayed", ("purple",))]
 
 
 def test_claims_and_vote_records_persist_across_meetings() -> None:
@@ -129,6 +249,68 @@ def test_solver_deduplicates_pairs_within_meeting_but_aggregates_later_meetings(
 
     assert result["n_claims"] == 2
     assert result["marginals"]["red"] > result["marginals"]["blue"]
+
+
+def test_solver_deduplicates_relays_by_attributed_source_and_discounts_them() -> None:
+    players = ["red", "blue", "green", "yellow"]
+    relays = [
+        _claim(
+            10,
+            speaker,
+            ("red",),
+            source="green",
+            provenance="relayed",
+        )
+        for speaker in ("blue", "yellow")
+    ]
+
+    relayed = solve_hypotheses(
+        players,
+        2,
+        relays,
+        config=SolverConfig(prior_strength=0.0),
+    )
+    direct = solve_hypotheses(
+        players,
+        2,
+        [_claim(10, "green", ("red",), source="green")],
+        config=SolverConfig(prior_strength=0.0),
+    )
+
+    assert relayed["n_claims"] == 1
+    assert relayed["marginals"]["red"] < direct["marginals"]["red"]
+
+
+def test_suspected_relaying_speaker_cannot_launder_trust_through_named_source() -> None:
+    players = ["red", "blue", "green", "yellow"]
+    claims = [
+        _claim(
+            10,
+            "blue",
+            ("red",),
+            source="green",
+            provenance="relayed",
+        )
+    ]
+    config = SolverConfig(prior_strength=1.0)
+
+    trusted_speaker = solve_hypotheses(
+        players,
+        2,
+        claims,
+        priors={"blue": 0.05, "green": 0.05},
+        config=config,
+    )
+    suspected_speaker = solve_hypotheses(
+        players,
+        2,
+        claims,
+        priors={"blue": 0.95, "green": 0.05},
+        config=config,
+    )
+
+    assert suspected_speaker["marginals"]["blue"] > trusted_speaker["marginals"]["blue"]
+    assert suspected_speaker["marginals"]["red"] < trusted_speaker["marginals"]["red"]
 
 
 def test_suspected_speaker_claim_is_interpreted_as_deflection() -> None:

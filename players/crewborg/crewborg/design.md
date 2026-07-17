@@ -347,9 +347,10 @@ ghosts and during meetings (no camera).
 - **chat** — `chat_log`: the current meeting's transcript (`(tick, speaker_color,
   text)`), de-duplicated across the per-tick re-render and cleared when a new
   meeting opens. `social_claims` and `meeting_history` are the episode-persistent
-  relational counterpart: structured claims retain speaker/target/meeting/
-  provenance, while meeting records retain caller, final public votes, and
-  ejection for the opt-in joint solver.
+  relational counterpart: structured claims retain current speaker, attributed
+  source, direct/relayed provenance, target, stance, and meeting, while meeting
+  records retain caller, final public votes, and ejection for the opt-in joint
+  solver.
 - **tasks** — assigned task indices (from `task_signals` ids), per-task world
   location (from the map), per-task completion; `crew_tasks_remaining`;
   `task_arrows_enabled` (below).

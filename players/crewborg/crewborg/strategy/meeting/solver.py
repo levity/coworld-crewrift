@@ -7,10 +7,12 @@ Speaker reliability is role-conditioned inside the hypothesis: a likely crew
 speaker is expected to identify impostors, while a likely impostor is expected to
 deflect onto crew and avoid accusing a partner.
 
-Repeated lines from the same speaker about the same target collapse within a
-meeting. Repetition across later meetings still contributes, with configurable
-decay. Evidence wording, body reporters, direct observations, and a tempered copy
-of crewborg's existing suspicion posterior provide additional provenance.
+Repeated lines from the same attributed source about the same target collapse
+within a meeting. Relays collapse by their original source and receive less
+weight than direct assertions. Repetition across later meetings still contributes,
+with configurable decay. Evidence wording, body reporters, direct observations,
+and a tempered copy of crewborg's existing suspicion posterior provide additional
+provenance.
 """
 
 from __future__ import annotations
@@ -49,6 +51,7 @@ class SolverConfig:
     vent_weight: float = 1.10
     sighting_weight: float = 0.85
     claimed_vote_weight: float = 0.50
+    relay_weight: float = 0.45
 
 
 @dataclass(frozen=True)
@@ -117,7 +120,7 @@ def _weighted_claims(
     players: set[str],
     config: SolverConfig,
 ) -> list[WeightedClaim]:
-    """Deduplicate per meeting/speaker/target and decay repeats across meetings."""
+    """Deduplicate per meeting/original-source/target and decay later repeats."""
 
     reporters = {
         meeting.meeting_id: meeting.caller_color
@@ -126,24 +129,33 @@ def _weighted_claims(
     }
     best: dict[tuple[int, str, str, tuple[str, ...]], tuple[SocialClaim, float]] = {}
     for claim in claims:
-        speaker = claim.speaker_color
+        source = claim.source_color or claim.speaker_color
         targets = tuple(sorted(set(claim.targets)))
-        if speaker not in players or not targets or speaker in targets:
+        if source not in players or not targets or source in targets:
             continue
         if any(target not in players for target in targets):
             continue
         weight = _evidence_weight(claim, config)
-        if reporters.get(claim.meeting_id) == speaker:
+        if claim.provenance == "relayed":
+            weight *= config.relay_weight
+        if (
+            claim.provenance == "direct"
+            and reporters.get(claim.meeting_id) == source
+            and claim.speaker_color == source
+        ):
             weight *= config.reporter_weight
-        key = (claim.meeting_id, speaker, claim.stance, targets)
+        key = (claim.meeting_id, source, claim.stance, targets)
         previous = best.get(key)
         if previous is None or weight > previous[1]:
-            best[key] = (claim.model_copy(update={"targets": targets}), weight)
+            best[key] = (
+                claim.model_copy(update={"source_color": source, "targets": targets}),
+                weight,
+            )
 
     repeated: dict[tuple[str, str, tuple[str, ...]], int] = {}
     weighted: list[WeightedClaim] = []
     for claim, base_weight in sorted(best.values(), key=lambda item: (item[0].meeting_id, item[0].tick)):
-        identity = (claim.speaker_color or "", claim.stance, claim.targets)
+        identity = (claim.source_color or claim.speaker_color or "", claim.stance, claim.targets)
         repeat_index = repeated.get(identity, 0)
         repeated[identity] = repeat_index + 1
         weighted.append(
@@ -155,16 +167,43 @@ def _weighted_claims(
     return weighted
 
 
-def _claim_probability(hypothesis: frozenset[str], claim: SocialClaim, config: SolverConfig) -> float:
-    speaker_is_imp = claim.speaker_color in hypothesis
+def _actor_claim_probability(
+    hypothesis: frozenset[str],
+    actor: str | None,
+    claim: SocialClaim,
+    config: SolverConfig,
+) -> float:
+    actor_is_imp = actor in hypothesis
     target_is_imp = any(target in hypothesis for target in claim.targets)
     if claim.stance in {"accuse", "at_least_one"}:
-        if speaker_is_imp:
+        if actor_is_imp:
             return config.imp_accuse_partner if target_is_imp else config.imp_accuse_crew
         return config.crew_accuse_hit if target_is_imp else config.crew_accuse_miss
-    if speaker_is_imp:
+    if actor_is_imp:
         return config.imp_defend_partner if target_is_imp else config.imp_defend_crew
     return config.crew_defend_imp if target_is_imp else config.crew_defend_crew
+
+
+def _claim_probability(hypothesis: frozenset[str], claim: SocialClaim, config: SolverConfig) -> float:
+    source = claim.source_color or claim.speaker_color
+    probability = _actor_claim_probability(hypothesis, source, claim, config)
+    if (
+        claim.provenance == "relayed"
+        and claim.speaker_color is not None
+        and claim.speaker_color != source
+    ):
+        # A relay can be false because the attributed source lied or because the
+        # current speaker fabricated the attribution. Require both actors to be
+        # plausible under the hypothesis instead of laundering trust through a
+        # named crewmate.
+        speaker_probability = _actor_claim_probability(
+            hypothesis,
+            claim.speaker_color,
+            claim,
+            config,
+        )
+        probability = math.sqrt(probability * speaker_probability)
+    return probability
 
 
 def _vote_probability(
@@ -379,9 +418,9 @@ def solver_report(belief: Any) -> dict[str, Any]:
             n_raw_claims=len(claims),
             n_accusers=len(
                 {
-                    claim.speaker_color
+                    claim.source_color or claim.speaker_color
                     for claim in claims
-                    if claim.speaker_color in player_set
+                    if (claim.source_color or claim.speaker_color) in player_set
                 }
             ),
             n_votes=result["n_votes"],

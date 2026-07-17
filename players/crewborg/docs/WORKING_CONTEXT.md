@@ -24,13 +24,15 @@ This is *not* a log or archive: finished work lives in git history / the
   user_preferences.md); league artifacts are EPHEMERAL (~one round) — harvest promptly.
 
 **Current experiment branch (2026-07-17):** `worktree-crewborg-solver-deferred` carries an
-opt-in persistent joint-hypothesis meeting solver. The matched hosted A/B is complete:
-`crewborg-solver-ab:v1` (off) vs `v2` (on), 64/arm, fixed roster, subject crew, two
-impostors, and 0 ops failures. **Do not enable or submit v2:** crew win moved 28.1% ->
-20.3% (p=0.30; statistically unresolved), while player-vote precision fell
-95.2% -> 57.9%.
-Meeting deferral worked (median vote at 1,161/1,200 ticks), but bad late claims drove
-more crew ejections. Full result: `docs/experiments/2026-07-17-solver-ab-result.md`.
+opt-in persistent joint-hypothesis meeting solver. Its first matched hosted A/B regressed
+crew win 28.1% -> 20.3% and player-vote precision 95.2% -> 57.9% because the parser
+treated attributed witnesses as targets. The predicate-aware fix is implemented and has
+cleared the 125-replay offline gate: on solver-arm history, social-only counterfactual
+pick precision moved 73.0% -> 84.4%, false picks 10 -> 5, and yellow picks 5 -> 1.
+Full suite: 511 passed, 13 skipped. It is ready for a new matched hosted A/B, but remains
+opt-in and must not be submitted or enabled by default first. Results:
+`docs/experiments/2026-07-17-solver-ab-result.md` and
+`docs/experiments/2026-07-17-claim-parser-offline.md`.
 
 ## ▶ Open threads (2026-07-17)
 
@@ -39,11 +41,10 @@ more crew ejections. Full result: `docs/experiments/2026-07-17-solver-ab-result.
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Persistent solver needs predicate- and provenance-aware claim parsing.** The present
-   all-mentioned-colors heuristic turns `Yellow saw cyan vent` into accusations against both
-   yellow and cyan; 13/16 wrong solver-arm votes targeted yellow. Represent attributed source
-   separately from current speaker and target, discount hearsay/relays, and do not let an
-   undecided late solver fall back to legacy suspicion newly contaminated by the same chatter.
+2. **Persistent solver needs a second matched hosted A/B.** Predicate/provenance parsing,
+   relay discounting, original-source deduplication, and the meeting-entry fallback snapshot
+   pass the offline gate. Reuse the original fixed roster and 64/arm design; require crew win
+   improvement and preserved vote precision before enabling or submitting.
 3. **Slot-4 role-limbo**: a crew seat at slot 4 can miss the CREWMATE reveal text entirely →
    `self_role=None` forever → frozen, 0 task attempts (~15% of crew games). Needs a bounded
    fallback-to-crew escape in `types.py` (keep the positive latch as primary).

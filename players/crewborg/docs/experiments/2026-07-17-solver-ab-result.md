@@ -78,3 +78,7 @@ likelihoods:
    untrusted late-meeting chatter.
 5. Replay the captured chats offline to measure claim precision and
    counterfactual vote precision, then rerun the same hosted A/B.
+
+Implemented and validated offline in
+`docs/experiments/2026-07-17-claim-parser-offline.md`; no second hosted A/B has
+been run yet.

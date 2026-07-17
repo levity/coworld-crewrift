@@ -68,6 +68,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._vote_submitted = False
         self._chat_parse_cache: dict[str, set[str]] = {}
         self._decision_traced = False
+        self._meeting_entry_vote_target: str | None = None
 
     def is_legal(self, belief: Belief) -> bool:
         return belief.phase == "Voting"
@@ -190,7 +191,14 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._solver_report = report
         target = report.get("pick")
         if target is None:
-            base = top_suspect(belief)
+            # Do not let the same late meeting chatter influence the solver ledger
+            # and then independently mutate the legacy fallback. Preserve only the
+            # legacy vote that was already justified when the meeting opened.
+            base = (
+                self._meeting_entry_vote_target
+                if solver_enabled()
+                else top_suspect(belief)
+            )
             if base is not None and solver_vetoes(report, base):
                 report["vetoed"] = base  # crowd evidence contradicts our own read -> drop it
                 base = None
@@ -472,6 +480,11 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._vote_submitted = False
         self._chat_parse_cache = {}
         self._decision_traced = False
+        self._meeting_entry_vote_target = (
+            top_suspect(belief)
+            if solver_enabled() and not belief.chat_log
+            else None
+        )
 
     def _external_chat_signature(self, belief: Belief) -> tuple[tuple[int, str | None, str], ...]:
         self_color = belief.voting.self_marker_color
@@ -520,4 +533,9 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         return self._fallback_vote_target(belief)
 
     def _fallback_vote_target(self, belief: Belief) -> str:
+        if solver_enabled():
+            target = self._meeting_entry_vote_target
+            if target is not None and target in valid_vote_targets(belief):
+                return target
+            return VOTE_SKIP
         return top_suspect(belief) or VOTE_SKIP

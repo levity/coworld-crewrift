@@ -257,6 +257,7 @@ class ChatEvent(BaseModel):
 
 SolverClaimStance = Literal["accuse", "defend", "at_least_one"]
 SolverEvidenceKind = Literal["bare", "body", "vent", "sighting", "vote"]
+SolverClaimProvenance = Literal["direct", "relayed"]
 
 
 class SocialClaim(BaseModel):
@@ -269,6 +270,10 @@ class SocialClaim(BaseModel):
     speaker_color: str | None
     targets: tuple[str, ...]
     stance: SolverClaimStance
+    # The player to whom the assertion is attributed. This differs from the
+    # speaker for relays such as "Yellow saw cyan vent."
+    source_color: str | None = None
+    provenance: SolverClaimProvenance = "direct"
     evidence_kind: SolverEvidenceKind = "bare"
     text: str
 
