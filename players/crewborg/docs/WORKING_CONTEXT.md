@@ -24,12 +24,13 @@ This is *not* a log or archive: finished work lives in git history / the
   user_preferences.md); league artifacts are EPHEMERAL (~one round) — harvest promptly.
 
 **Current experiment branch (2026-07-17):** `worktree-crewborg-solver-deferred` carries an
-opt-in persistent joint-hypothesis meeting solver. It stores relational claims and meeting
-outcomes across the episode, enumerates the original roster including dead players, weights
-source reliability/provenance/repetition, and decides at the learned 48-tick deadline
-backstop (1152/1200 standard ticks observed). Full suite: 501 passed, 13 skipped; local
-solver-enabled vote scenario passed Gate 1. It has not been uploaded or competitively
-evaluated.
+opt-in persistent joint-hypothesis meeting solver. The matched hosted A/B is complete:
+`crewborg-solver-ab:v1` (off) vs `v2` (on), 64/arm, fixed roster, subject crew, two
+impostors, and 0 ops failures. **Do not enable or submit v2:** crew win moved 28.1% ->
+20.3% (p=0.30; statistically unresolved), while player-vote precision fell
+95.2% -> 57.9%.
+Meeting deferral worked (median vote at 1,161/1,200 ticks), but bad late claims drove
+more crew ejections. Full result: `docs/experiments/2026-07-17-solver-ab-result.md`.
 
 ## ▶ Open threads (2026-07-17)
 
@@ -38,10 +39,11 @@ evaluated.
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Persistent solver needs a role-pinned field evaluation.** The implementation fixes the
-   previous current-meeting-only, duplicate-amplifying model, but its likelihoods and provenance
-   weights are deliberately conservative hand priors. Measure crew vote precision/coverage and
-   inspect top-hypothesis calibration before enabling vetoes or considering submission.
+2. **Persistent solver needs predicate- and provenance-aware claim parsing.** The present
+   all-mentioned-colors heuristic turns `Yellow saw cyan vent` into accusations against both
+   yellow and cyan; 13/16 wrong solver-arm votes targeted yellow. Represent attributed source
+   separately from current speaker and target, discount hearsay/relays, and do not let an
+   undecided late solver fall back to legacy suspicion newly contaminated by the same chatter.
 3. **Slot-4 role-limbo**: a crew seat at slot 4 can miss the CREWMATE reveal text entirely →
    `self_role=None` forever → frozen, 0 task attempts (~15% of crew games). Needs a bounded
    fallback-to-crew escape in `types.py` (keep the positive latch as primary).
