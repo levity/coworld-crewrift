@@ -52,12 +52,14 @@ changes are counterproductive on the captured history. Full suite before upload:
    direct pins and cross-meeting accumulation. Raising the pick threshold removes lower-P
    correct picks first; enabling the current veto would drop 13 correct fallback votes to
    remove 3 wrong ones. Re-run both histories offline, then use a fresh 64/arm A/B.
-3. **Slot-4 bootstrap freeze has a local fix awaiting hosted validation.** A crew seat can
-   miss both RoleReveal text and task-HUD bootstrap signals, leaving the phase in `Lobby`
-   forever (0 task attempts, ~15% of crew seats). The branch now escapes only after an
-   observed Lobby clears and 216 signal-free camera-ready ticks elapse; it never fabricates
-   a role and resets whenever explicit pre-game UI is recognized. Full suite: 517 passed,
-   13 skipped; Ruff clean.
-   Local amd64 build + Gate-1 smoke passed. Not uploaded or A/B'd yet.
+3. **Historical slot-4 freeze claim is unverified; defensive local fix is parked.**
+   A v82 note summarized a now-missing `/tmp/v81_fp_wh` as showing ~15% zero-task
+   crew seats, reportedly concentrated in slot 4, but retained data has no affected
+   episode IDs or auditable denominator. The solver subject had 0/189 zero-attempt
+   episodes in slot 0 and fixed `crewborg:v107` had 0/189 in slot 5, so this did not
+   affect the solver results; neither position tests the slot-4 claim. Commit `cba7885`
+   adds a conservative phase-only escape and passed 517 tests plus local Gate-1, but
+   it is not uploaded. Reproduce unchanged v82 in slot 4 before spending more work or
+   uploading the candidate.
 4. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
    (4× rivals) yet converts no faster — the long-standing hesitancy lever.

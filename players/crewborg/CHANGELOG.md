@@ -1,13 +1,19 @@
 # Changelog
 
-## 2026-07-18 - Bootstrap-phase escape for frozen crew seats
+## 2026-07-18 - Exploratory bootstrap escape for an unverified historical freeze
 
-- Addressed the local root cause of the ~15%-of-crew-seats freeze fingerprint
-  (0 tasks, 1 room) seen in v81/v82. The phase machine, not the role latch, is
-  the blocking layer: `derive_phase`
-  can only reach `Playing` from `unknown`/`Lobby` via the RoleReveal interstitial
-  or the task-counter HUD, and `rule_based` dispatches every pre-play phase to
-  `idle` — so a seat that misses both signals idles all game.
+- A v82 version-log note attributed a ~15%-of-crew-seats zero-task fingerprint
+  to `/tmp/v81_fp_wh`, but that temporary warehouse and its episode IDs are no
+  longer available. The retained solver batches do **not** reproduce it:
+  the solver subject had 0/189 zero-task-attempt episodes in slot 0, and the
+  fixed `crewborg:v107` teammate had 0/189 in slot 5. No retained batch tested
+  crewborg in the reportedly affected slot 4. The historical rate and diagnosis
+  are therefore not currently auditable, and this issue did not affect the
+  solver A/B results.
+- Code inspection found a plausible defensive gap: `derive_phase` can remain in
+  `Lobby` if both RoleReveal text and task-HUD bootstrap signals are missed, and
+  `rule_based` idles outside `Playing`. This is a possible mechanism, not a
+  confirmed explanation of a retained failure episode.
 - Added a conservative time-based bootstrap escape after a positively observed
   Lobby clears. Its 216-tick dwell exceeds GameInfo + RoleReveal + one second,
   and resets on explicit lobby/reveal/GameInfo signals or a camera interruption,
@@ -19,7 +25,8 @@
   lobby protection, GameInfo/reveal reset, unknown-start protection, and normal
   role-reveal preservation. Full suite: 517 passed, 13 skipped; Ruff clean.
 - Built locally as `crewborg:bootstrap-phase-fix`; Gate-1 smoke passed against
-  Crewrift Prime 0.4.65. Not uploaded or A/B'd.
+  Crewrift Prime 0.4.65. Not uploaded or A/B'd. Do not upload it until an
+  unchanged baseline reproduces the slot-4 symptom.
 
 ## 2026-07-18 - Predicate-aware hosted screen
 
