@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-18 - Predicate-aware hosted screen
+
+- Uploaded the predicate-aware solver as `crewborg-solver-ab:v3` with solver on,
+  veto off, and full telemetry, then ran 64 fixed-roster crew episodes in
+  `xreq_e0bbd63f`.
+- Completed 64/64 with zero operational failures. Against the historical
+  solver-off control, crew wins were 25.0% vs 28.1% (unresolved, `p=0.69`).
+- Recovered player-vote precision from the broken solver's 57.9% to 77.3%;
+  wrong votes fell 16 to 5, wrong yellow votes fell 13 to 0, and team ejections
+  normalized from 17 crew / 14 impostors to 10 crew / 16 impostors.
+- Built a 64/64 hash-complete replay warehouse after correcting a local artifact
+  packaging mismatch (raw replay bytes mislabeled as zlib).
+- Diagnosed the remaining social-solver errors as correlated false consensus:
+  two wrong green picks had posterior 0.899 and 0.952. A higher threshold would
+  remove lower-confidence correct picks first, while the current veto would
+  discard 13 correct fallback votes to remove 3 wrong ones.
+- Kept the solver opt-in and unsubmitted. Next: add diminishing returns for
+  same-target evidence within a meeting, validate on both replay histories, and
+  only then run a fresh concurrent A/B.
+
 ## 2026-07-17 - Predicate-aware claim parsing
 
 - Separated the current chat speaker from the attributed claim source and marked

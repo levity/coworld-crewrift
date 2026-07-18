@@ -23,28 +23,35 @@ This is *not* a log or archive: finished work lives in git history / the
 - League telemetry: upload with `CREWBORG_METRICS=1 CREWBORG_TRACE_GROUPS=all` (see
   user_preferences.md); league artifacts are EPHEMERAL (~one round) — harvest promptly.
 
-**Current experiment branch (2026-07-17):** `worktree-crewborg-solver-deferred` carries an
+**Current experiment branch (2026-07-18):** `worktree-crewborg-solver-deferred` carries an
 opt-in persistent joint-hypothesis meeting solver. Its first matched hosted A/B regressed
 crew win 28.1% -> 20.3% and player-vote precision 95.2% -> 57.9% because the parser
-treated attributed witnesses as targets. The predicate-aware fix is implemented and has
-cleared the 125-replay offline gate: on solver-arm history, social-only counterfactual
-pick precision moved 73.0% -> 84.4%, false picks 10 -> 5, and yellow picks 5 -> 1.
-Full suite: 511 passed, 13 skipped. It is ready for a new matched hosted A/B, but remains
-opt-in and must not be submitted or enabled by default first. Results:
+treated attributed witnesses as targets. The predicate-aware v3 screen recovered to
+25.0% crew wins and 77.3% vote precision; wrong votes fell 16 -> 5, wrong yellow votes
+13 -> 0, and crew/impostor ejections normalized from 17/14 to 10/16. It still did not
+beat the historical solver-off control (28.1% wins, 95.2% precision), and the 64-game
+win delta is unresolved. Do not submit or enable it. The next offline iteration should
+discount correlated same-target claims within a meeting; threshold-only and naive veto
+changes are counterproductive on the captured history. Full suite before upload:
+511 passed, 13 skipped. Results:
 `docs/experiments/2026-07-17-solver-ab-result.md` and
-`docs/experiments/2026-07-17-claim-parser-offline.md`.
+`docs/experiments/2026-07-17-claim-parser-offline.md`, plus the v3 hosted screen:
+`docs/experiments/2026-07-18-solver-parser-hosted-screen.md`.
 
-## ▶ Open threads (2026-07-17)
+## ▶ Open threads (2026-07-18)
 
 1. **Crew vote rate is evidence-limited, not gate-limited.** Crew votes only at fitted P≥0.9
    (`CREWBORG_WEIGHTS_VOTE_P`, `strategy/suspicion.py`); live posteriors cross it in only ~23% of
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Persistent solver needs a second matched hosted A/B.** Predicate/provenance parsing,
-   relay discounting, original-source deduplication, and the meeting-entry fallback snapshot
-   pass the offline gate. Reuse the original fixed roster and 64/arm design; require crew win
-   improvement and preserved vote precision before enabling or submitting.
+2. **Persistent solver needs correlation-aware aggregation before another A/B.** The parser
+   fix removed the yellow-target bug, but different speakers' correlated false reads can still
+   multiply into confidently wrong posteriors (`P=0.899` and `0.952` in the v3 screen).
+   Add within-meeting diminishing returns for repeated same-target evidence while preserving
+   direct pins and cross-meeting accumulation. Raising the pick threshold removes lower-P
+   correct picks first; enabling the current veto would drop 13 correct fallback votes to
+   remove 3 wrong ones. Re-run both histories offline, then use a fresh 64/arm A/B.
 3. **Slot-4 role-limbo**: a crew seat at slot 4 can miss the CREWMATE reveal text entirely →
    `self_role=None` forever → frozen, 0 task attempts (~15% of crew games). Needs a bounded
    fallback-to-crew escape in `types.py` (keep the positive latch as primary).
