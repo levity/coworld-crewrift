@@ -402,6 +402,10 @@ class Belief(BaseModel):
     # Phase machine (design §5 phase).
     phase: Phase = "unknown"
     phase_start_tick: int = 0
+    # First tick of the current uninterrupted camera-ready streak while still stuck in
+    # a pre-play phase (`unknown`/`Lobby`). Drives the bootstrap-escape (see
+    # BOOTSTRAP_ESCAPE_TICKS); ``None`` whenever we are not in that stuck condition.
+    bootstrap_ready_since_tick: int | None = None
     # Live meeting length learned from the pre-game GameInfo interstitial.
     vote_timer_ticks: int | None = None
     # Gameplay-commander priorities. ``None`` is the disabled-path default.
@@ -538,6 +542,14 @@ class Command(BaseModel):
 
     held_mask: int = 0
     chat: str | None = None
+
+
+# Bootstrap-escape dwell: how many consecutive camera-ready ticks we tolerate stuck in
+# a pre-play phase (`unknown`/`Lobby`) before forcing `Playing`. A seat that bootstraps
+# normally reaches `Playing` within a few ticks of the live scene (via the RoleReveal
+# interstitial or the task-counter HUD), so this only ever fires on a seat that missed
+# both — the ~15% frozen-crew fingerprint. ~2 s at 24 Hz.
+BOOTSTRAP_ESCAPE_TICKS = 48
 
 
 def derive_phase(resolved: ResolvedScene, current: Phase) -> Phase:
@@ -727,6 +739,25 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         belief.vote_timer_ticks = resolved.vote_timer_ticks
 
     phase = derive_phase(resolved, belief.phase)
+
+    # Bootstrap escape. `derive_phase` can only reach `Playing` from `unknown`/`Lobby`
+    # via the RoleReveal interstitial or the task-counter HUD; a crew seat that misses
+    # both would otherwise idle in a pre-play phase for the whole game (0 tasks — the
+    # frozen-crew fingerprint). If the camera has been continuously live for
+    # BOOTSTRAP_ESCAPE_TICKS while still pre-play, force `Playing` so Normal mode
+    # activates, and default an unresolved role to crewmate (an imposter would have
+    # latched from the `IMPS` text + kill HUD; a stuck live seat is overwhelmingly crew,
+    # and crew is the safe passive default even in the rare imposter-miss case).
+    if phase in ("unknown", "Lobby") and resolved.camera_ready:
+        if belief.bootstrap_ready_since_tick is None:
+            belief.bootstrap_ready_since_tick = percept.tick
+        elif percept.tick - belief.bootstrap_ready_since_tick >= BOOTSTRAP_ESCAPE_TICKS:
+            phase = "Playing"
+            if belief.self_role is None:
+                belief.self_role = "crewmate"
+    else:
+        belief.bootstrap_ready_since_tick = None
+
     if phase != belief.phase:
         if phase == "Voting":
             # A meeting clears the previous transcript and — matching the server,

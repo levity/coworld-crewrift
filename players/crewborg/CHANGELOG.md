@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-18 - Bootstrap-phase escape for frozen crew seats
+
+- Fixed the ~15%-of-crew-seats freeze (0 tasks, 1 room; the v81/v82 champion
+  fingerprint). Root cause is the phase machine, not the role latch: `derive_phase`
+  can only reach `Playing` from `unknown`/`Lobby` via the RoleReveal interstitial
+  or the task-counter HUD, and `rule_based` dispatches every pre-play phase to
+  `idle` — so a seat that misses both signals idles all game.
+- Added a time-based bootstrap escape (`BOOTSTRAP_ESCAPE_TICKS`, ~2 s at 24 Hz):
+  after that many continuous camera-ready ticks still stuck pre-play, force
+  `Playing` and default an unresolved role to crewmate. A normally-bootstrapping
+  seat reaches `Playing` within a few ticks, so the escape only ever fires on an
+  otherwise-frozen seat; the "unknown≠crew" invariant is preserved on the normal
+  path (task-counter present keeps `self_role=None`).
+- Added four belief tests (escape fires after the dwell, requires a continuous
+  camera-ready streak, never overrides a normal reveal's latched role). Full
+  suite: 514 passed, 13 skipped.
+- Not yet A/B'd; held for QA before build/upload.
+
 ## 2026-07-18 - Predicate-aware hosted screen
 
 - Uploaded the predicate-aware solver as `crewborg-solver-ab:v3` with solver on,
