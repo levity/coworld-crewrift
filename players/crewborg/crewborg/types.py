@@ -402,10 +402,6 @@ class Belief(BaseModel):
     # Phase machine (design §5 phase).
     phase: Phase = "unknown"
     phase_start_tick: int = 0
-    # First tick of the current uninterrupted, signal-free camera-ready streak after
-    # an observed Lobby. Drives the bootstrap escape (see BOOTSTRAP_ESCAPE_TICKS);
-    # ``None`` whenever we are not in that narrowly defined stuck condition.
-    bootstrap_ready_since_tick: int | None = None
     # Live meeting length learned from the pre-game GameInfo interstitial.
     vote_timer_ticks: int | None = None
     # Gameplay-commander priorities. ``None`` is the disabled-path default.
@@ -542,14 +538,6 @@ class Command(BaseModel):
 
     held_mask: int = 0
     chat: str | None = None
-
-
-# Bootstrap-escape dwell after an observed Lobby signal clears. This exceeds the
-# longest signal-free pre-play sequence if both GameInfo (72 ticks) and RoleReveal
-# (120 ticks) fail to parse, plus one second of margin. Under the configured phase
-# durations, the escape therefore cannot fire before Playing. Crewrift runs at
-# 24 ticks/s.
-BOOTSTRAP_ESCAPE_TICKS = 72 + 120 + 24
 
 
 def derive_phase(resolved: ResolvedScene, current: Phase) -> Phase:
@@ -739,37 +727,6 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         belief.vote_timer_ticks = resolved.vote_timer_ticks
 
     phase = derive_phase(resolved, belief.phase)
-
-    # Bootstrap escape. `derive_phase` can only reach `Playing` from the initial
-    # `unknown`/`Lobby` state via RoleReveal text or task HUD signals. After we have
-    # positively observed Lobby, start a conservative dwell only once every recognized
-    # pre-game signal has cleared. The dwell is longer than GameInfo + RoleReveal, so
-    # a normal pre-game sequence finishes before the escape can fire.
-    #
-    # Only the phase is recovered. `self_role=None` already takes the safe Normal-mode
-    # path during Playing, and retaining "unknown" avoids fabricating crew or poisoning
-    # the one-shot role telemetry before a late positive role signal arrives.
-    bootstrap_signal_present = bool(
-        resolved.phase_texts
-        or resolved.vote_timer_ticks is not None
-        or resolved.reveal_player_colors
-        or resolved.meeting_caller_color is not None
-        or resolved.voting.active
-    )
-    if (
-        belief.phase == "Lobby"
-        and phase == "Lobby"
-        and resolved.camera_ready
-        and not bootstrap_signal_present
-    ):
-        if belief.bootstrap_ready_since_tick is None:
-            belief.bootstrap_ready_since_tick = percept.tick
-        elif percept.tick - belief.bootstrap_ready_since_tick >= BOOTSTRAP_ESCAPE_TICKS:
-            phase = "Playing"
-            belief.bootstrap_ready_since_tick = None
-    else:
-        belief.bootstrap_ready_since_tick = None
-
     if phase != belief.phase:
         if phase == "Voting":
             # A meeting clears the previous transcript and — matching the server,
