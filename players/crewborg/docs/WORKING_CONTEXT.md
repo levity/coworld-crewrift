@@ -32,17 +32,20 @@ The confirmation held median subject vote timing at 1,163 ticks in both arms and
 increased impostor ejections 9 -> 14 with crew ejections flat at 18. It did not
 replicate the earlier individual precision gain: player votes were 26/34
 correct versus 28/28 control. Across all nine retained arms, however, the
-current public-evidence solver is 162/181 on decisive picks (89.5%). Exact
-template grouping, same-tick template decay, non-vote grounding, conditional
-threshold reductions, and other correlation/weight variants all lose useful
-coverage without removing enough errors. The unchanged timing-matched candidate
-is the promotion target with veto off. Do not submit it to the league without
-explicit human approval. Results:
+confirmed public-evidence solver is 162/181 on decisive picks (89.5%).
+A commitment-aware iteration now discounts an accusation to 0.30 weight only
+when its attributed source has no visible ballot by the solve cutoff. Offline
+it is 154/168 (91.7%): 5/19 errors removed while retaining 154/162 correct
+picks. Unsupported-ballot, skip, and contradictory-vote discounts all failed.
+Run a fresh 100/arm timing-matched A/B against the confirmed candidate before
+changing the promotion target. Do not submit either version to the league
+without explicit human approval. Results:
 `docs/experiments/2026-07-17-solver-ab-result.md` and
 `docs/experiments/2026-07-17-claim-parser-offline.md`, plus the v3 hosted screen:
 `docs/experiments/2026-07-18-solver-parser-hosted-screen.md` and the correlation gate:
 `docs/experiments/2026-07-18-solver-correlation-offline.md`, and hosted A/B:
-`docs/experiments/2026-07-18-solver-correlation-hosted-ab.md`.
+`docs/experiments/2026-07-18-solver-correlation-hosted-ab.md`, plus the next
+offline gate: `docs/experiments/2026-07-18-solver-commitment-offline.md`.
 
 ## ▶ Open threads (2026-07-18)
 
@@ -51,9 +54,8 @@ explicit human approval. Results:
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Promote the confirmed solver, pending approval.** The three-run crew-win
-   effect is resolved (`p=0.011`) and the exact candidate artifact is already
-   uploaded. Keep `CREWBORG_SOLVER=1`, veto off, and deadline timing unchanged.
-   Individual vote precision remains a monitoring metric, not a claimed gain.
+2. **Host-test source commitment.** Build/upload the no-visible-ballot claim
+   discount and run a fresh 100/arm matched A/B against the confirmed timing
+   candidate. Keep solver on, veto off, and deadline timing unchanged.
 3. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
    (4× rivals) yet converts no faster — the long-standing hesitancy lever.

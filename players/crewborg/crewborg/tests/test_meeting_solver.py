@@ -288,6 +288,33 @@ def test_solver_discounts_same_target_consensus_within_one_meeting() -> None:
     assert correlated["marginals"]["red"] < independent["marginals"]["red"]
 
 
+def test_solver_discounts_accusation_when_source_has_no_visible_ballot() -> None:
+    players = ["red", "blue", "green", "yellow"]
+    claims = [_claim(10, "green", ("red",))]
+    config = SolverConfig(
+        prior_strength=0.0,
+        vote_weight=0.0,
+        no_ballot_claim_decay=0.0,
+    )
+
+    no_ballot = solve_hypotheses(
+        players,
+        2,
+        claims,
+        [MeetingRecord(meeting_id=10, votes={})],
+        config=config,
+    )
+    explicit_skip = solve_hypotheses(
+        players,
+        2,
+        claims,
+        [MeetingRecord(meeting_id=10, votes={"green": None})],
+        config=config,
+    )
+
+    assert no_ballot["marginals"]["red"] < explicit_skip["marginals"]["red"]
+
+
 def test_solver_gives_full_consensus_weight_to_strongest_claim_regardless_of_order() -> (
     None
 ):
@@ -407,7 +434,11 @@ def test_solver_combines_disjunction_and_later_claim_into_decisive_constraint() 
         players,
         2,
         claims,
-        config=SolverConfig(prior_strength=0.0, repeat_decay=1.0),
+        config=SolverConfig(
+            prior_strength=0.0,
+            repeat_decay=1.0,
+            no_ballot_claim_decay=1.0,
+        ),
     )
 
     assert result["marginals"]["red"] > 0.8
@@ -419,6 +450,7 @@ def test_report_requires_single_source_pick_to_survive_source_removal(
 ) -> None:
     monkeypatch.setenv("CREWBORG_SOLVER", "1")
     monkeypatch.setenv("CREWBORG_SOLVER_ROBUST_P", "0")
+    monkeypatch.setenv("CREWBORG_SOLVER_NO_BALLOT_CLAIM_DECAY", "1")
     belief = Belief(
         self_role="crewmate",
         self_color="white",
@@ -440,6 +472,7 @@ def test_report_requires_single_source_pick_to_survive_source_removal(
 
 def test_report_accepts_decisive_multi_source_consensus(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    monkeypatch.setenv("CREWBORG_SOLVER_NO_BALLOT_CLAIM_DECAY", "1")
     belief = Belief(
         self_role="crewmate",
         self_color="white",
