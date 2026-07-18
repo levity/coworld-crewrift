@@ -46,19 +46,21 @@ either version to the league without explicit human approval. Results:
 `docs/experiments/2026-07-18-solver-parser-hosted-screen.md` and the correlation gate:
 `docs/experiments/2026-07-18-solver-correlation-offline.md`, and hosted A/B:
 `docs/experiments/2026-07-18-solver-correlation-hosted-ab.md`, plus the next
-offline gates: `docs/experiments/2026-07-18-solver-commitment-offline.md` and
-`docs/experiments/2026-07-18-solver-early-guidance.md`. The active iteration
-tests a one-shot tick-1,000 solver guidance line. Guidance v1 was an invalid
-mechanism test: it won 40/100 versus 37/100 control but fired zero times because
-the fallback 240-tick clock shrank its window to 40 ticks, inside the 48-tick
-auto-submit backstop. Crew ejections were 24 versus 19 and impostor ejections
-12 versus 12, but no treatment occurred. The repaired v2 uses the configured
-200-tick window directly. Its pre-registered gate remains `P>=0.80`, two
-independent sources, and no more than two existing target ballots; this region
-is 20/20 correct across 858 retained meetings and 5/5 on the fresh v1 public
-history. The final ballot still recomputes at tick 1,152. Hosted success
-requires the guidance line to fire and more impostor ejections without more
-crew ejections, not win rate alone.
+offline gates: `docs/experiments/2026-07-18-solver-commitment-offline.md`,
+`docs/experiments/2026-07-18-solver-early-guidance.md`, and
+`docs/experiments/2026-07-18-solver-single-source-crowd-cap.md`. Early guidance
+is rejected and removed after both 100-game candidate arms emitted zero
+guidance lines; their outcome differences are not treatment effects.
+
+The active iteration targets wrong crew votes with a single-source
+counterfactual crowd cap. On six selection arms, every correct single-source
+pick fell to `P<=0.371` after source removal while every false pick remained at
+`P>=0.419`. The selected `CREWBORG_SOLVER_ROBUST_MAX_P=0.39` then retained 6/6
+correct and rejected 8/8 false picks on four held-out guidance arms. Across all
+ten arms it moves decisive public-evidence precision from 167/191 (87.4%) to
+167/180 (92.8%) without changing multi-source picks or meeting timing. The next
+hosted A/B must verify reduced wrong subject votes without losing useful
+impostor ejections.
 
 ## ▶ Open threads (2026-07-18)
 

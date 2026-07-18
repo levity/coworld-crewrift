@@ -108,13 +108,6 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, str(default)))
-    except ValueError:
-        return default
-
-
 def _config() -> SolverConfig:
     defaults = SolverConfig()
     values = {
@@ -136,34 +129,12 @@ def _robust_threshold() -> float:
     return _env_float("CREWBORG_SOLVER_ROBUST_P", 0.0)
 
 
+def _robust_max_threshold() -> float:
+    return _env_float("CREWBORG_SOLVER_ROBUST_MAX_P", 0.39)
+
+
 def _veto_keep() -> float:
     return _env_float("CREWBORG_SOLVER_VETO_P", 0.65)
-
-
-def guidance_remaining_ticks() -> int:
-    return max(0, _env_int("CREWBORG_SOLVER_GUIDANCE_REMAINING_TICKS", 200))
-
-
-def guidance_pick(report: dict[str, Any], *, visible_vote_support: int) -> str | None:
-    """Return a conservative early-chat target without committing the ballot."""
-
-    target = report.get("pick")
-    if target is None:
-        return None
-    if (report.get("top_p") or 0.0) < _env_float(
-        "CREWBORG_SOLVER_GUIDANCE_P", 0.80
-    ):
-        return None
-    sources = report.get("candidate_sources") or ()
-    if len(sources) < max(
-        1, _env_int("CREWBORG_SOLVER_GUIDANCE_MIN_SOURCES", 2)
-    ):
-        return None
-    if visible_vote_support > max(
-        0, _env_int("CREWBORG_SOLVER_GUIDANCE_MAX_VOTES", 2)
-    ):
-        return None
-    return target
 
 
 def _imposter_count(belief: Any) -> int:
@@ -502,7 +473,7 @@ def _without_actor(
     clears: set[str],
     priors: dict[str, float],
 ) -> dict[str, Any]:
-    """Measure whether a pick survives removal of its sole claim source."""
+    """Measure how much of a single-source pick survives source removal."""
 
     filtered_claims = [
         claim
@@ -543,10 +514,15 @@ def _without_actor(
     top = ranked[0][0] if ranked else None
     competitor = ranked[imposter_count][1] if len(ranked) > imposter_count else 0.0
     margin = candidate_p - competitor
-    threshold = _robust_threshold()
+    min_threshold = _robust_threshold()
+    max_threshold = _robust_max_threshold()
+    survives_removal = (
+        min_threshold < 0
+        or (top == candidate and candidate_p >= min_threshold and margin >= 0.0)
+    )
+    crowd_is_bounded = max_threshold < 0 or candidate_p <= max_threshold
     return {
-        "passed": threshold < 0
-        or (top == candidate and candidate_p >= threshold and margin >= 0.0),
+        "passed": survives_removal and crowd_is_bounded,
         "min_p": candidate_p,
         "min_margin": margin,
         "weakest_actor": actor,

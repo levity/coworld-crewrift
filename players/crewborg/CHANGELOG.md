@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-07-18 - Single-source crowd-pile cap
+
+Before implementation:
+
+- Retire the early-guidance gameplay path after two 100/arm hosted tests emitted
+  zero guidance lines. Preserve both uploads and outcomes as rejected experiment
+  history; do not interpret either scoreboard difference as a treatment effect.
+- Target the confirmed solver's wrong crew votes without changing its global
+  posterior threshold or multi-source decisions. Reuse the existing
+  leave-one-source solve only when exactly one attributed accusation source
+  supports the candidate.
+- On six pre-guidance arms, reject a single-source pick when its marginal stays
+  above `0.39` after removing that source. All 11 correct single-source picks
+  fall at or below `0.371`; all three false picks remain at or above `0.419`.
+- Hold out the four fresh guidance arms from threshold selection. The
+  pre-registered `0.39` cap retains all 6 correct single-source picks and rejects
+  all 8 false picks there. Across all ten arms it would remove 11/24 false
+  decisive picks while retaining 167/167 correct picks.
+- Keep the existing lower counterfactual gate: the target must still be the
+  leading candidate after source removal. The new upper cap rejects only the
+  opposite failure mode, where a nominally single-source conclusion is actually
+  sustained by a correlated public ballot pile.
+
+After implementation:
+
+- Removed the rejected early-guidance runtime, configuration, and tests. The
+  confirmed deadline solve and persistent evidence ledger are unchanged.
+- Added `CREWBORG_SOLVER_ROBUST_MAX_P=0.39` to the existing single-source
+  counterfactual. Values below zero disable the upper cap independently of the
+  existing lower bound.
+- Replayed the exact production image across all ten hash-complete retained
+  arms. The implemented gate reproduces 167/180 correct decisive picks (92.8%),
+  removing 11 false picks and zero correct picks from the 167/191 baseline.
+- Verified 62 focused meeting/parser tests, the production-image suite (520
+  passed, 13 skipped), changed-file Ruff, and `git diff --check`.
+
 ## 2026-07-18 - Early solver guidance plan
 
 Before implementation:
@@ -71,6 +107,22 @@ After v2 repair:
 - Replayed the two fresh v1 arms at the intended cutoff through the production
   parser and repaired gate: 5/5 guidance opportunities target impostors. This
   is a coverage/precision gate, not an outcome estimate.
+
+Hosted v2 result and rejection:
+
+- Fresh matched requests completed 100/100 with zero failures. The confirmed
+  solver control `xreq_af54157d` won 46 crew games and guidance v2
+  `xreq_55ee44df` won 37 (`-9pp`, Fisher `p=0.25`).
+- Guidance again emitted zero lines in 158 candidate meetings. Candidate public
+  replay votes hit impostors 24 times and crew 9 times, versus 35 and 6 for
+  control. All crew players cast exactly 132 crew-target ballots in each arm.
+- Candidate ejections were 16 crew and 8 impostors, versus 17 crew and 20
+  impostors in control. With no treatment activation, these differences are run
+  variance and do not estimate guidance.
+- Public replay still exposes one 1/1 correct strict-gate opportunity in the
+  candidate history. The discrepancy between replay cutoff and runtime remained
+  unresolved after the bounded timing repair, so guidance was rejected and
+  removed rather than spending another hosted run on timing guesses.
 
 ## 2026-07-18 - Commitment-aware solver offline gate
 

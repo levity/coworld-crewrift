@@ -88,3 +88,28 @@ Public-history replay at the intended tick-1,000 cutoff finds one 1/1 correct
 strict-gate opportunity in control and four 4/4 in candidate. A v2 repair will
 remove only the proportional cap, add fallback-clock reachability coverage,
 and repeat the hosted mechanism test.
+
+### v2: rejected mechanism
+
+Fresh matched requests
+`xreq_af54157d-242c-404d-906a-aa50d40c4111` (confirmed-solver control) and
+`xreq_55ee44df-7f95-4444-95d5-1197a2969db0` (guidance v2) completed 100/100
+episodes with zero failures. Control won 46 crew games and candidate won 37
+(`-9pp`, Fisher `p=0.25`; approximate Newcombe 95% difference interval
+`[-27.6pp, +10.2pp]`).
+
+All 200 public replays expanded with complete hashes and no trace warnings.
+Guidance again fired zero times in 158 candidate meetings. The candidate's
+subject votes targeted impostors 24 times and crew 9 times, versus 35 and 6 in
+control; subject skips were 89 versus 74. Across every crew player, crew-target
+ballots were tied 132-132. Candidate ejections were 16 crew and 8 impostors,
+versus 17 crew and 20 impostors in control.
+
+Public replay at the intended cutoff contains one 1/1 correct candidate
+opportunity, but runtime contains neither a fired guidance line nor a guidance
+trace. The bounded timing repair therefore did not make the mechanism
+observable in hosted play. Because no treatment occurred in either 100-game
+candidate arm, neither scoreboard result estimates guidance's effect.
+
+The guidance runtime, configuration, and tests were removed. The uploaded v1
+and v2 artifacts remain inert and were never submitted.

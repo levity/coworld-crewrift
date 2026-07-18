@@ -69,3 +69,14 @@ Evidence: Early guidance used `min(200, timer // 6)`. Hosted perception retained
 fallback, shrinking the window to 40 ticks while auto-submit started at 48. A 100-game candidate
 arm therefore emitted zero guidance lines despite passing unit and replay gates. Test timing
 features with missing advertised configuration, not only the standard 1,200-tick value.
+
+### Counterfactual strength can reveal correlated crowd evidence
+Evidence: Among single-source decisive picks, removing the source left every correct selection-arm
+target at P=0.321-0.371 but every false target at P=0.419-0.509. A P<=0.39 cap retained 6/6 correct
+and rejected 8/8 false picks on four later held-out arms. A conclusion that stays too strong without
+its named source is being sustained by the ballot pile, not independently corroborated.
+
+### Offline opportunity does not prove a timed runtime branch executes
+Evidence: Both 100-game guidance candidates emitted zero guidance lines even though public replay
+found correct strict-gate opportunities at the intended cutoff. Require a runtime attempt/fired
+trace in a local scenario before spending another hosted batch on a timed interaction feature.

@@ -159,19 +159,12 @@ The report placed in the meeting trace contains global marginals and the five
 highest-probability joint assignments. `CREWBORG_SOLVER_VETO=1` can independently
 use those marginals to reject a base-policy vote.
 
-The enabled solver also makes one non-binding guidance attempt after five-sixths
-of the meeting (tick 1,000 on the standard timer). It speaks only when the
-decisive target clears the stricter guidance threshold, has at least two
-independent attributed sources, and has no more than two visible ballots. The
-attempt latches even when rejected: retrying on later consensus would leave the
-calibrated cutoff. The early result never sets the tentative ballot. Crew keeps
-collecting chat and recomputes the ordinary solver report at the 48-tick
-deadline before voting.
-
-The configured guidance window is not scaled down against the locally observed
-timer. Hosted perception can retain the safe 240-tick fallback clock; scaling
-200 ticks to one-sixth of that fallback would put guidance inside the 48-tick
-auto-submit window and make the branch unreachable.
+When exactly one attributed accusation source supports a decisive candidate,
+the solver removes that actor's claims and ballots and solves again. The target
+must remain the leader, but its source-removed marginal must not exceed
+`CREWBORG_SOLVER_ROBUST_MAX_P` (default `0.39`). A higher counterfactual
+marginal means the named source is not driving the conclusion; a correlated
+public ballot pile is. Multi-source decisions do not use this cap.
 
 ### Imposter (`_decide_imposter`)
 

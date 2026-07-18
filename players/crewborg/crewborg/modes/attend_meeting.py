@@ -31,8 +31,6 @@ from crewborg.strategy.suspicion import chat_suspect, top_suspect
 from crewborg.strategy.meeting.solver import (
     defer_enabled as solver_defer_enabled,
     enabled as solver_enabled,
-    guidance_pick as solver_guidance_pick,
-    guidance_remaining_ticks as solver_guidance_remaining_ticks,
     solver_report,
     solver_vetoes,
     veto_enabled as solver_veto_enabled,
@@ -72,7 +70,6 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._chat_parse_cache: dict[str, set[str]] = {}
         self._decision_traced = False
         self._meeting_entry_vote_target: str | None = None
-        self._solver_guidance_attempted = False
 
     def is_legal(self, belief: Belief) -> bool:
         return belief.phase == "Voting"
@@ -184,9 +181,6 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         exactly whom we then vote."""
 
         if not self._should_auto_submit(belief):
-            guidance = self._maybe_solver_guidance(belief)
-            if guidance is not None:
-                return guidance
             return Intent(kind="idle", reason="gathering meeting chat before deciding")
 
         # Evidence window elapsed. If we already accused last tick, cast the coupled vote now.
@@ -217,49 +211,6 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._tentative_vote = VOTE_SKIP
         self._trace_meeting_decision(belief, role="crewmate", path="silent_skip", target=None)
         return self._submit_vote_intent(belief, reason="deterministic skip (post-chat solve)")
-
-    def _maybe_solver_guidance(self, belief: Belief) -> Intent | None:
-        """Share one high-precision solve early enough for late voters to react."""
-
-        guidance_window = solver_guidance_remaining_ticks()
-        if (
-            self._solver_guidance_attempted
-            or self._remaining_ticks(belief) > guidance_window
-        ):
-            return None
-
-        # Latch the attempt even when it does not fire. The retained-history gate
-        # is calibrated at this cutoff; retrying later admits false consensus.
-        self._solver_guidance_attempted = True
-        report = solver_report(belief)
-        target = report.get("pick")
-        vote_support = votes_against(belief).get(target, 0) if target else 0
-        guidance_target = solver_guidance_pick(
-            report,
-            visible_vote_support=vote_support,
-        )
-        self.emit.event(
-            "solver_guidance",
-            {
-                "fired": guidance_target is not None,
-                "remaining_ticks": self._remaining_ticks(belief),
-                "visible_vote_support": vote_support,
-                "report": report,
-            },
-        )
-        if guidance_target is None:
-            return None
-
-        sources = list(report.get("candidate_sources") or ())[:2]
-        text = (
-            f"{sources[0]} and {sources[1]} both called {guidance_target} out; "
-            f"{guidance_target} is my strongest read."
-        )
-        return self._send_chat_intent(
-            belief,
-            text,
-            reason="sharing high-confidence solver guidance",
-        )
 
     def _decide_imposter(self, belief: Belief) -> Intent:
         """Deflect onto crewmates, never teammates. Prefer a **real** accusation against
@@ -526,7 +477,6 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._vote_submitted = False
         self._chat_parse_cache = {}
         self._decision_traced = False
-        self._solver_guidance_attempted = False
         self._meeting_entry_vote_target = (
             top_suspect(belief)
             if (solver_enabled() or solver_defer_enabled()) and not belief.chat_log
