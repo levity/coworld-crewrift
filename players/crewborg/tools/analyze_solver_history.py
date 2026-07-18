@@ -203,7 +203,22 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
                 if pick in imposter_colors:
                     stats["correct_solver_picks"] += 1
             if include_details:
-                candidate = report.get("pre_robust_pick")
+                candidate = report.get("pre_robust_pick") or report.get("top_candidate")
+                candidate_sources = {
+                    claim.source_color or claim.speaker_color
+                    for claim in claims
+                    if candidate is not None
+                    and claim.stance in {"accuse", "at_least_one"}
+                    and candidate in claim.targets
+                }
+                current_vote_support = sum(
+                    target == candidate for target in votes.values()
+                )
+                persistent_vote_support = sum(
+                    target == candidate
+                    for recorded_meeting in meetings
+                    for target in recorded_meeting.votes.values()
+                )
                 actual_vote = None
                 for _, ts, slot, raw in vote_rows.get(episode_id, ()):
                     if slot != 0 or not (meeting_id <= ts < end):
@@ -232,6 +247,13 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
                             if actual_vote is not None
                             else None
                         ),
+                        "candidate_sources": sorted(
+                            source
+                            for source in candidate_sources
+                            if source is not None
+                        ),
+                        "current_vote_support": current_vote_support,
+                        "persistent_vote_support": persistent_vote_support,
                         "imposters": sorted(imposter_colors),
                         "report": report,
                         "support": [

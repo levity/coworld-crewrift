@@ -36,12 +36,14 @@ directional +15.6pp (`p=0.076`). Player-vote precision was flat
 (78.6% -> 77.3%), while correct subject votes increased 11 -> 17 and impostor
 ejections 11 -> 14 with crew ejections unchanged at 7. This is promising but
 confounded by vote timing: control voted at median tick 13 and candidate at tick
-1,164. The next candidate rejects vote-only solver picks and adds off-by-default
-`CREWBORG_SOLVER_DEFER` so a solver-off control can freeze the same entry target
-and act at the same deadline. Across five retained histories, the vote-only gate
-improves public-evidence precision 97/109 -> 97/108 without losing a correct
-pick. Do not submit or enable the solver by default before a timing-matched
-replication. Results:
+1,164. A timing-matched 64/arm replication then held both arms at median tick
+1,164 and moved crew wins 31 -> 35, player votes 18 -> 28, and correct votes
+16 -> 26 while wrong votes stayed at 2. Across both fresh A/Bs, solver arms are
+69/128 wins versus 55/128 controls (+10.9pp, `p=0.080`). Exact-template
+grouping, non-vote grounding, and conditional threshold reductions all failed
+the seven-history offline gate. Reuse the unchanged timing-matched artifacts
+for a larger confirmation; do not submit or enable the solver by default before
+that result. Results:
 `docs/experiments/2026-07-17-solver-ab-result.md` and
 `docs/experiments/2026-07-17-claim-parser-offline.md`, plus the v3 hosted screen:
 `docs/experiments/2026-07-18-solver-parser-hosted-screen.md` and the correlation gate:
@@ -55,13 +57,12 @@ replication. Results:
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Run a timing-matched solver attribution A/B.** The first correlation-aware
-   A/B was +15.6pp crew wins but changed both inference and vote timing. Build one
-   exact-source image after the vote-only support gate; run solver-on against
-   solver-off plus `CREWBORG_SOLVER_DEFER=1`, 64 fixed-roster crew episodes per
-   arm. Both arms must vote near the deadline. Judge actual vote precision,
-   player-vote recall, ejections, and crew wins, then expand both public replay
-   sets. The live private-artifact endpoints currently return 403 for this
-   credential, so do not promise exact runtime solver/fallback attribution.
+2. **Confirm the timing-matched solver effect at larger N.** The first two fresh
+   A/Bs are directionally consistent (+15.6pp and +6.25pp crew wins), and the
+   fair timing-matched run added ten correct player votes with no added errors.
+   Run 100 episodes per arm using the already uploaded exact-image timing
+   candidate/control. Require the candidate to retain its vote-precision and
+   ejection mechanism; use the public replay warehouse because private artifact
+   endpoints return 403 for this credential.
 3. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
    (4× rivals) yet converts no faster — the long-standing hesitancy lever.

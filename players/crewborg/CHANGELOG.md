@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-07-18 - Timing-matched solver replication
+
+- Ran 64 episodes per arm from the exact image at `4f55b2f`, holding the
+  subject's meeting-entry fallback and deadline vote timing constant. Control
+  `xreq_5d19f6f9` completed 31/64 crew wins; solver candidate
+  `xreq_358f2c2f` completed 35/64 (+6.25pp, `p=0.48`). Both arms' median
+  subject vote offset was exactly 1,164 ticks.
+- The solver increased player votes 18 -> 28 and correct player votes 16 -> 26
+  while wrong votes stayed at 2 (precision 88.9% -> 92.9%). Impostor ejections
+  rose 12 -> 15; crew ejections rose 7 -> 9.
+- Across this replication and the preceding concurrent A/B, solver arms are
+  69/128 crew wins versus 55/128 controls (+10.9pp, `p=0.080`) and 43/50
+  versus 27/32 correct player votes. The repeated mechanism is higher useful
+  vote recall at stable precision.
+- Expanded all 128 public replays with the version-matched `0.1.59` binary:
+  128/128 accepted, zero trace warnings, 7,209,030 events. The public-evidence
+  solver made 33/36 correct decisive picks across the two new histories.
+- Rejected exact-template source grouping, non-vote grounding requirements, and
+  a lower threshold conditioned on public vote support. They removed useful
+  correct consensus or added lower-precision picks.
+- Extended `tools/analyze_solver_history.py --details` with the live top
+  candidate plus current and persistent vote support for abstention analysis.
+  Next: reuse the timing-matched artifacts for a 100/arm confirmatory A/B rather
+  than overfit another rule to two false votes.
+
 ## 2026-07-18 - Correlation solver hosted A/B and timing-matched replication
 
 - Completed a fresh concurrent 64/arm fixed-roster A/B on Crewrift `0.1.59`.

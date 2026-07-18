@@ -80,3 +80,48 @@ Both arms freeze the legacy fallback at meeting entry and act at the deadline.
 Only the candidate may replace it with the joint solver. This is an attribution
 test; `CREWBORG_SOLVER_DEFER` remains off by default and is not presented as a
 production improvement.
+
+## Timing-matched replication
+
+- Control request: `xreq_5d19f6f9-bfc0-4276-932c-aa7ac796e33f`
+- Candidate request: `xreq_358f2c2f-5438-4603-9e63-889aae160b81`
+- 64/64 episodes completed in each arm with zero failures.
+- Both arms used the exact image at `4f55b2f`; only the upload-time solver and
+  deferral flags differed.
+
+| Metric | Deferred solver off | Solver on | Change |
+| --- | ---: | ---: | ---: |
+| Crew wins | 31/64 (48.4%) | 35/64 (54.7%) | +6.25pp |
+| Subject correct player votes | 16 | 26 | +10 |
+| Subject wrong player votes | 2 | 2 | 0 |
+| Subject player-vote precision | 88.9% | 92.9% | +4.0pp |
+| Subject player votes | 18 | 28 | +10 |
+| Impostors ejected | 12 | 15 | +3 |
+| Crew ejected | 7 | 9 | +2 |
+| Eligible meetings | 110 | 107 | -3 |
+| Median subject vote offset | 1,164 ticks | 1,164 ticks | 0 |
+
+The win difference is unresolved (`p=0.48`, approximate 95% CI
+`[-11.0pp, +23.5pp]`), but the timing confound is removed and the mechanism
+replicates more strongly: the candidate made ten additional player votes and
+all ten were correct.
+
+The two timing-matched candidate histories expanded 128/128 with zero trace
+warnings (7,209,030 events). Replaying public chat and votes through the current
+solver produced 15/16 correct decisive picks on control history and 18/20 on
+candidate history.
+
+One actual candidate error at yellow matched a public-evidence solver error:
+blue and pink emitted the exact same generated vote claim on the same tick.
+Treating identical utterances as one source group removes it, but across all
+seven histories it removes 12 correct picks for two errors. Requiring a
+non-vote accusation to ground a target is worse, removing 25 correct picks.
+A conditional threshold reduction to `P=0.60` adds only 22/33 correct picks;
+requiring two current public votes yields 16/26. All are rejected.
+
+Across both fresh A/Bs, solver arms won 69/128 crew games versus 55/128
+controls (+10.9pp, `p=0.080`, approximate 95% CI `[-1.2pp, +23.1pp]`).
+Subject player-vote precision is 43/50 (86.0%) versus 27/32 (84.4%), with 18
+additional correct votes and four additional wrong votes. The most defensible
+next experiment is a larger timing-matched confirmation of the unchanged
+solver, not another rule fitted to the sparse errors.
