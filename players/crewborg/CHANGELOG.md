@@ -1,32 +1,30 @@
 # Changelog
 
-## 2026-07-18 - Exploratory bootstrap escape for an unverified historical freeze
+## 2026-07-18 - Correlation-aware solver offline gate
 
-- A v82 version-log note attributed a ~15%-of-crew-seats zero-task fingerprint
-  to `/tmp/v81_fp_wh`, but that temporary warehouse and its episode IDs are no
-  longer available. The retained solver batches do **not** reproduce it:
-  the solver subject had 0/189 zero-task-attempt episodes in slot 0, and the
-  fixed `crewborg:v107` teammate had 0/189 in slot 5. No retained batch tested
-  crewborg in the reportedly affected slot 4. The historical rate and diagnosis
-  are therefore not currently auditable, and this issue did not affect the
-  solver A/B results.
-- Code inspection found a plausible defensive gap: `derive_phase` can remain in
-  `Lobby` if both RoleReveal text and task-HUD bootstrap signals are missed, and
-  `rule_based` idles outside `Playing`. This is a possible mechanism, not a
-  confirmed explanation of a retained failure episode.
-- Added a conservative time-based bootstrap escape after a positively observed
-  Lobby clears. Its 216-tick dwell exceeds GameInfo + RoleReveal + one second,
-  and resets on explicit lobby/reveal/GameInfo signals or a camera interruption,
-  so a normal configured pre-game sequence finishes before it can fire.
-- The escape changes only `phase`; it deliberately leaves `self_role=None`.
-  Unknown roles already take Normal mode during Playing, while fabricating crew
-  could misclassify a missed imposter reveal and poison one-shot role telemetry.
-- Added belief tests for the escape dwell, continuous-camera requirement, explicit
-  lobby protection, GameInfo/reveal reset, unknown-start protection, and normal
-  role-reveal preservation. Full suite: 517 passed, 13 skipped; Ruff clean.
-- Built locally as `crewborg:bootstrap-phase-fix`; Gate-1 smoke passed against
-  Crewrift Prime 0.4.65. Not uploaded or A/B'd. Do not upload it until an
-  unchanged baseline reproduces the slot-4 symptom.
+- Reverted the unverified bootstrap-phase fallback and its tests. The retained
+  solver histories had no affected subject episodes, so the unrelated defensive
+  change is no longer carried by this branch.
+- Added diminishing returns for additional source/stance/target claims within
+  one meeting (`same_target_decay=0.8`) and for the same voter-target pair across
+  later meetings (`vote_repeat_decay=0.7`). The first claim and each later
+  meeting still contribute at full target-consensus weight.
+- Added a single-source counterfactual gate: when one original source supplies
+  all accusation claims behind a decisive pick, remove that source's claims,
+  relays, and votes and require the target to remain the top joint hypothesis.
+  Multi-source constraints and witnessed pins bypass this extra gate.
+- Extended `tools/analyze_solver_history.py --details` with per-decision support,
+  pre-counterfactual picks, and robustness diagnostics.
+- Replayed all three retained arms (189 episodes, 362 eligible meetings).
+  Social-only decisive-pick precision improved from 75/90 (83.3%) to 69/79
+  (87.3%): wrong picks fell 15 -> 10 while 69/75 correct picks were retained.
+  Per history: 30/34 -> 28/29, 27/32 -> 24/29, and 18/24 -> 17/21.
+- Rejected aggressive consensus decay, claim/vote deduplication, same-meeting
+  vote-bloc decay, and a positive jackknife posterior floor: each lost more
+  correct coverage than wrong picks on retained history.
+- Removed the full leave-one-actor-out implementation after the audit showed
+  that only the sole supporting claim source was load-bearing. The final gate
+  performs at most one extra small joint solve.
 
 ## 2026-07-18 - Predicate-aware hosted screen
 

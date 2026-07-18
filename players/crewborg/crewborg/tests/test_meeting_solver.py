@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
-from crewborg.strategy.meeting.solver import SolverConfig, solve_hypotheses, solver_report
-from crewborg.strategy.social_evidence import parse_social_claims, update_social_evidence
+from crewborg.strategy.meeting.solver import (
+    SolverConfig,
+    solve_hypotheses,
+    solver_report,
+)
+from crewborg.strategy.social_evidence import (
+    parse_social_claims,
+    update_social_evidence,
+)
 from crewborg.types import Belief, ChatEvent, MeetingRecord, PlayerRecord, SocialClaim
 
 
@@ -60,7 +67,9 @@ def test_parser_does_not_accuse_the_named_kill_victim() -> None:
         colors={"red", "blue", "green"},
     )
 
-    assert [(claim.stance, claim.targets) for claim in claims] == [("accuse", ("blue",))]
+    assert [(claim.stance, claim.targets) for claim in claims] == [
+        ("accuse", ("blue",))
+    ]
 
 
 def test_parser_handles_with_me_and_ignores_neutral_body_report() -> None:
@@ -123,11 +132,14 @@ def test_parser_ignores_dead_reporter_and_location_mentions() -> None:
         ),
     )
 
-    assert parse_social_claims(
-        event,
-        meeting_id=10,
-        colors={"red", "orange", "yellow", "cyan", "pink", "purple"},
-    ) == []
+    assert (
+        parse_social_claims(
+            event,
+            meeting_id=10,
+            colors={"red", "orange", "yellow", "cyan", "pink", "purple"},
+        )
+        == []
+    )
 
 
 def test_parser_preserves_multiple_attributed_sources_for_one_target() -> None:
@@ -144,8 +156,7 @@ def test_parser_preserves_multiple_attributed_sources_for_one_target() -> None:
     )
 
     assert {
-        (claim.source_color, claim.provenance, claim.targets)
-        for claim in claims
+        (claim.source_color, claim.provenance, claim.targets) for claim in claims
     } == {
         ("red", "relayed", ("cyan",)),
         ("yellow", "relayed", ("cyan",)),
@@ -167,8 +178,7 @@ def test_parser_does_not_turn_accuser_into_target_in_compact_sus_syntax() -> Non
     )
 
     assert [
-        (claim.source_color, claim.provenance, claim.targets)
-        for claim in claims
+        (claim.source_color, claim.provenance, claim.targets) for claim in claims
     ] == [("yellow", "relayed", ("orange",))]
 
 
@@ -186,8 +196,7 @@ def test_parser_resolves_transitive_me_to_the_current_speaker() -> None:
     )
 
     assert [
-        (claim.source_color, claim.provenance, claim.targets)
-        for claim in claims
+        (claim.source_color, claim.provenance, claim.targets) for claim in claims
     ] == [("yellow", "relayed", ("purple",))]
 
 
@@ -208,7 +217,9 @@ def test_claims_and_vote_records_persist_across_meetings() -> None:
     update_social_evidence(belief)
     update_social_evidence(belief)
     belief.phase_start_tick = 100
-    belief.chat_log = [ChatEvent(tick=102, speaker_color="blue", text="green sus again")]
+    belief.chat_log = [
+        ChatEvent(tick=102, speaker_color="blue", text="green sus again")
+    ]
     update_social_evidence(belief)
 
     assert len(belief.social_claims) == 2
@@ -232,7 +243,9 @@ def test_late_rendered_vote_result_chat_keeps_the_meeting_id() -> None:
     assert belief.social_claims[0].meeting_id == 10
 
 
-def test_solver_deduplicates_pairs_within_meeting_but_aggregates_later_meetings() -> None:
+def test_solver_deduplicates_pairs_within_meeting_but_aggregates_later_meetings() -> (
+    None
+):
     players = ["red", "blue", "green", "yellow"]
     claims = [
         _claim(10, "green", ("red",), tick=11),
@@ -249,6 +262,50 @@ def test_solver_deduplicates_pairs_within_meeting_but_aggregates_later_meetings(
 
     assert result["n_claims"] == 2
     assert result["marginals"]["red"] > result["marginals"]["blue"]
+
+
+def test_solver_discounts_same_target_consensus_within_one_meeting() -> None:
+    players = ["red", "blue", "green", "yellow", "pink"]
+    same_meeting = [
+        _claim(10, speaker, ("red",)) for speaker in ("green", "yellow", "pink")
+    ]
+    separate_meetings = [
+        _claim(meeting, speaker, ("red",))
+        for meeting, speaker in zip((10, 20, 30), ("green", "yellow", "pink"))
+    ]
+    config = SolverConfig(prior_strength=0.0, repeat_decay=1.0, same_target_decay=0.4)
+
+    one = solve_hypotheses(
+        players,
+        2,
+        [_claim(10, "green", ("red",))],
+        config=config,
+    )
+    correlated = solve_hypotheses(players, 2, same_meeting, config=config)
+    independent = solve_hypotheses(players, 2, separate_meetings, config=config)
+
+    assert one["marginals"]["red"] < correlated["marginals"]["red"]
+    assert correlated["marginals"]["red"] < independent["marginals"]["red"]
+
+
+def test_solver_gives_full_consensus_weight_to_strongest_claim_regardless_of_order() -> (
+    None
+):
+    players = ["red", "blue", "green", "yellow"]
+    claims = [
+        _claim(10, "green", ("red",), evidence="bare", tick=11),
+        _claim(10, "yellow", ("red",), evidence="vent", tick=12),
+    ]
+    config = SolverConfig(prior_strength=0.0, same_target_decay=0.0)
+
+    forward = solve_hypotheses(players, 2, claims, config=config)
+    reversed_result = solve_hypotheses(
+        players, 2, list(reversed(claims)), config=config
+    )
+    strongest_only = solve_hypotheses(players, 2, [claims[1]], config=config)
+
+    assert forward["marginals"] == reversed_result["marginals"]
+    assert forward["marginals"] == strongest_only["marginals"]
 
 
 def test_solver_deduplicates_relays_by_attributed_source_and_discounts_them() -> None:
@@ -357,6 +414,51 @@ def test_solver_combines_disjunction_and_later_claim_into_decisive_constraint() 
     assert result["hypotheses"][0]["imposters"] == ["blue", "red"]
 
 
+def test_report_requires_single_source_pick_to_survive_source_removal(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    monkeypatch.setenv("CREWBORG_SOLVER_ROBUST_P", "0")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=6,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.social_claims = [
+        _claim(meeting, "green", ("red",), evidence="vent") for meeting in (10, 20, 30)
+    ]
+
+    report = solver_report(belief)
+
+    assert report["pre_robust_pick"] == "red"
+    assert report["robust_required"] is True
+    assert report["pick"] is None
+
+
+def test_report_accepts_decisive_multi_source_consensus(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=6,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.social_claims = [
+        _claim(10, source, ("red",), evidence="vent")
+        for source in ("green", "yellow", "pink")
+    ]
+
+    report = solver_report(belief)
+
+    assert report["robust_required"] is False
+    assert report["pick"] == "red"
+
+
 def test_report_keeps_dead_players_in_global_hypotheses(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_SOLVER", "1")
     belief = Belief(
@@ -421,3 +523,33 @@ def test_public_votes_from_trusted_speakers_are_weaker_relational_evidence() -> 
     assert result["n_votes"] == 2
     assert result["marginals"]["red"] > result["marginals"]["green"]
     assert result["marginals"]["red"] > result["marginals"]["yellow"]
+
+
+def test_solver_decays_repeated_voter_target_pairs_across_meetings() -> None:
+    players = ["red", "blue", "green", "yellow", "pink"]
+    repeated = [
+        MeetingRecord(meeting_id=10, votes={"green": "red"}),
+        MeetingRecord(meeting_id=20, votes={"green": "red"}),
+    ]
+    independent = [
+        MeetingRecord(meeting_id=10, votes={"green": "red"}),
+        MeetingRecord(meeting_id=20, votes={"yellow": "red"}),
+    ]
+    config = SolverConfig(prior_strength=0.0, vote_repeat_decay=0.25)
+
+    repeated_result = solve_hypotheses(
+        players,
+        2,
+        [],
+        repeated,
+        config=config,
+    )
+    independent_result = solve_hypotheses(
+        players,
+        2,
+        [],
+        independent,
+        config=config,
+    )
+
+    assert repeated_result["marginals"]["red"] < independent_result["marginals"]["red"]

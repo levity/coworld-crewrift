@@ -39,7 +39,7 @@ def _json_value(raw: str) -> dict[str, Any]:
     return json.loads(raw)
 
 
-def analyze(warehouse: Path) -> dict[str, Any]:
+def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]:
     os.environ["CREWBORG_SOLVER"] = "1"
     os.environ["CREWBORG_SOLVER_VETO"] = "0"
     con = duckdb.connect()
@@ -102,6 +102,8 @@ def analyze(warehouse: Path) -> dict[str, Any]:
             },
         )
         stats["episodes"] += 1
+        if include_details:
+            stats.setdefault("decisions", [])
         imposter_colors = {
             color
             for slot, color in slot_colors.items()
@@ -162,13 +164,13 @@ def analyze(warehouse: Path) -> dict[str, Any]:
                 if voter is None:
                     continue
                 target_slot = payload.get("target_slot")
-                votes[voter] = slot_colors.get(target_slot) if target_slot is not None else None
+                votes[voter] = (
+                    slot_colors.get(target_slot) if target_slot is not None else None
+                )
             meetings.append(MeetingRecord(meeting_id=meeting_id, votes=votes))
 
             dead_slots = {
-                slot
-                for _, ts, slot, _ in died_rows.get(episode_id, ())
-                if ts < cutoff
+                slot for _, ts, slot, _ in died_rows.get(episode_id, ()) if ts < cutoff
             }
             if 0 in dead_slots:
                 continue
@@ -193,12 +195,42 @@ def analyze(warehouse: Path) -> dict[str, Any]:
                 ),
                 self_marker_color=subject_color,
             )
-            pick = solver_report(belief).get("pick")
+            report = solver_report(belief)
+            pick = report.get("pick")
             if pick is not None:
                 stats["solver_picks"] += 1
                 stats["solver_targets"][pick] += 1
                 if pick in imposter_colors:
                     stats["correct_solver_picks"] += 1
+            if include_details:
+                candidate = report.get("pre_robust_pick")
+                if candidate is not None:
+                    stats["decisions"].append(
+                        {
+                            "episode_id": episode_id,
+                            "meeting_id": meeting_id,
+                            "pick": candidate,
+                            "selected": pick is not None,
+                            "correct": candidate in imposter_colors,
+                            "imposters": sorted(imposter_colors),
+                            "report": report,
+                            "support": [
+                                {
+                                    "meeting_id": claim.meeting_id,
+                                    "tick": claim.tick,
+                                    "speaker": claim.speaker_color,
+                                    "source": claim.source_color,
+                                    "provenance": claim.provenance,
+                                    "stance": claim.stance,
+                                    "targets": claim.targets,
+                                    "evidence": claim.evidence_kind,
+                                    "text": claim.text,
+                                }
+                                for claim in claims
+                                if candidate in claim.targets
+                            ],
+                        }
+                    )
 
     for stats in by_arm.values():
         target_count = stats["accusation_targets"]
@@ -210,7 +242,9 @@ def analyze(warehouse: Path) -> dict[str, Any]:
         stats["solver_pick_precision"] = (
             stats["correct_solver_picks"] / pick_count if pick_count else None
         )
-        stats["solver_pick_coverage"] = pick_count / meeting_count if meeting_count else None
+        stats["solver_pick_coverage"] = (
+            pick_count / meeting_count if meeting_count else None
+        )
         stats["false_targets"] = dict(stats["false_targets"].most_common())
         stats["solver_targets"] = dict(stats["solver_targets"].most_common())
     return by_arm
@@ -220,8 +254,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("warehouse", type=Path)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--details", action="store_true")
     args = parser.parse_args()
-    result = analyze(args.warehouse)
+    result = analyze(args.warehouse, include_details=args.details)
     payload = json.dumps(result, indent=2, sort_keys=True)
     if args.out is not None:
         args.out.write_text(payload + "\n")

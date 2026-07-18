@@ -30,13 +30,17 @@ treated attributed witnesses as targets. The predicate-aware v3 screen recovered
 25.0% crew wins and 77.3% vote precision; wrong votes fell 16 -> 5, wrong yellow votes
 13 -> 0, and crew/impostor ejections normalized from 17/14 to 10/16. It still did not
 beat the historical solver-off control (28.1% wins, 95.2% precision), and the 64-game
-win delta is unresolved. Do not submit or enable it. The next offline iteration should
-discount correlated same-target claims within a meeting; threshold-only and naive veto
-changes are counterproductive on the captured history. Full suite before upload:
-511 passed, 13 skipped. Results:
+win delta is unresolved. The correlation-aware local candidate now discounts
+same-meeting target consensus and repeated voter-target pairs, and counterfactually
+removes a sole supporting source before firing. Across all retained histories,
+social-only precision improved 75/90 (83.3%) -> 69/79 (87.3%), with wrong picks
+15 -> 10 and 92% correct-pick retention. This clears the offline gate for a fresh
+same-source solver-off versus solver-on A/B; do not submit or enable it before that
+hosted result. Results:
 `docs/experiments/2026-07-17-solver-ab-result.md` and
 `docs/experiments/2026-07-17-claim-parser-offline.md`, plus the v3 hosted screen:
-`docs/experiments/2026-07-18-solver-parser-hosted-screen.md`.
+`docs/experiments/2026-07-18-solver-parser-hosted-screen.md` and the correlation gate:
+`docs/experiments/2026-07-18-solver-correlation-offline.md`.
 
 ## ▶ Open threads (2026-07-18)
 
@@ -45,21 +49,11 @@ changes are counterproductive on the captured history. Full suite before upload:
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Persistent solver needs correlation-aware aggregation before another A/B.** The parser
-   fix removed the yellow-target bug, but different speakers' correlated false reads can still
-   multiply into confidently wrong posteriors (`P=0.899` and `0.952` in the v3 screen).
-   Add within-meeting diminishing returns for repeated same-target evidence while preserving
-   direct pins and cross-meeting accumulation. Raising the pick threshold removes lower-P
-   correct picks first; enabling the current veto would drop 13 correct fallback votes to
-   remove 3 wrong ones. Re-run both histories offline, then use a fresh 64/arm A/B.
-3. **Historical slot-4 freeze claim is unverified; defensive local fix is parked.**
-   A v82 note summarized a now-missing `/tmp/v81_fp_wh` as showing ~15% zero-task
-   crew seats, reportedly concentrated in slot 4, but retained data has no affected
-   episode IDs or auditable denominator. The solver subject had 0/189 zero-attempt
-   episodes in slot 0 and fixed `crewborg:v107` had 0/189 in slot 5, so this did not
-   affect the solver results; neither position tests the slot-4 claim. Commit `cba7885`
-   adds a conservative phase-only escape and passed 517 tests plus local Gate-1, but
-   it is not uploaded. Reproduce unchanged v82 in slot 4 before spending more work or
-   uploading the candidate.
-4. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
+2. **Correlation-aware solver is ready for a fresh matched A/B.** Local replay over all
+   189 retained episodes improved social-only precision 83.3% -> 87.3% and removed
+   one-third of wrong picks while retaining 92% of correct picks. Upload same-source
+   solver-off and solver-on artifacts, then run 64 crew episodes per arm with the prior
+   fixed roster and full telemetry. Judge actual vote precision, wrong votes, ejections,
+   fallback versus solver path, and crew wins; replay public evidence afterward.
+3. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
    (4× rivals) yet converts no faster — the long-standing hesitancy lever.
