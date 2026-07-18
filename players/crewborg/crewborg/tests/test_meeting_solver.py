@@ -459,6 +459,33 @@ def test_report_accepts_decisive_multi_source_consensus(monkeypatch) -> None:
     assert report["pick"] == "red"
 
 
+def test_report_does_not_fire_from_vote_only_consensus(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    monkeypatch.setenv("CREWBORG_SOLVER_P", "0.4")
+    monkeypatch.setenv("CREWBORG_SOLVER_MARGIN", "0")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=6,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.meeting_history = [
+        MeetingRecord(
+            meeting_id=meeting,
+            votes={"green": "red", "yellow": "red", "pink": "red"},
+        )
+        for meeting in (10, 20, 30)
+    ]
+
+    report = solver_report(belief)
+
+    assert report["pre_robust_pick"] == "red"
+    assert report["candidate_sources"] == []
+    assert report["pick"] is None
+
+
 def test_report_keeps_dead_players_in_global_hypotheses(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_SOLVER", "1")
     belief = Belief(

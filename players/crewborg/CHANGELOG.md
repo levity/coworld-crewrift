@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-07-18 - Correlation solver hosted A/B and timing-matched replication
+
+- Completed a fresh concurrent 64/arm fixed-roster A/B on Crewrift `0.1.59`.
+  The solver-off control won 24/64 crew games (37.5%); the correlation-aware
+  solver won 34/64 (53.1%), a directional +15.6pp (`p=0.076`). The subject made
+  11/14 correct player votes in control and 17/22 with the solver, so the gain
+  came from greater voting recall at approximately flat precision.
+- Expanded all 128 public replays without trace warnings. The offline solver
+  made 15/15 correct picks on the control history and 13/15 on the candidate
+  history. One candidate miss was supported only by public votes, with no
+  accusation source; decisive reports now require an accusation source unless
+  the target is directly witnessed.
+- Replayed five retained hosted histories (317 episodes, 567 eligible meetings)
+  after that gate. Decisive social-only precision is 97/108 (89.8%), versus
+  97/109 (89.0%) before it; no correct pick was removed.
+- Rejected source-accusation breadth normalization, duplicated-template actor
+  clustering, stronger or flatter claim-language weights, fallback redirection,
+  lower/higher posterior thresholds, alternate role likelihoods, and alternate
+  public-vote weights. None improved the pooled precision/coverage frontier.
+- Added off-by-default `CREWBORG_SOLVER_DEFER` for the next experiment's
+  solver-off timing control. It freezes the same meeting-entry legacy target
+  and submits it at the same deadline as the solver arm, isolating joint
+  inference from the first A/B's 13-tick versus 1,164-tick timing difference.
+
 ## 2026-07-18 - Correlation-aware solver offline gate
 
 - Reverted the unverified bootstrap-phase fallback and its tests. The retained

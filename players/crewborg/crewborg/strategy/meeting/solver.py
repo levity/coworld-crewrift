@@ -90,6 +90,17 @@ def veto_enabled() -> bool:
     }
 
 
+def defer_enabled() -> bool:
+    """Whether to delay the legacy crew vote for a solver timing control."""
+
+    return os.environ.get("CREWBORG_SOLVER_DEFER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.environ.get(name, str(default)))
@@ -526,7 +537,9 @@ def solver_report(belief: Any) -> dict[str, Any]:
         "clears": [],
         "marginals": None,
         "hypotheses": [],
+        "top_candidate": None,
         "pre_robust_pick": None,
+        "candidate_sources": [],
         "robust_required": False,
         "robust_min_p": None,
         "robust_min_margin": None,
@@ -603,6 +616,7 @@ def solver_report(belief: Any) -> dict[str, Any]:
         )
         if not ranked:
             return out
+        out["top_candidate"] = ranked[0][0]
         out["top_p"] = round(ranked[0][1], 3)
         out["second_p"] = round(ranked[1][1], 3) if len(ranked) > 1 else 0.0
 
@@ -624,6 +638,7 @@ def solver_report(belief: Any) -> dict[str, Any]:
                 and candidate in claim.targets
                 and (claim.source_color or claim.speaker_color) in player_set
             }
+            out["candidate_sources"] = sorted(candidate_sources)
             robustness_required = len(candidate_sources) == 1
             out["robust_required"] = robustness_required
             robustness: dict[str, Any] | None = None
@@ -645,10 +660,12 @@ def solver_report(belief: Any) -> dict[str, Any]:
                     robust_min_margin=round(robustness["min_margin"], 3),
                     robust_weakest_actor=robustness["weakest_actor"],
                 )
-            if (
-                candidate in pins
-                or not robustness_required
-                or (robustness is not None and robustness["passed"])
+            if candidate in pins or (
+                candidate_sources
+                and (
+                    not robustness_required
+                    or (robustness is not None and robustness["passed"])
+                )
             ):
                 out["fired"] = True
                 out["pick"] = candidate

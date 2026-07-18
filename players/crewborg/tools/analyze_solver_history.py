@@ -204,33 +204,53 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
                     stats["correct_solver_picks"] += 1
             if include_details:
                 candidate = report.get("pre_robust_pick")
-                if candidate is not None:
-                    stats["decisions"].append(
-                        {
-                            "episode_id": episode_id,
-                            "meeting_id": meeting_id,
-                            "pick": candidate,
-                            "selected": pick is not None,
-                            "correct": candidate in imposter_colors,
-                            "imposters": sorted(imposter_colors),
-                            "report": report,
-                            "support": [
-                                {
-                                    "meeting_id": claim.meeting_id,
-                                    "tick": claim.tick,
-                                    "speaker": claim.speaker_color,
-                                    "source": claim.source_color,
-                                    "provenance": claim.provenance,
-                                    "stance": claim.stance,
-                                    "targets": claim.targets,
-                                    "evidence": claim.evidence_kind,
-                                    "text": claim.text,
-                                }
-                                for claim in claims
-                                if candidate in claim.targets
-                            ],
-                        }
+                actual_vote = None
+                for _, ts, slot, raw in vote_rows.get(episode_id, ()):
+                    if slot != 0 or not (meeting_id <= ts < end):
+                        continue
+                    target_slot = _json_value(raw).get("target_slot")
+                    actual_vote = (
+                        slot_colors.get(target_slot)
+                        if target_slot is not None
+                        else None
                     )
+                    break
+                stats["decisions"].append(
+                    {
+                        "episode_id": episode_id,
+                        "meeting_id": meeting_id,
+                        "pick": candidate,
+                        "selected": pick is not None,
+                        "correct": (
+                            candidate in imposter_colors
+                            if candidate is not None
+                            else None
+                        ),
+                        "actual_vote": actual_vote,
+                        "actual_vote_correct": (
+                            actual_vote in imposter_colors
+                            if actual_vote is not None
+                            else None
+                        ),
+                        "imposters": sorted(imposter_colors),
+                        "report": report,
+                        "support": [
+                            {
+                                "meeting_id": claim.meeting_id,
+                                "tick": claim.tick,
+                                "speaker": claim.speaker_color,
+                                "source": claim.source_color,
+                                "provenance": claim.provenance,
+                                "stance": claim.stance,
+                                "targets": claim.targets,
+                                "evidence": claim.evidence_kind,
+                                "text": claim.text,
+                            }
+                            for claim in claims
+                            if candidate is not None and candidate in claim.targets
+                        ],
+                    }
+                )
 
     for stats in by_arm.values():
         target_count = stats["accusation_targets"]

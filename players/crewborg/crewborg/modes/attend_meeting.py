@@ -29,6 +29,7 @@ from crewborg.strategy.meeting.imposter import (
 from crewborg.strategy.meeting import chat_nlp, chat_read
 from crewborg.strategy.suspicion import chat_suspect, top_suspect
 from crewborg.strategy.meeting.solver import (
+    defer_enabled as solver_defer_enabled,
     enabled as solver_enabled,
     solver_report,
     solver_vetoes,
@@ -134,7 +135,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         """Accuse + vote a clear leading suspect; else SHARE a read on a softer suspect
         (chat only, no vote) rather than going silent — vote restraint is unchanged."""
 
-        if solver_enabled() or solver_veto_enabled():
+        if solver_enabled() or solver_veto_enabled() or solver_defer_enabled():
             return self._decide_crewmate_deferred(belief)
 
         if not self._deterministic_chatted:
@@ -194,11 +195,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             # Do not let the same late meeting chatter influence the solver ledger
             # and then independently mutate the legacy fallback. Preserve only the
             # legacy vote that was already justified when the meeting opened.
-            base = (
-                self._meeting_entry_vote_target
-                if solver_enabled()
-                else top_suspect(belief)
-            )
+            base = self._meeting_entry_vote_target
             if base is not None and solver_vetoes(report, base):
                 report["vetoed"] = base  # crowd evidence contradicts our own read -> drop it
                 base = None
@@ -482,7 +479,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._decision_traced = False
         self._meeting_entry_vote_target = (
             top_suspect(belief)
-            if solver_enabled() and not belief.chat_log
+            if (solver_enabled() or solver_defer_enabled()) and not belief.chat_log
             else None
         )
 
@@ -533,7 +530,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         return self._fallback_vote_target(belief)
 
     def _fallback_vote_target(self, belief: Belief) -> str:
-        if solver_enabled():
+        if solver_enabled() or solver_defer_enabled():
             target = self._meeting_entry_vote_target
             if target is not None and target in valid_vote_targets(belief):
                 return target
