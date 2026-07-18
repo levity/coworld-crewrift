@@ -6,20 +6,28 @@
   source had not cast any visible ballot by the decision cutoff. Across all
   retained histories, accusation targets were 80.9% correct when source and
   ballot matched but only 47.2% correct when the source had no visible ballot.
-- Added `SolverConfig.no_ballot_claim_decay=0.30`. It discounts only accusation
-  claims whose attributed source is absent from that meeting's public ballot
-  map. Explicit skips, votes for another target, and all actual ballots keep
+- Tested `SolverConfig.no_ballot_claim_decay=0.30`, limited to accusation
+  claims whose attributed source was absent from that meeting's public ballot
+  map. Explicit skips, votes for another target, and all actual ballots kept
   their existing weights.
 - Replayed nine retained arms: decisive public-evidence precision improved from
   162/181 (89.5%) to 154/168 (91.7%). The rule removed 5/19 errors while
   retaining 154/162 correct picks; coverage changed 16.4% -> 15.3%.
 - Rejected unsupported-ballot decay and discounts for explicit skips or
   contradictory ballots. Each lost more useful correct decisions.
-- Added focused regression coverage for no-ballot versus explicit-skip
-  semantics. Verified 48 focused tests, the full suite (`519 passed, 13
-  skipped`), Ruff, and `git diff --check`. Next: Gate-1 smoke, inert upload,
-  and a fresh 100/arm timing-matched hosted A/B against the confirmed solver
-  candidate.
+- Built exact image `sha256:ad221fff...`, uploaded inert
+  `crewborg-solver-commitment:v1`, and ran a fresh 100/arm matched A/B:
+  control `xreq_7b514e90` won 47/100 crew games; candidate `xreq_28dbdfa0`
+  won 32/100 (-15.0pp, `p=0.030`). Both requests had zero request failures.
+- Expanded all 200 public replays with complete hashes. Candidate subject
+  player votes were 24/30 correct versus 17/21 control, and candidate impostor
+  ejections increased 6 -> 15 while crew ejections increased 10 -> 14.
+  Replaying both decay settings changed zero decisive picks on either fresh
+  arm (control 7/9; candidate 13/13).
+- Rejected and removed the no-ballot discount: its retained-history precision
+  gain did not reproduce as an active mechanism, and its hosted outcome was
+  adverse. The confirmed correlation-aware solver remains the promotion
+  target.
 
 ## 2026-07-18 - Timing-matched solver confirmation
 

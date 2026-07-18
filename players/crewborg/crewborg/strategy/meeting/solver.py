@@ -15,9 +15,7 @@ correlated, while later meetings still contribute independently. Repetition by
 the same source or voter-target pair across later meetings has a separate
 configurable decay. Evidence wording, body reporters, direct observations, and a
 tempered copy of crewborg's existing suspicion posterior provide additional
-provenance. Accusations whose attributed source has no visible ballot by the
-decision cutoff are discounted as uncommitted rather than treated like a
-publicly backed claim.
+provenance.
 """
 
 from __future__ import annotations
@@ -52,7 +50,6 @@ class SolverConfig:
     same_target_decay: float = 0.80
     vote_repeat_decay: float = 0.70
     vote_weight: float = 0.35
-    no_ballot_claim_decay: float = 0.30
     reporter_weight: float = 1.15
     bare_weight: float = 0.25
     body_weight: float = 1.00
@@ -167,7 +164,6 @@ def _weighted_claims(
         for meeting in meetings
         if meeting.call_kind == "body"
     }
-    meeting_votes = {meeting.meeting_id: meeting.votes for meeting in meetings}
     best: dict[tuple[int, str, str, tuple[str, ...]], tuple[SocialClaim, float]] = {}
     for claim in claims:
         source = claim.source_color or claim.speaker_color
@@ -185,10 +181,6 @@ def _weighted_claims(
             and claim.speaker_color == source
         ):
             weight *= config.reporter_weight
-        if claim.stance in {"accuse", "at_least_one"}:
-            votes = meeting_votes.get(claim.meeting_id, {})
-            if source not in votes:
-                weight *= config.no_ballot_claim_decay
         key = (claim.meeting_id, source, claim.stance, targets)
         previous = best.get(key)
         if previous is None or weight > previous[1]:
@@ -352,9 +344,8 @@ def solve_hypotheses(
     if not hypotheses:
         return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
 
-    claim_list = list(claims)
     meeting_list = list(meetings)
-    weighted_claims = _weighted_claims(claim_list, meeting_list, player_set, config)
+    weighted_claims = _weighted_claims(claims, meeting_list, player_set, config)
     weighted_votes = _weighted_votes(
         meeting_list,
         player_set,

@@ -57,3 +57,9 @@ mechanistically plausible but either reduced precision or achieved it by abstain
 same-meeting claim decay plus repeated-vote decay and a sole-source counterfactual improved pooled
 precision 83.3% -> 87.3% while retaining 92% of correct picks; checking each retained history
 prevented a pooled gain from hiding a local regression.
+
+### A retrospective feature must reproduce as an active held-out discriminator
+Evidence: Missing-ballot accusation sources were only 47.2% correct in retained histories, and a
+0.30 discount improved replay precision from 89.5% to 91.7%. On 200 fresh hash-complete replays,
+however, decay 0.30 versus 1.0 changed zero decisive public solver picks, while the uploaded arm
+lost 32/100 versus 47/100. The feature was removed despite its retrospective frontier gain.

@@ -33,13 +33,14 @@ increased impostor ejections 9 -> 14 with crew ejections flat at 18. It did not
 replicate the earlier individual precision gain: player votes were 26/34
 correct versus 28/28 control. Across all nine retained arms, however, the
 confirmed public-evidence solver is 162/181 on decisive picks (89.5%).
-A commitment-aware iteration now discounts an accusation to 0.30 weight only
-when its attributed source has no visible ballot by the solve cutoff. Offline
-it is 154/168 (91.7%): 5/19 errors removed while retaining 154/162 correct
-picks. Unsupported-ballot, skip, and contradictory-vote discounts all failed.
-Run a fresh 100/arm timing-matched A/B against the confirmed candidate before
-changing the promotion target. Do not submit either version to the league
-without explicit human approval. Results:
+A commitment-aware iteration initially improved retained-history precision to
+154/168 (91.7%), but failed its fresh 100/arm hosted test: 32 crew wins versus
+47 for the confirmed solver (`p=0.030`). Its mechanism did not reproduce:
+candidate player-vote precision stayed flat, impostor ejections increased, and
+decay 0.30 versus 1.0 changed zero decisive public-evidence picks across all
+200 fresh hash-complete replays. The discount has therefore been removed. The
+confirmed correlation-aware solver remains the promotion target. Do not submit
+either version to the league without explicit human approval. Results:
 `docs/experiments/2026-07-17-solver-ab-result.md` and
 `docs/experiments/2026-07-17-claim-parser-offline.md`, plus the v3 hosted screen:
 `docs/experiments/2026-07-18-solver-parser-hosted-screen.md` and the correlation gate:
@@ -54,8 +55,9 @@ offline gate: `docs/experiments/2026-07-18-solver-commitment-offline.md`.
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Host-test source commitment.** Build/upload the no-visible-ballot claim
-   discount and run a fresh 100/arm matched A/B against the confirmed timing
-   candidate. Keep solver on, veto off, and deadline timing unchanged.
+2. **Source commitment rejected.** No-visible-ballot claims looked weak in
+   retained data, but discounting them did not change any fresh public solver
+   pick and the hosted arm lost 32/100 versus 47/100. Do not revive this signal
+   without a causal feature that reproduces on held-out histories.
 3. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
    (4× rivals) yet converts no faster — the long-standing hesitancy lever.

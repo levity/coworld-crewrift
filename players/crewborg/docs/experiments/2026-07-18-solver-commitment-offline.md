@@ -67,13 +67,48 @@ does not come from fitting away that batch's decisions.
 
 ## Hosted test
 
-Run a fresh 100/arm fixed-roster A/B:
+The fresh fixed-roster A/B used:
 
 - baseline: exact confirmed timing candidate, solver on and veto off;
 - candidate: commitment-aware source, solver on and veto off;
 - both: same 1,152-tick solve cutoff, source-frozen fallback, telemetry, crew
   slot 0, and impostors slots 6-7.
 
-Primary mechanism metrics are decisive solver precision/coverage, actual
-subject player-vote precision, and crew/impostor ejections. Crew win rate is the
-outcome metric.
+- Control: `crewborg-solver-timing-candidate:v1`,
+  `xreq_7b514e90-ccc8-4263-b9df-3e9bc03e3573`
+- Candidate: `crewborg-solver-commitment:v1`,
+  `xreq_28dbdfa0-97e9-4870-b17e-a4a6192db4ea`
+- Both requests completed 100/100 episodes with zero request-level failures.
+
+| Metric | Confirmed solver | Commitment-aware |
+| --- | ---: | ---: |
+| Official crew wins | 47/100 | 32/100 |
+| Subject correct player votes | 17 | 24 |
+| Subject wrong player votes | 4 | 6 |
+| Subject player-vote precision | 81.0% | 80.0% |
+| Impostors ejected | 6 | 15 |
+| Crew ejected | 10 | 14 |
+| Eligible meetings | 106 | 121 |
+| Median subject vote offset | 1,164 | 1,164 |
+
+The official win difference is -15.0pp (`p=0.030`, approximate 95% CI
+`[-28.4pp, -1.6pp]`). Six control and seven candidate subject scores were
+non-positive despite completed requests. Excluding them as an operational
+sensitivity check leaves 47/94 versus 32/93 (-15.6pp, `p=0.031`).
+
+All 200 public replays hash-completed under the version-matched sparse
+expander. The mechanism does not support interpreting the win split as a
+useful precision trade: candidate player-vote precision was effectively flat,
+candidate vote recall was higher, and the candidate ejected nine more
+impostors. Most importantly, replaying every eligible meeting under both
+`no_ballot_claim_decay=1.0` and `0.30` changed no decisive public-evidence
+pick in either arm: control was 7/9 and candidate was 13/13 under both
+settings. Private suspicion priors are unavailable because hosted policy logs
+remain inaccessible, but there is no reproduced public mechanism.
+
+## Decision
+
+Reject the commitment discount. Its apparent retained-history precision gain
+did not reproduce as an active discriminator on fresh histories, and the
+hosted outcome was adverse. The gameplay change and its test were removed;
+the confirmed correlation-aware solver remains the promotion target.
