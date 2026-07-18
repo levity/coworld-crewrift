@@ -276,6 +276,34 @@ def test_solver_guidance_attempt_does_not_retry_after_a_rejected_cutoff(
     assert calls == 1
 
 
+def test_solver_guidance_precedes_auto_submit_with_fallback_timer(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_report",
+        lambda belief: {
+            "pick": "red",
+            "top_p": 0.90,
+            "candidate_sources": ["green", "yellow"],
+        },
+    )
+
+    mode = AttendMeetingMode()
+    belief = _meeting_belief(tick=40)
+    belief.self_role = "crewmate"
+    belief.vote_timer_ticks = None
+
+    guidance = mode.decide(belief, ActionState())
+
+    assert guidance.kind == "chat"
+    assert guidance.text == (
+        "green and yellow both called red out; red is my strongest read."
+    )
+
+
 def test_solver_off_timing_control_defers_the_frozen_legacy_vote(monkeypatch) -> None:
     monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: False)
     monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)

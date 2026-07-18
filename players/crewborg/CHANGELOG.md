@@ -40,6 +40,38 @@ After implementation:
 - Verified 50 focused meeting tests, the production-image full suite (`521
   passed, 13 skipped`), Ruff, and `git diff --check`.
 
+Hosted v1 diagnosis and v2 repair plan, before repair:
+
+- A fresh 100/arm hosted A/B completed without operational failures. The
+  confirmed-solver control won 37/100 crew games and guidance v1 won 40/100
+  (`+3pp`, `p=0.77`), but the guidance template appeared in zero of 160
+  candidate meetings.
+- Team ejections moved in the wrong direction but without an active mechanism:
+  crew ejections were 19 control versus 24 candidate, while impostor ejections
+  were tied 12-12. Treat these differences as run variance, not guidance impact.
+- Root cause: hosted perception can retain the safe 240-tick fallback clock.
+  The proportional cap reduced the guidance window to 40 ticks, inside the
+  48-tick auto-submit window, making the guidance branch unreachable.
+- Repair only that timing contradiction: use the configured 200-tick window
+  directly, retain the final 48-tick backstop and every precision gate, add a
+  fallback-clock reachability regression, and replay the fresh hosted history.
+- The fresh public history contains 5/5 correct strict-gate opportunities at
+  the intended tick-1,000 cutoff across the two arms. Upload v2 only after the
+  production-image suite and a fallback-clock smoke pass.
+
+After v2 repair:
+
+- Removed the proportional `timer // 6` cap. The configured 200-tick guidance
+  window now remains outside the 48-tick auto-submit backstop even when hosted
+  perception retains the safe 240-tick fallback clock.
+- Added a regression that leaves `vote_timer_ticks` unknown and verifies the
+  strict guidance chat fires with 200 fallback ticks remaining.
+- Verified 64 focused meeting/solver/parser tests, the production-image full
+  suite (`522 passed, 13 skipped`), Ruff, and `git diff --check`.
+- Replayed the two fresh v1 arms at the intended cutoff through the production
+  parser and repaired gate: 5/5 guidance opportunities target impostors. This
+  is a coverage/precision gate, not an outcome estimate.
+
 ## 2026-07-18 - Commitment-aware solver offline gate
 
 - Found that the solver preserved accusation weight even when the attributed

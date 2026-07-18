@@ -48,11 +48,17 @@ either version to the league without explicit human approval. Results:
 `docs/experiments/2026-07-18-solver-correlation-hosted-ab.md`, plus the next
 offline gates: `docs/experiments/2026-07-18-solver-commitment-offline.md` and
 `docs/experiments/2026-07-18-solver-early-guidance.md`. The active iteration
-tests a one-shot tick-1,000 solver guidance line. Its pre-registered gate is
-`P>=0.80`, two independent sources, and no more than two existing target
-ballots; this region is 20/20 correct across 858 retained meetings. The final
-ballot must still recompute at tick 1,152. Hosted success requires more
-impostor ejections without more crew ejections, not win rate alone.
+tests a one-shot tick-1,000 solver guidance line. Guidance v1 was an invalid
+mechanism test: it won 40/100 versus 37/100 control but fired zero times because
+the fallback 240-tick clock shrank its window to 40 ticks, inside the 48-tick
+auto-submit backstop. Crew ejections were 24 versus 19 and impostor ejections
+12 versus 12, but no treatment occurred. The repaired v2 uses the configured
+200-tick window directly. Its pre-registered gate remains `P>=0.80`, two
+independent sources, and no more than two existing target ballots; this region
+is 20/20 correct across 858 retained meetings and 5/5 on the fresh v1 public
+history. The final ballot still recomputes at tick 1,152. Hosted success
+requires the guidance line to fire and more impostor ejections without more
+crew ejections, not win rate alone.
 
 ## ▶ Open threads (2026-07-18)
 

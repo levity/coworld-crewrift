@@ -63,3 +63,9 @@ Evidence: Missing-ballot accusation sources were only 47.2% correct in retained 
 0.30 discount improved replay precision from 89.5% to 91.7%. On 200 fresh hash-complete replays,
 however, decay 0.30 versus 1.0 changed zero decisive public solver picks, while the uploaded arm
 lost 32/100 versus 47/100. The feature was removed despite its retrospective frontier gain.
+
+### Timed branches must be reachable under every supported clock fallback
+Evidence: Early guidance used `min(200, timer // 6)`. Hosted perception retained the 240-tick safe
+fallback, shrinking the window to 40 ticks while auto-submit started at 48. A 100-game candidate
+arm therefore emitted zero guidance lines despite passing unit and replay gates. Test timing
+features with missing advertised configuration, not only the standard 1,200-tick value.

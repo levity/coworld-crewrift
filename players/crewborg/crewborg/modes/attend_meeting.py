@@ -221,8 +221,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
     def _maybe_solver_guidance(self, belief: Belief) -> Intent | None:
         """Share one high-precision solve early enough for late voters to react."""
 
-        timer = effective_vote_timer_ticks(belief)
-        guidance_window = min(solver_guidance_remaining_ticks(), timer // 6)
+        guidance_window = solver_guidance_remaining_ticks()
         if (
             self._solver_guidance_attempted
             or self._remaining_ticks(belief) > guidance_window

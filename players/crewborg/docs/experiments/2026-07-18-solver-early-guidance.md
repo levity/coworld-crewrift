@@ -63,4 +63,28 @@ diagnostic, not an actionable rescue mechanism at the current timing.
 
 ## Hosted result
 
-Pending.
+### v1: invalid mechanism test
+
+Matched requests `xreq_38e74ea5-52e1-47e9-8a1a-a7e073a7f535`
+(confirmed-solver control) and
+`xreq_9c27aa0e-8c3d-4e4e-8c9f-59ade2638939` (guidance v1) completed 100/100
+episodes with zero failures. Control won 37 crew games and candidate won 40
+(`+3pp`, Fisher `p=0.77`; Newcombe 95% difference interval approximately
+`[-15.8pp, +21.6pp]`).
+
+All 200 public replays expanded with complete hashes and no trace warnings.
+Guidance fired zero times in 160 candidate meetings. Crew ejections were 19
+control versus 24 candidate; impostor ejections were tied 12-12. Because the
+mechanism did not fire, none of those outcome differences estimate guidance's
+effect.
+
+The runtime used the safe 240-tick fallback clock in the relevant path.
+`min(200, timer // 6)` therefore produced a 40-tick guidance window, but final
+auto-submit starts with 48 ticks remaining. The early branch was unreachable.
+This escaped the unit test because it supplied the advertised 1,200-tick
+timer.
+
+Public-history replay at the intended tick-1,000 cutoff finds one 1/1 correct
+strict-gate opportunity in control and four 4/4 in candidate. A v2 repair will
+remove only the proportional cap, add fallback-clock reachability coverage,
+and repeat the hosted mechanism test.

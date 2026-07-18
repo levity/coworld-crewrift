@@ -168,6 +168,11 @@ calibrated cutoff. The early result never sets the tentative ballot. Crew keeps
 collecting chat and recomputes the ordinary solver report at the 48-tick
 deadline before voting.
 
+The configured guidance window is not scaled down against the locally observed
+timer. Hosted perception can retain the safe 240-tick fallback clock; scaling
+200 ticks to one-sixth of that fallback would put guidance inside the 48-tick
+auto-submit window and make the branch unreachable.
+
 ### Imposter (`_decide_imposter`)
 
 Deflect heat onto crewmates, never teammates, and survive the meeting. Order of preference:
