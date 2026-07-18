@@ -23,27 +23,21 @@ This is *not* a log or archive: finished work lives in git history / the
 - League telemetry: upload with `CREWBORG_METRICS=1 CREWBORG_TRACE_GROUPS=all` (see
   user_preferences.md); league artifacts are EPHEMERAL (~one round) — harvest promptly.
 
-**Current experiment branch (2026-07-18):** `worktree-crewborg-solver-deferred` carries an
-opt-in persistent joint-hypothesis meeting solver. Its first matched hosted A/B regressed
-crew win 28.1% -> 20.3% and player-vote precision 95.2% -> 57.9% because the parser
-treated attributed witnesses as targets. The predicate-aware v3 screen recovered to
-25.0% crew wins and 77.3% vote precision; wrong votes fell 16 -> 5, wrong yellow votes
-13 -> 0, and crew/impostor ejections normalized from 17/14 to 10/16. It still did not
-beat the historical solver-off control (28.1% wins, 95.2% precision), and the 64-game
-win delta is unresolved. The correlation-aware candidate then completed a fresh
-concurrent 64/arm A/B: crew wins rose from 24/64 (37.5%) to 34/64 (53.1%), a
-directional +15.6pp (`p=0.076`). Player-vote precision was flat
-(78.6% -> 77.3%), while correct subject votes increased 11 -> 17 and impostor
-ejections 11 -> 14 with crew ejections unchanged at 7. This is promising but
-confounded by vote timing: control voted at median tick 13 and candidate at tick
-1,164. A timing-matched 64/arm replication then held both arms at median tick
-1,164 and moved crew wins 31 -> 35, player votes 18 -> 28, and correct votes
-16 -> 26 while wrong votes stayed at 2. Across both fresh A/Bs, solver arms are
-69/128 wins versus 55/128 controls (+10.9pp, `p=0.080`). Exact-template
-grouping, non-vote grounding, and conditional threshold reductions all failed
-the seven-history offline gate. Reuse the unchanged timing-matched artifacts
-for a larger confirmation; do not submit or enable the solver by default before
-that result. Results:
+**Current experiment branch (2026-07-18):** `worktree-crewborg-solver-deferred` carries the
+correlation-aware persistent joint-hypothesis meeting solver. Three fresh matched
+A/Bs now all favor it: 34/64 vs 24/64, 35/64 vs 31/64, and a 100/arm
+confirmation at 50/100 vs 37/100. Cumulatively, solver arms are 119/228 crew
+wins versus 92/228 controls (+11.8pp, stratified `p=0.011`, common OR 1.62).
+The confirmation held median subject vote timing at 1,163 ticks in both arms and
+increased impostor ejections 9 -> 14 with crew ejections flat at 18. It did not
+replicate the earlier individual precision gain: player votes were 26/34
+correct versus 28/28 control. Across all nine retained arms, however, the
+current public-evidence solver is 162/181 on decisive picks (89.5%). Exact
+template grouping, same-tick template decay, non-vote grounding, conditional
+threshold reductions, and other correlation/weight variants all lose useful
+coverage without removing enough errors. The unchanged timing-matched candidate
+is the promotion target with veto off. Do not submit it to the league without
+explicit human approval. Results:
 `docs/experiments/2026-07-17-solver-ab-result.md` and
 `docs/experiments/2026-07-17-claim-parser-offline.md`, plus the v3 hosted screen:
 `docs/experiments/2026-07-18-solver-parser-hosted-screen.md` and the correlation gate:
@@ -57,12 +51,9 @@ that result. Results:
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Confirm the timing-matched solver effect at larger N.** The first two fresh
-   A/Bs are directionally consistent (+15.6pp and +6.25pp crew wins), and the
-   fair timing-matched run added ten correct player votes with no added errors.
-   Run 100 episodes per arm using the already uploaded exact-image timing
-   candidate/control. Require the candidate to retain its vote-precision and
-   ejection mechanism; use the public replay warehouse because private artifact
-   endpoints return 403 for this credential.
+2. **Promote the confirmed solver, pending approval.** The three-run crew-win
+   effect is resolved (`p=0.011`) and the exact candidate artifact is already
+   uploaded. Keep `CREWBORG_SOLVER=1`, veto off, and deadline timing unchanged.
+   Individual vote precision remains a monitoring metric, not a claimed gain.
 3. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
    (4× rivals) yet converts no faster — the long-standing hesitancy lever.

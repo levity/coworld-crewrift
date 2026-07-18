@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-07-18 - Timing-matched solver confirmation
+
+- Reused the exact timing-matched artifacts for a fresh 100/arm confirmation:
+  deferred solver-off control `xreq_2b8f99aa` completed 37/100 crew wins and
+  solver-on candidate `xreq_95153fe2` completed 50/100 (+13.0pp, `p=0.064`).
+  All three fresh matched runs favor the solver; cumulatively it is 119/228
+  wins versus 92/228 controls (+11.8pp, stratified `p=0.011`, common odds
+  ratio 1.62).
+- The event audit found 100/100 hash-complete control replays and 98/100
+  hash-complete candidate replays. The two candidate warnings correspond to
+  anomalous `-100` subject scores despite completed episode metadata and
+  observable play, so the official result retains them. Excluding them only as
+  a sensitivity analysis gives 50/98 candidate wins versus 37/100
+  (`+14.0pp`, `p=0.047`).
+- On the 98 hash-complete candidate histories, subject player votes were 26/34
+  correct versus 28/28 in control. This confirmation did not replicate the
+  earlier precision gain. However, impostor ejections increased 9 -> 14 while
+  crew ejections stayed at 18, matching the solver's intended team-level
+  mechanism.
+- The current public-evidence solver made 21/25 correct decisive picks on the
+  clean candidate histories and 11/12 on control. Across all nine retained
+  arms it is 162/181 (89.5%).
+- Tested a new discount for byte-identical, same-tick accusations from
+  different speakers. Every setting retained all 19 pooled errors while
+  removing 4-10 correct picks, so the gameplay change was discarded.
+- Updated `tools/analyze_solver_history.py` to exclude hash-failed traces
+  automatically. The unchanged correlation-aware solver is now the promotion
+  candidate; league submission remains gated on explicit approval.
+
 ## 2026-07-18 - Timing-matched solver replication
 
 - Ran 64 episodes per arm from the exact image at `4f55b2f`, holding the

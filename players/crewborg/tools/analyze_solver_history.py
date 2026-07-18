@@ -52,7 +52,27 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
         (episode_id, slot): {"policy_version": policy_version, "role": role}
         for episode_id, slot, policy_version, role in player_rows
     }
-    episodes = sorted({episode_id for episode_id, _, _, _ in player_rows})
+    trace_warning_files = list(
+        (warehouse / "events" / "key=trace_warning").glob("*.parquet")
+    )
+    trace_warning_episodes = (
+        {
+            row[0]
+            for row in con.execute(
+                f"SELECT DISTINCT episode_id FROM "
+                f"read_parquet('{_events(warehouse, 'trace_warning')}')"
+            ).fetchall()
+        }
+        if trace_warning_files
+        else set()
+    )
+    episodes = sorted(
+        {
+            episode_id
+            for episode_id, _, _, _ in player_rows
+            if episode_id not in trace_warning_episodes
+        }
+    )
 
     color_rows = con.execute(
         f"SELECT episode_id, slot, value FROM read_parquet('{_events(warehouse, 'player_joined')}')"

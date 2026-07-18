@@ -125,3 +125,75 @@ Subject player-vote precision is 43/50 (86.0%) versus 27/32 (84.4%), with 18
 additional correct votes and four additional wrong votes. The most defensible
 next experiment is a larger timing-matched confirmation of the unchanged
 solver, not another rule fitted to the sparse errors.
+
+## 100/arm confirmation
+
+- Control request: `xreq_2b8f99aa-aee5-4911-9634-15fa81736fe1`
+- Candidate request: `xreq_95153fe2-d463-45c5-8db2-4069d9b30359`
+- Both reused the exact uploaded versions and configuration from the
+  timing-matched replication. Each request completed 100/100 episodes with no
+  request-level failures.
+
+| Metric | Deferred solver off | Solver on | Change |
+| --- | ---: | ---: | ---: |
+| Official crew wins | 37/100 (37.0%) | 50/100 (50.0%) | +13.0pp |
+| Subject correct player votes | 28 | 26 | -2 |
+| Subject wrong player votes | 0 | 8 | +8 |
+| Subject player-vote precision | 100.0% | 76.5% | -23.5pp |
+| Subject player votes | 28 | 34 | +6 |
+| Impostors ejected | 9 | 14 | +5 |
+| Crew ejected | 18 | 18 | 0 |
+| Hash-complete voting phases | 159 | 158 | -1 |
+| Median subject vote offset | 1,163 ticks | 1,163 ticks | 0 |
+
+The official win difference is directional (`p=0.064`, approximate 95% CI
+`[-0.6pp, +26.6pp]`). Two candidate episodes have anomalous subject scores of
+`-100`: both are marked completed with no episode/policy error and contain
+ordinary subject actions, but their public replay hash fails. The official
+analysis retains them. As a declared trace-completeness sensitivity check,
+excluding those two gives 50/98 candidate wins versus 37/100 control
+(`+14.0pp`, `p=0.047`, approximate 95% CI `[+0.3pp, +27.7pp]`).
+
+The control warehouse contains 5,436,336 events across 100/100 complete
+replays. The candidate warehouse contains 5,162,156 events across the 98
+hash-complete replays; the two warning episodes are excluded from behavioral
+counts. Unlike the prior replication, subject-vote precision did not improve
+(`p=0.006`, Fisher exact). Seven of the eight wrong candidate votes were
+meeting-entry fallback votes under the public-evidence reconstruction; only one
+matched a decisive solver pick. Runtime private priors and clears are
+unavailable, so this attribution is suggestive rather than exact.
+
+The team-level mechanism remains favorable: the candidate ejected five more
+impostors with no additional crew ejections. The public-evidence solver made
+21/25 correct decisive picks on clean candidate history and 11/12 on control.
+Across all nine retained arms, the current solver makes 162/181 correct
+decisive picks (89.5%).
+
+All three fresh matched A/Bs favor the solver:
+
+| Run | Control wins | Candidate wins | Change |
+| --- | ---: | ---: | ---: |
+| Concurrent screen | 24/64 | 34/64 | +15.6pp |
+| Timing-matched replication | 31/64 | 35/64 | +6.25pp |
+| Timing-matched confirmation | 37/100 | 50/100 | +13.0pp |
+| **Pooled** | **92/228 (40.4%)** | **119/228 (52.2%)** | **+11.8pp** |
+
+The stratified common-effect test gives `p=0.011` and a common odds ratio of
+1.62. The pooled normal-approximation 95% interval for the absolute win effect
+is `[+2.8pp, +20.9pp]`.
+
+One post-confirmation hypothesis discounted byte-identical accusations emitted
+by different speakers on the same tick. It was narrowly motivated by two known
+generated-consensus errors, but failed the full retained-history gate: decay
+values from 0.75 through 0 removed 4-10 correct picks and no wrong picks. The
+change was removed.
+
+## Decision
+
+The unchanged correlation-aware solver is demonstrably better on crew wins.
+Its value appears at team level through more impostor ejections, while
+individual vote precision is noisy and should not be presented as an
+established gain. Further rule fitting to the sparse public errors is more
+likely to remove useful recall than improve the frontier. Promote the exact
+timing-matched candidate behavior; keep veto off. League submission remains a
+separate, explicitly approved action.
