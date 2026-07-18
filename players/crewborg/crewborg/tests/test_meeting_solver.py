@@ -5,6 +5,7 @@ from __future__ import annotations
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
 from crewborg.strategy.meeting.solver import (
     SolverConfig,
+    guidance_pick,
     solve_hypotheses,
     solver_report,
 )
@@ -457,6 +458,33 @@ def test_report_accepts_decisive_multi_source_consensus(monkeypatch) -> None:
 
     assert report["robust_required"] is False
     assert report["pick"] == "red"
+
+
+def test_guidance_pick_requires_confidence_sources_and_unsaturated_votes(
+    monkeypatch,
+) -> None:
+    report = {
+        "pick": "red",
+        "top_p": 0.80,
+        "candidate_sources": ["green", "yellow"],
+    }
+
+    assert guidance_pick(report, visible_vote_support=2) == "red"
+    assert guidance_pick(report, visible_vote_support=3) is None
+    assert (
+        guidance_pick(
+            {**report, "candidate_sources": ["green"]},
+            visible_vote_support=2,
+        )
+        is None
+    )
+    assert (
+        guidance_pick({**report, "top_p": 0.799}, visible_vote_support=2)
+        is None
+    )
+
+    monkeypatch.setenv("CREWBORG_SOLVER_GUIDANCE_P", "0.85")
+    assert guidance_pick(report, visible_vote_support=2) is None
 
 
 def test_report_does_not_fire_from_vote_only_consensus(monkeypatch) -> None:

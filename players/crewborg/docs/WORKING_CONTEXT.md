@@ -46,7 +46,13 @@ either version to the league without explicit human approval. Results:
 `docs/experiments/2026-07-18-solver-parser-hosted-screen.md` and the correlation gate:
 `docs/experiments/2026-07-18-solver-correlation-offline.md`, and hosted A/B:
 `docs/experiments/2026-07-18-solver-correlation-hosted-ab.md`, plus the next
-offline gate: `docs/experiments/2026-07-18-solver-commitment-offline.md`.
+offline gates: `docs/experiments/2026-07-18-solver-commitment-offline.md` and
+`docs/experiments/2026-07-18-solver-early-guidance.md`. The active iteration
+tests a one-shot tick-1,000 solver guidance line. Its pre-registered gate is
+`P>=0.80`, two independent sources, and no more than two existing target
+ballots; this region is 20/20 correct across 858 retained meetings. The final
+ballot must still recompute at tick 1,152. Hosted success requires more
+impostor ejections without more crew ejections, not win rate alone.
 
 ## ▶ Open threads (2026-07-18)
 

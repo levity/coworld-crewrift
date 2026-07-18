@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-07-18 - Early solver guidance plan
+
+Before implementation:
+
+- Recompute the correlation-aware solver once at meeting tick 1,000, after
+  five-sixths of the 1,200-tick discussion window but with about 200 ticks left
+  for other players to react.
+- Speak without committing the ballot only when the public solve is decisive,
+  `P(imposter) >= 0.80`, at least two independent attributed sources support
+  the target, and at most two public ballots already target them.
+- Keep collecting utterances after the guidance line and recompute the actual
+  vote at the existing 1,152-tick deadline. Do not let the early result freeze
+  or lower the final vote gate.
+- Gate locally on all retained replay warehouses. At tick 1,000 the proposed
+  guidance region contains 20/20 correct public-evidence picks, compared with
+  101/114 (88.6%) for the ordinary solver region.
+- Reject an early crowd-rescue rule: before tick 1,000 the solver does not
+  reliably identify false crowd leaders, while by tick 1,000 three-ballot
+  piles are usually already immutable.
+- In the hosted A/B, require guidance trace evidence and judge both sides of
+  the team outcome: increase impostor ejections without increasing crew
+  ejections. A win-rate change without the intended mechanism is not enough.
+
+After implementation:
+
+- Added a one-shot guidance attempt at tick 1,000 for standard meetings. The
+  attempt latches whether or not it speaks, so evidence arriving after the
+  calibrated cutoff cannot open a new early-chat path.
+- Added environment-backed gates for cutoff, posterior, independent source
+  count, and existing ballot support. The guidance line cites two attributed
+  sources and does not set a tentative vote or mark the final accusation sent.
+- Preserved the final tick-1,152 solve and coupled accusation/vote. A focused
+  test changes the solver pick between the early and final calls and verifies
+  that the ballot follows the recomputed target.
+- Replayed the production helper at tick 1,000 across seven retained
+  hash-complete warehouses: guidance fires on 20/20 correct targets, including
+  7/7 in the held-out confirmation candidate history.
+- Verified 50 focused meeting tests, the production-image full suite (`521
+  passed, 13 skipped`), Ruff, and `git diff --check`.
+
 ## 2026-07-18 - Commitment-aware solver offline gate
 
 - Found that the solver preserved accusation weight even when the attributed

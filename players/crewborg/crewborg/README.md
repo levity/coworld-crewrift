@@ -277,6 +277,10 @@ transport tuning never do.
 | `CREWBORG_SOLVER` | off | `1` enables the persistent joint-hypothesis crewmate meeting solver; it waits until the learned meeting deadline backstop before deciding. |
 | `CREWBORG_SOLVER_VETO` | off | `1` lets the solver reject a base-policy vote whose joint marginal is below `CREWBORG_SOLVER_VETO_P`. |
 | `CREWBORG_SOLVER_P` / `CREWBORG_SOLVER_MARGIN` | `0.65` / `0.10` | Minimum live-player marginal and separation from the strongest below-threshold alternative. |
+| `CREWBORG_SOLVER_GUIDANCE_REMAINING_TICKS` | `200` | One-shot early solver-chat cutoff. On a 1,200-tick meeting, solve once at tick 1,000; the final ballot still recomputes at the deadline. |
+| `CREWBORG_SOLVER_GUIDANCE_P` | `0.80` | Minimum marginal for the early guidance line. |
+| `CREWBORG_SOLVER_GUIDANCE_MIN_SOURCES` | `2` | Minimum independent attributed accusation sources for early guidance. |
+| `CREWBORG_SOLVER_GUIDANCE_MAX_VOTES` | `2` | Do not amplify an early target once more than this many visible ballots already support them. |
 | `CREWBORG_SOLVER_<CONFIG_FIELD>` | see `SolverConfig` in `strategy/meeting/solver.py` | Evidence provenance, repeat decay, prior strength, and role-conditioned likelihood knobs. |
 | `CREWBORG_RECON_WINDOW` | `100` | Recon lead window (ticks before kill-ready) to pre-position on a victim. |
 | `CREWBORG_EVADE_TICKS` | `72` | Evade window (ticks) after our own kill before returning to the kill loop. |

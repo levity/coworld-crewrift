@@ -159,6 +159,15 @@ The report placed in the meeting trace contains global marginals and the five
 highest-probability joint assignments. `CREWBORG_SOLVER_VETO=1` can independently
 use those marginals to reject a base-policy vote.
 
+The enabled solver also makes one non-binding guidance attempt after five-sixths
+of the meeting (tick 1,000 on the standard timer). It speaks only when the
+decisive target clears the stricter guidance threshold, has at least two
+independent attributed sources, and has no more than two visible ballots. The
+attempt latches even when rejected: retrying on later consensus would leave the
+calibrated cutoff. The early result never sets the tentative ballot. Crew keeps
+collecting chat and recomputes the ordinary solver report at the 48-tick
+deadline before voting.
+
 ### Imposter (`_decide_imposter`)
 
 Deflect heat onto crewmates, never teammates, and survive the meeting. Order of preference:
