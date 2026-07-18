@@ -2,21 +2,24 @@
 
 ## 2026-07-18 - Bootstrap-phase escape for frozen crew seats
 
-- Fixed the ~15%-of-crew-seats freeze (0 tasks, 1 room; the v81/v82 champion
-  fingerprint). Root cause is the phase machine, not the role latch: `derive_phase`
+- Addressed the local root cause of the ~15%-of-crew-seats freeze fingerprint
+  (0 tasks, 1 room) seen in v81/v82. The phase machine, not the role latch, is
+  the blocking layer: `derive_phase`
   can only reach `Playing` from `unknown`/`Lobby` via the RoleReveal interstitial
   or the task-counter HUD, and `rule_based` dispatches every pre-play phase to
   `idle` — so a seat that misses both signals idles all game.
-- Added a time-based bootstrap escape (`BOOTSTRAP_ESCAPE_TICKS`, ~2 s at 24 Hz):
-  after that many continuous camera-ready ticks still stuck pre-play, force
-  `Playing` and default an unresolved role to crewmate. A normally-bootstrapping
-  seat reaches `Playing` within a few ticks, so the escape only ever fires on an
-  otherwise-frozen seat; the "unknown≠crew" invariant is preserved on the normal
-  path (task-counter present keeps `self_role=None`).
-- Added four belief tests (escape fires after the dwell, requires a continuous
-  camera-ready streak, never overrides a normal reveal's latched role). Full
-  suite: 514 passed, 13 skipped.
-- Not yet A/B'd; held for QA before build/upload.
+- Added a conservative time-based bootstrap escape after a positively observed
+  Lobby clears. Its 216-tick dwell exceeds GameInfo + RoleReveal + one second,
+  and resets on explicit lobby/reveal/GameInfo signals or a camera interruption,
+  so a normal configured pre-game sequence finishes before it can fire.
+- The escape changes only `phase`; it deliberately leaves `self_role=None`.
+  Unknown roles already take Normal mode during Playing, while fabricating crew
+  could misclassify a missed imposter reveal and poison one-shot role telemetry.
+- Added belief tests for the escape dwell, continuous-camera requirement, explicit
+  lobby protection, GameInfo/reveal reset, unknown-start protection, and normal
+  role-reveal preservation. Full suite: 517 passed, 13 skipped; Ruff clean.
+- Built locally as `crewborg:bootstrap-phase-fix`; Gate-1 smoke passed against
+  Crewrift Prime 0.4.65. Not uploaded or A/B'd.
 
 ## 2026-07-18 - Predicate-aware hosted screen
 

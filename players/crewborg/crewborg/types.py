@@ -402,9 +402,9 @@ class Belief(BaseModel):
     # Phase machine (design §5 phase).
     phase: Phase = "unknown"
     phase_start_tick: int = 0
-    # First tick of the current uninterrupted camera-ready streak while still stuck in
-    # a pre-play phase (`unknown`/`Lobby`). Drives the bootstrap-escape (see
-    # BOOTSTRAP_ESCAPE_TICKS); ``None`` whenever we are not in that stuck condition.
+    # First tick of the current uninterrupted, signal-free camera-ready streak after
+    # an observed Lobby. Drives the bootstrap escape (see BOOTSTRAP_ESCAPE_TICKS);
+    # ``None`` whenever we are not in that narrowly defined stuck condition.
     bootstrap_ready_since_tick: int | None = None
     # Live meeting length learned from the pre-game GameInfo interstitial.
     vote_timer_ticks: int | None = None
@@ -544,12 +544,12 @@ class Command(BaseModel):
     chat: str | None = None
 
 
-# Bootstrap-escape dwell: how many consecutive camera-ready ticks we tolerate stuck in
-# a pre-play phase (`unknown`/`Lobby`) before forcing `Playing`. A seat that bootstraps
-# normally reaches `Playing` within a few ticks of the live scene (via the RoleReveal
-# interstitial or the task-counter HUD), so this only ever fires on a seat that missed
-# both — the ~15% frozen-crew fingerprint. ~2 s at 24 Hz.
-BOOTSTRAP_ESCAPE_TICKS = 48
+# Bootstrap-escape dwell after an observed Lobby signal clears. This exceeds the
+# longest signal-free pre-play sequence if both GameInfo (72 ticks) and RoleReveal
+# (120 ticks) fail to parse, plus one second of margin. Under the configured phase
+# durations, the escape therefore cannot fire before Playing. Crewrift runs at
+# 24 ticks/s.
+BOOTSTRAP_ESCAPE_TICKS = 72 + 120 + 24
 
 
 def derive_phase(resolved: ResolvedScene, current: Phase) -> Phase:
@@ -740,21 +740,33 @@ def update_belief(belief: Belief, percept: Percept) -> None:
 
     phase = derive_phase(resolved, belief.phase)
 
-    # Bootstrap escape. `derive_phase` can only reach `Playing` from `unknown`/`Lobby`
-    # via the RoleReveal interstitial or the task-counter HUD; a crew seat that misses
-    # both would otherwise idle in a pre-play phase for the whole game (0 tasks — the
-    # frozen-crew fingerprint). If the camera has been continuously live for
-    # BOOTSTRAP_ESCAPE_TICKS while still pre-play, force `Playing` so Normal mode
-    # activates, and default an unresolved role to crewmate (an imposter would have
-    # latched from the `IMPS` text + kill HUD; a stuck live seat is overwhelmingly crew,
-    # and crew is the safe passive default even in the rare imposter-miss case).
-    if phase in ("unknown", "Lobby") and resolved.camera_ready:
+    # Bootstrap escape. `derive_phase` can only reach `Playing` from the initial
+    # `unknown`/`Lobby` state via RoleReveal text or task HUD signals. After we have
+    # positively observed Lobby, start a conservative dwell only once every recognized
+    # pre-game signal has cleared. The dwell is longer than GameInfo + RoleReveal, so
+    # a normal pre-game sequence finishes before the escape can fire.
+    #
+    # Only the phase is recovered. `self_role=None` already takes the safe Normal-mode
+    # path during Playing, and retaining "unknown" avoids fabricating crew or poisoning
+    # the one-shot role telemetry before a late positive role signal arrives.
+    bootstrap_signal_present = bool(
+        resolved.phase_texts
+        or resolved.vote_timer_ticks is not None
+        or resolved.reveal_player_colors
+        or resolved.meeting_caller_color is not None
+        or resolved.voting.active
+    )
+    if (
+        belief.phase == "Lobby"
+        and phase == "Lobby"
+        and resolved.camera_ready
+        and not bootstrap_signal_present
+    ):
         if belief.bootstrap_ready_since_tick is None:
             belief.bootstrap_ready_since_tick = percept.tick
         elif percept.tick - belief.bootstrap_ready_since_tick >= BOOTSTRAP_ESCAPE_TICKS:
             phase = "Playing"
-            if belief.self_role is None:
-                belief.self_role = "crewmate"
+            belief.bootstrap_ready_since_tick = None
     else:
         belief.bootstrap_ready_since_tick = None
 

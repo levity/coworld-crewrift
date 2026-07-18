@@ -52,8 +52,12 @@ changes are counterproductive on the captured history. Full suite before upload:
    direct pins and cross-meeting accumulation. Raising the pick threshold removes lower-P
    correct picks first; enabling the current veto would drop 13 correct fallback votes to
    remove 3 wrong ones. Re-run both histories offline, then use a fresh 64/arm A/B.
-3. **Slot-4 role-limbo**: a crew seat at slot 4 can miss the CREWMATE reveal text entirely →
-   `self_role=None` forever → frozen, 0 task attempts (~15% of crew games). Needs a bounded
-   fallback-to-crew escape in `types.py` (keep the positive latch as primary).
+3. **Slot-4 bootstrap freeze has a local fix awaiting hosted validation.** A crew seat can
+   miss both RoleReveal text and task-HUD bootstrap signals, leaving the phase in `Lobby`
+   forever (0 task attempts, ~15% of crew seats). The branch now escapes only after an
+   observed Lobby clears and 216 signal-free camera-ready ticks elapse; it never fabricates
+   a role and resets whenever explicit pre-game UI is recognized. Full suite: 517 passed,
+   13 skipped; Ruff clean.
+   Local amd64 build + Gate-1 smoke passed. Not uploaded or A/B'd yet.
 4. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
    (4× rivals) yet converts no faster — the long-standing hesitancy lever.

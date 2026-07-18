@@ -216,18 +216,21 @@ def test_phase_stays_unknown_before_any_signal() -> None:
 def test_bootstrap_escape_unfreezes_a_seat_that_missed_both_signals() -> None:
     from crewborg.types import BOOTSTRAP_ESCAPE_TICKS
 
-    # A live scene with NO reveal text and NO task-counter/task signals: the seat that
-    # missed both bootstrap paths. It must stay pre-play until the dwell elapses, then
-    # force Playing (so Normal mode runs) and default the unresolved role to crew.
+    # Observe Lobby positively, then simulate a seat that misses GameInfo, RoleReveal,
+    # and the task HUD. It must stay pre-play beyond the full interstitial budget, then
+    # force Playing so Normal mode runs without fabricating a role.
     belief = Belief()
-    for tick in range(1, BOOTSTRAP_ESCAPE_TICKS + 1):  # ticks 1..48 → dwell not yet met
+    _fold(belief, 1, phase_texts=frozenset({"STARTING"}))
+    assert belief.phase == "Lobby"
+
+    for tick in range(2, BOOTSTRAP_ESCAPE_TICKS + 2):
         _fold(belief, tick)
-        assert belief.phase == "unknown"
+        assert belief.phase == "Lobby"
         assert belief.self_role is None
 
-    _fold(belief, BOOTSTRAP_ESCAPE_TICKS + 1)  # dwell met (delta == BOOTSTRAP_ESCAPE_TICKS)
+    _fold(belief, BOOTSTRAP_ESCAPE_TICKS + 2)
     assert belief.phase == "Playing"
-    assert belief.self_role == "crewmate"
+    assert belief.self_role is None
 
 
 def test_bootstrap_escape_requires_a_continuous_camera_ready_streak() -> None:
@@ -237,7 +240,8 @@ def test_bootstrap_escape_requires_a_continuous_camera_ready_streak() -> None:
     # escape only fires after an uninterrupted live streak — it never triggers on a
     # seat that is merely between scenes.
     belief = Belief()
-    for tick in range(1, BOOTSTRAP_ESCAPE_TICKS):
+    _fold(belief, 1, phase_texts=frozenset({"STARTING"}))
+    for tick in range(2, BOOTSTRAP_ESCAPE_TICKS):
         _fold(belief, tick)
     not_ready = ResolvedScene(tick=BOOTSTRAP_ESCAPE_TICKS, camera_ready=False, camera_x=0, camera_y=0)
     update_belief(belief, Percept(tick=BOOTSTRAP_ESCAPE_TICKS, messages_applied=BOOTSTRAP_ESCAPE_TICKS, resolved=not_ready))
@@ -245,7 +249,53 @@ def test_bootstrap_escape_requires_a_continuous_camera_ready_streak() -> None:
 
     # The streak restarts; one more tick is not enough to re-arm the escape.
     _fold(belief, BOOTSTRAP_ESCAPE_TICKS + 1)
+    assert belief.phase == "Lobby"
+
+
+def test_bootstrap_escape_never_overrides_explicit_lobby() -> None:
+    from crewborg.types import BOOTSTRAP_ESCAPE_TICKS
+
+    belief = Belief()
+    for tick in range(1, BOOTSTRAP_ESCAPE_TICKS + 50):
+        _fold(belief, tick, phase_texts=frozenset({"WAITING"}))
+    assert belief.phase == "Lobby"
+    assert belief.self_role is None
+    assert belief.bootstrap_ready_since_tick is None
+
+
+def test_bootstrap_escape_resets_on_game_info_and_reveal_icons() -> None:
+    from crewborg.types import BOOTSTRAP_ESCAPE_TICKS
+
+    belief = Belief()
+    _fold(belief, 1, phase_texts=frozenset({"STARTING"}))
+    for tick in range(2, 20):
+        _fold(belief, tick)
+    assert belief.bootstrap_ready_since_tick == 2
+
+    # Either recognized pre-game signal breaks the ambiguous live-scene streak.
+    _fold(belief, 20, vote_timer_ticks=1200)
+    assert belief.bootstrap_ready_since_tick is None
+    _fold(belief, 21, reveal_player_colors=frozenset({"green"}))
+    assert belief.bootstrap_ready_since_tick is None
+
+    # A fresh full dwell is required after the final signal clears.
+    for tick in range(22, 22 + BOOTSTRAP_ESCAPE_TICKS):
+        _fold(belief, tick)
+        assert belief.phase == "Lobby"
+    _fold(belief, 22 + BOOTSTRAP_ESCAPE_TICKS)
+    assert belief.phase == "Playing"
+    assert belief.self_role is None
+
+
+def test_bootstrap_escape_does_not_arm_without_observed_lobby() -> None:
+    from crewborg.types import BOOTSTRAP_ESCAPE_TICKS
+
+    belief = Belief()
+    for tick in range(1, BOOTSTRAP_ESCAPE_TICKS + 50):
+        _fold(belief, tick)
     assert belief.phase == "unknown"
+    assert belief.self_role is None
+    assert belief.bootstrap_ready_since_tick is None
 
 
 def test_bootstrap_escape_does_not_override_a_normal_reveal() -> None:
