@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import Any, Iterable
 
+from crewborg.strategy.alibi import alibi_clears
 from crewborg.strategy.suspicion import witnessed_imposters
 from crewborg.types import MeetingRecord, SocialClaim
 
@@ -622,6 +623,10 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                 and getattr(record, "tasks_completed_watched", 0) > 0
             }
         )
+        if not public_only:
+            # Co-presence alibis (opt-in CREWBORG_ALIBI; empty otherwise): players held in
+            # continuous view across a victim's death window could not be the killer.
+            clears = clears | ((alibi_clears(belief) & player_set) - pins)
         claims = list(getattr(belief, "social_claims", ()) or ())
         meetings = list(getattr(belief, "meeting_history", ()) or ())
         priors = (
