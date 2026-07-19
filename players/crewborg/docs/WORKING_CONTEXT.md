@@ -67,9 +67,11 @@ current-meeting sources agree; the selected gate is 29/29 on six selection
 arms and 29/29 on held-out guidance plus crowd-cap history. It also truthfully
 defends crewborg's known-crewmate identity after a public self-vote. Neither
 path stages a ballot, and the full solver still recomputes at tick 1,152. Local
-validation is complete; upload inert and run a fresh matched 100/arm A/B,
-requiring runtime activation and measuring subject complicity, subject
-self-ejections, team crew ballots/ejections, and impostor ejections.
+validation is complete and inert upload `crewborg-solver-early-public:v1`
+(`9e7990ba-93be-49fa-9aaa-de28b2a53052`) carries source `d272500`. Run a fresh
+matched 100/arm A/B, requiring runtime activation and measuring subject
+complicity, subject self-ejections, team crew ballots/ejections, and impostor
+ejections.
 
 ## ▶ Open threads (2026-07-18)
 

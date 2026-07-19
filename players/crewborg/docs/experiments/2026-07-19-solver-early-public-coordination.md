@@ -68,3 +68,11 @@ deadline path rather than tick 240. Focused tests and exact history replay
 cover the timed early branch. Hosted evaluation must confirm runtime
 `solver_early_chat` and `solver_self_defense` events before interpreting any
 scoreboard delta.
+
+## Uploaded artifact
+
+Uploaded inert as `crewborg-solver-early-public:v1`, immutable policy version
+`9e7990ba-93be-49fa-9aaa-de28b2a53052`, from source `d272500` and image
+`sha256:16248c82afc3eda3219fa754781bc2ce42384398d0855df8c7512fa6589e1e78`.
+The upload enables the solver, crowd cap, early chat, full metrics, and all
+trace groups. It has not been submitted to any league.
