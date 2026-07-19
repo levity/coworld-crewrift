@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import Any, Iterable
 
-from crewborg.strategy.alibi import alibi_clears
+from crewborg.strategy.alibi import alibi_sets
 from crewborg.strategy.suspicion import witnessed_imposters
 from crewborg.types import MeetingRecord, SocialClaim
 
@@ -373,10 +373,16 @@ def solve_hypotheses(
     *,
     pins: frozenset[str] | set[str] = frozenset(),
     clears: frozenset[str] | set[str] = frozenset(),
+    alibi_groups: Iterable[frozenset[str] | set[str]] = (),
     priors: dict[str, float] | None = None,
     config: SolverConfig | None = None,
 ) -> dict[str, Any]:
-    """Return normalized joint hypotheses, marginals, and evidence counts."""
+    """Return normalized joint hypotheses, marginals, and evidence counts.
+
+    ``alibi_groups`` are per-kill co-present sets (see ``strategy/alibi.py``): a hypothesis
+    is impossible if every impostor in it was alibied for the *same* kill, so such
+    hypotheses are dropped. This is a pair/joint exclusion, never a per-player clear.
+    """
 
     config = config or _config()
     players = list(dict.fromkeys(players))
@@ -384,11 +390,25 @@ def solve_hypotheses(
     if imposter_count <= 0 or imposter_count > len(players):
         return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
 
+    # A pinned player is a known impostor; their co-presence at another kill only means they
+    # were the non-killing impostor, so it must not exclude anything — drop pins from the
+    # alibi groups before testing containment.
+    alibi_excl = [set(group) - set(pins) for group in alibi_groups]
+    pinned = set(pins)
+
+    def _alibied_out(combo: frozenset[str]) -> bool:
+        return any(combo <= excl for excl in alibi_excl if len(excl) >= imposter_count)
+
     hypotheses = [
         frozenset(combo)
         for combo in combinations(players, imposter_count)
-        if set(pins) <= set(combo)
+        if pinned <= set(combo)
     ]
+    # Apply alibi exclusions, but never wipe out the whole hypothesis space (a sound alibi
+    # cannot exclude every pair; if it appears to, distrust it rather than abstain).
+    surviving = [h for h in hypotheses if not _alibied_out(h)]
+    if surviving:
+        hypotheses = surviving
     if not hypotheses:
         return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
 
@@ -623,10 +643,11 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                 and getattr(record, "tasks_completed_watched", 0) > 0
             }
         )
-        if not public_only:
-            # Co-presence alibis (opt-in CREWBORG_ALIBI; empty otherwise): players held in
-            # continuous view across a victim's death window could not be the killer.
-            clears = clears | ((alibi_clears(belief) & player_set) - pins)
+        # Co-presence alibis (opt-in CREWBORG_ALIBI; empty otherwise). NOT a per-player
+        # clear — with two impostors a single alibi proves only "not this killer". Passed
+        # to the solver as per-kill sets so it can drop any hypothesis whose whole impostor
+        # set was alibied for one kill (that kill would have had no perpetrator).
+        alibis = [] if public_only else [group & player_set for group in alibi_sets(belief)]
         claims = list(getattr(belief, "social_claims", ()) or ())
         meetings = list(getattr(belief, "meeting_history", ()) or ())
         priors = (
@@ -647,6 +668,7 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
             meetings,
             pins=pins,
             clears=clears,
+            alibi_groups=alibis,
             priors=priors,
         )
         marginals = result["marginals"]
