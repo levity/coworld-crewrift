@@ -117,6 +117,13 @@ class RuleBasedStrategy:
                     self._button_call_spent = True  # the A-press at the button fires this tick
                 return ModeDirective(mode="accuse", source="strategy", reason="being tailed: call a meeting")
             self._accuse_target = None
+            # Opt-in stay-with-group (CREWBORG_STICK): StickMode does our tasks first, then
+            # loiters with the crew once they're done. Default OFF ⇒ plain Normal. Imported
+            # lazily to avoid a strategy<->modes import cycle at module load.
+            from crewborg.modes.stick import enabled as stick_enabled
+
+            if stick_enabled():
+                return ModeDirective(mode="stick", source="strategy", reason="playing: tasks then stick with crew")
             return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
 
         # All other non-play phases (VoteResult / GameOver / unknown).

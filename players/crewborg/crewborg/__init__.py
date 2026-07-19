@@ -24,6 +24,7 @@ from crewborg.modes import (
     ReconMode,
     ReportBodyMode,
     SearchMode,
+    StickMode,
 )
 from crewborg.strategy import (
     RuleBasedStrategy,
@@ -117,6 +118,7 @@ def build_runtime(
     registry.register(HuntMode)
     registry.register(ReconMode)
     registry.register(SearchMode)
+    registry.register(StickMode)
 
     if map_data is None:
         map_data = load_croatoan_map()
