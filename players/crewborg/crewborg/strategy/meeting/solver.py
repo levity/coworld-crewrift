@@ -101,9 +101,25 @@ def defer_enabled() -> bool:
     }
 
 
+def early_chat_enabled() -> bool:
+    return os.environ.get("CREWBORG_SOLVER_EARLY_CHAT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
     except ValueError:
         return default
 
@@ -135,6 +151,33 @@ def _robust_max_threshold() -> float:
 
 def _veto_keep() -> float:
     return _env_float("CREWBORG_SOLVER_VETO_P", 0.65)
+
+
+def early_chat_offset_ticks() -> int:
+    return max(0, _env_int("CREWBORG_SOLVER_EARLY_CHAT_TICKS", 240))
+
+
+def early_chat_pick(
+    report: dict[str, Any],
+    *,
+    current_sources: list[str],
+) -> str | None:
+    """Return a replay-calibrated public solve suitable for early chat."""
+
+    target = report.get("pick")
+    if target is None:
+        return None
+    if (report.get("top_p") or 0.0) < _env_float(
+        "CREWBORG_SOLVER_EARLY_CHAT_P", 0.76
+    ):
+        return None
+    min_sources = max(
+        1,
+        _env_int("CREWBORG_SOLVER_EARLY_CHAT_MIN_SOURCES", 2),
+    )
+    if len(current_sources) < min_sources:
+        return None
+    return target
 
 
 def _imposter_count(belief: Any) -> int:
@@ -529,7 +572,7 @@ def _without_actor(
     }
 
 
-def solver_report(belief: Any) -> dict[str, Any]:
+def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
     """Build serializable diagnostics and, when decisive, a live vote target."""
 
     out: dict[str, Any] = {
@@ -567,21 +610,31 @@ def solver_report(belief: Any) -> dict[str, Any]:
             return out
 
         player_set = set(players)
-        pins = witnessed_imposters(belief) & player_set
-        clears = {
-            color
-            for color, record in roster.items()
-            if color in player_set
-            and color not in pins
-            and getattr(record, "tasks_completed_watched", 0) > 0
-        }
+        pins = set() if public_only else witnessed_imposters(belief) & player_set
+        clears = (
+            set()
+            if public_only
+            else {
+                color
+                for color, record in roster.items()
+                if color in player_set
+                and color not in pins
+                and getattr(record, "tasks_completed_watched", 0) > 0
+            }
+        )
         claims = list(getattr(belief, "social_claims", ()) or ())
         meetings = list(getattr(belief, "meeting_history", ()) or ())
-        priors = {
-            color: probability
-            for color, probability in (getattr(belief, "suspicion", {}) or {}).items()
-            if color in player_set
-        }
+        priors = (
+            {}
+            if public_only
+            else {
+                color: probability
+                for color, probability in (
+                    getattr(belief, "suspicion", {}) or {}
+                ).items()
+                if color in player_set
+            }
+        )
         result = solve_hypotheses(
             players,
             imposter_count,
@@ -681,6 +734,34 @@ def solver_report(belief: Any) -> dict[str, Any]:
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
+
+
+def solver_report(belief: Any) -> dict[str, Any]:
+    return _solver_report(belief, public_only=False)
+
+
+def public_solver_report(belief: Any) -> dict[str, Any]:
+    """Solve from replay-visible claims and ballots, excluding private evidence."""
+
+    return _solver_report(belief, public_only=True)
+
+
+def current_meeting_sources(belief: Any, report: dict[str, Any]) -> list[str]:
+    """Attributed sources supporting the report pick in the current meeting."""
+
+    target = report.get("pick")
+    if target is None:
+        return []
+    meeting_id = getattr(belief, "phase_start_tick", None)
+    sources = {
+        claim.source_color or claim.speaker_color
+        for claim in (getattr(belief, "social_claims", ()) or ())
+        if claim.meeting_id == meeting_id
+        and claim.stance in {"accuse", "at_least_one"}
+        and target in claim.targets
+        and (claim.source_color or claim.speaker_color) is not None
+    }
+    return sorted(sources)
 
 
 def solver_pick(belief: Any) -> str | None:

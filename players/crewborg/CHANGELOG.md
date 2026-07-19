@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-07-19 - Early public-solver coordination
+
+Before implementation:
+
+- The fresh crowd-cap A/B improved the subject's already-high vote precision
+  from 24 impostors / 1 crew to 25 / 0, but team ejections moved from 18
+  impostors / 8 crew to 16 / 14. The subject did not vote for any of the 14
+  ejected crew; this iteration targets coordination rather than ballot safety.
+- Replay transcripts show the structural timing gap: fixed-roster crew commonly
+  cast their first ballots about 300 ticks into a meeting, while crewborg's
+  accurate solver accusation arrives at tick 1,152 after those votes are final.
+- Add one optional, chat-only solve at tick 240. It must use public claims and
+  ballots only, excluding private suspicion, witnessed pins, and task clears,
+  so the hosted path exactly matches the replay-calibrated mechanism.
+- On the six correlation/timing/confirmation selection arms, require
+  `P(imposter) >= 0.76` and at least two attributed sources in the current
+  meeting. That region contains 29/29 correct targets.
+- Hold out both guidance experiments and the fresh 200-game crowd-cap A/B. The
+  selected gate is 29/29 there as well, for 58/58 pooled early targets. The
+  early line does not stage or alter the final tick-1,152 ballot.
+- Also react to any public ballot against crewborg's known-crewmate identity
+  with a truthful self-defense line. Five of the 22 fresh crew ejections hit
+  the subject itself; this branch uses role certainty rather than a fitted
+  posterior and likewise does not stage a ballot.
+
+After implementation:
+
+- Added `CREWBORG_SOLVER_EARLY_CHAT=1`, with a one-shot public-only solve at
+  tick 240. The early path excludes private suspicion, witnessed-impostor pins,
+  and watched-task clears; requires `P(imposter) >= 0.76` and two current-meeting
+  sources; and sends chat without staging or changing a ballot.
+- Added one truthful self-defense response when another player publicly votes
+  against crewborg's known-crewmate identity. It asks the field to skip, does
+  not counter-vote, and cannot replace the ordinary tick-1,152 solve.
+- The exact implemented early gate reproduces 29/29 correct targets on the six
+  selection arms and 29/29 on the held-out guidance plus crowd-cap arms.
+- Verified 68 focused meeting/parser tests, the production-image suite (`526
+  passed, 13 skipped`), changed-file Ruff, `git diff --check`, and a local
+  `scn_vote_basic` Gate 1 with a valid result/replay and zero vote,
+  connect, or disconnect timeouts. The short smoke timer exercises the
+  deadline path; unit and replay tests cover the tick-240 branch.
+
 ## 2026-07-18 - Single-source crowd-pile cap
 
 Before implementation:
@@ -35,6 +77,23 @@ After implementation:
   removing 11 false picks and zero correct picks from the 167/191 baseline.
 - Verified 62 focused meeting/parser tests, the production-image suite (520
   passed, 13 skipped), changed-file Ruff, and `git diff --check`.
+
+Hosted result:
+
+- Fresh matched 100-game arms completed without request or subject operational
+  failures. The confirmed solver control `xreq_f5242562` won 35 games and the
+  crowd-cap candidate `xreq_3da4e8ee` won 39 (`+4pp`, Fisher `p=0.66`).
+- Subject ballots improved from 24 impostors / 1 crew / 75 skips to 25 / 0 /
+  75. Production replay showed the cap actively removed two false candidate
+  picks; applying it retrospectively to control removed one correct pick.
+- The team-level crew-kill result did not improve: crew ejections increased
+  8 -> 14, impostor ejections decreased 18 -> 16, and crew-target ballots
+  increased 83 -> 111. The subject did not vote for any of the 14 ejected crew.
+- Keep the cap as a direct ballot-precision safeguard, but do not attribute the
+  noisy win delta to it or treat it as a solution to team coordination. The
+  next iteration must speak before the fixed field's roughly tick-300 ballot
+  wave and separately measure subject complicity, subject self-ejections, and
+  total crew ejections.
 
 ## 2026-07-18 - Early solver guidance plan
 

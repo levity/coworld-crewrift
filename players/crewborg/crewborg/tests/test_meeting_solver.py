@@ -5,6 +5,9 @@ from __future__ import annotations
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
 from crewborg.strategy.meeting.solver import (
     SolverConfig,
+    current_meeting_sources,
+    early_chat_pick,
+    public_solver_report,
     solve_hypotheses,
     solver_report,
 )
@@ -12,7 +15,14 @@ from crewborg.strategy.social_evidence import (
     parse_social_claims,
     update_social_evidence,
 )
-from crewborg.types import Belief, ChatEvent, MeetingRecord, PlayerRecord, SocialClaim
+from crewborg.types import (
+    Belief,
+    ChatEvent,
+    MeetingRecord,
+    PlayerEvent,
+    PlayerRecord,
+    SocialClaim,
+)
 
 
 def _claim(
@@ -514,6 +524,68 @@ def test_report_accepts_decisive_multi_source_consensus(monkeypatch) -> None:
 
     assert report["robust_required"] is False
     assert report["pick"] == "red"
+
+
+def test_public_report_excludes_private_pins_clears_and_priors(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=6,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.roster["blue"].tasks_completed_watched = 1
+    belief.roster["red"].events = [
+        PlayerEvent(kind="vent_use", start_tick=4, end_tick=4)
+    ]
+    belief.suspicion = {"red": 0.99, "blue": 0.01}
+    belief.social_claims = [
+        _claim(10, source, ("blue",), evidence="vent")
+        for source in ("green", "yellow", "pink")
+    ]
+
+    private = solver_report(belief)
+    public = public_solver_report(belief)
+
+    assert private["pins"] == ["red"]
+    assert private["clears"] == ["blue"]
+    assert public["pins"] == []
+    assert public["clears"] == []
+    assert public["pick"] == "blue"
+
+
+def test_early_chat_requires_two_current_sources_at_selected_threshold(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER_EARLY_CHAT_P", "0.76")
+    monkeypatch.setenv("CREWBORG_SOLVER_EARLY_CHAT_MIN_SOURCES", "2")
+    report = {"pick": "red", "top_p": 0.76}
+
+    assert early_chat_pick(report, current_sources=["green"]) is None
+    assert early_chat_pick(
+        report,
+        current_sources=["green", "yellow"],
+    ) == "red"
+    assert early_chat_pick(
+        {"pick": "red", "top_p": 0.759},
+        current_sources=["green", "yellow"],
+    ) is None
+
+
+def test_current_meeting_sources_excludes_persistent_only_support() -> None:
+    belief = Belief(phase="Voting", phase_start_tick=20)
+    belief.social_claims = [
+        _claim(10, "green", ("red",)),
+        _claim(20, "yellow", ("red",)),
+        _claim(20, "pink", ("red",)),
+    ]
+
+    assert current_meeting_sources(belief, {"pick": "red"}) == [
+        "pink",
+        "yellow",
+    ]
 
 
 def test_report_does_not_fire_from_vote_only_consensus(monkeypatch) -> None:

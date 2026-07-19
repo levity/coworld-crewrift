@@ -47,20 +47,29 @@ either version to the league without explicit human approval. Results:
 `docs/experiments/2026-07-18-solver-correlation-offline.md`, and hosted A/B:
 `docs/experiments/2026-07-18-solver-correlation-hosted-ab.md`, plus the next
 offline gates: `docs/experiments/2026-07-18-solver-commitment-offline.md`,
-`docs/experiments/2026-07-18-solver-early-guidance.md`, and
-`docs/experiments/2026-07-18-solver-single-source-crowd-cap.md`. Early guidance
-is rejected and removed after both 100-game candidate arms emitted zero
-guidance lines; their outcome differences are not treatment effects.
+`docs/experiments/2026-07-18-solver-early-guidance.md`,
+`docs/experiments/2026-07-18-solver-single-source-crowd-cap.md`, and
+`docs/experiments/2026-07-19-solver-early-public-coordination.md`. Early
+guidance is rejected and removed after both 100-game candidate arms emitted
+zero guidance lines; their outcome differences are not treatment effects.
 
-The active iteration targets wrong crew votes with a single-source
-counterfactual crowd cap. On six selection arms, every correct single-source
-pick fell to `P<=0.371` after source removal while every false pick remained at
-`P>=0.419`. The selected `CREWBORG_SOLVER_ROBUST_MAX_P=0.39` then retained 6/6
-correct and rejected 8/8 false picks on four held-out guidance arms. Across all
-ten arms it moves decisive public-evidence precision from 167/191 (87.4%) to
-167/180 (92.8%) without changing multi-source picks or meeting timing. The next
-hosted A/B must verify reduced wrong subject votes without losing useful
-impostor ejections.
+The single-source crowd cap has completed its fresh 100/arm screen. Subject
+ballots improved from 24 impostors / 1 crew to 25 / 0 and replay confirmed that
+the cap removed two fresh false picks, but crew ejections increased 8 -> 14
+while impostor ejections decreased 18 -> 16. Wins were 39/100 candidate versus
+35/100 control (`p=0.66`). The subject did not vote for any of the 14 ejected
+crew, so the active problem is team coordination rather than subject ballot
+precision.
+
+The current candidate adds feature-flagged early public coordination. At tick
+240 it may share a public-only solver target when `P>=0.76` and two attributed
+current-meeting sources agree; the selected gate is 29/29 on six selection
+arms and 29/29 on held-out guidance plus crowd-cap history. It also truthfully
+defends crewborg's known-crewmate identity after a public self-vote. Neither
+path stages a ballot, and the full solver still recomputes at tick 1,152. Local
+validation is complete; upload inert and run a fresh matched 100/arm A/B,
+requiring runtime activation and measuring subject complicity, subject
+self-ejections, team crew ballots/ejections, and impostor ejections.
 
 ## ▶ Open threads (2026-07-18)
 

@@ -80,3 +80,18 @@ its named source is being sustained by the ballot pile, not independently corrob
 Evidence: Both 100-game guidance candidates emitted zero guidance lines even though public replay
 found correct strict-gate opportunities at the intended cutoff. Require a runtime attempt/fired
 trace in a local scenario before spending another hosted batch on a timed interaction feature.
+
+### Individual vote precision can hide a team coordination failure
+Evidence: The crowd-cap candidate cast 25 impostor votes and zero crew votes, yet its team ejected
+14 crew versus 8 in control. Transcript audit showed crewborg supported none of those 14 ejections:
+other crew commonly voted near tick 300, long before its accurate tick-1,152 solver message.
+
+### Decompose crew ejections by subject agency
+Evidence: In the fresh crowd-cap A/B, five of 22 crew ejections targeted the subject, while none of
+the candidate's 14 crew ejections had its ballot support. Subject wrong votes, subject
+self-ejections, and total team crew ejections measure distinct failure mechanisms.
+
+### Replay-calibrated public interaction must exclude private features
+Evidence: A hosted early accusation is auditable from public replay only if its live solve omits
+private suspicion priors, witnessed-impostor pins, and watched-task clears. The public-only helper
+kept the exact implemented tick-240 gate at 29/29 on selection and 29/29 on held-out histories.

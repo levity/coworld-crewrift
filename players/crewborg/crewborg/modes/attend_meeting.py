@@ -29,8 +29,13 @@ from crewborg.strategy.meeting.imposter import (
 from crewborg.strategy.meeting import chat_nlp, chat_read
 from crewborg.strategy.suspicion import chat_suspect, top_suspect
 from crewborg.strategy.meeting.solver import (
+    current_meeting_sources as solver_current_meeting_sources,
     defer_enabled as solver_defer_enabled,
+    early_chat_enabled as solver_early_chat_enabled,
+    early_chat_offset_ticks as solver_early_chat_offset_ticks,
+    early_chat_pick as solver_early_chat_pick,
     enabled as solver_enabled,
+    public_solver_report,
     solver_report,
     solver_vetoes,
     veto_enabled as solver_veto_enabled,
@@ -70,6 +75,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._chat_parse_cache: dict[str, set[str]] = {}
         self._decision_traced = False
         self._meeting_entry_vote_target: str | None = None
+        self._solver_early_chat_attempted = False
+        self._solver_self_defense_sent = False
 
     def is_legal(self, belief: Belief) -> bool:
         return belief.phase == "Voting"
@@ -181,6 +188,12 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         exactly whom we then vote."""
 
         if not self._should_auto_submit(belief):
+            self_defense = self._maybe_solver_self_defense(belief)
+            if self_defense is not None:
+                return self_defense
+            early_chat = self._maybe_solver_early_chat(belief)
+            if early_chat is not None:
+                return early_chat
             return Intent(kind="idle", reason="gathering meeting chat before deciding")
 
         # Evidence window elapsed. If we already accused last tick, cast the coupled vote now.
@@ -211,6 +224,78 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._tentative_vote = VOTE_SKIP
         self._trace_meeting_decision(belief, role="crewmate", path="silent_skip", target=None)
         return self._submit_vote_intent(belief, reason="deterministic skip (post-chat solve)")
+
+    def _maybe_solver_self_defense(self, belief: Belief) -> Intent | None:
+        """Truthfully challenge a public pile on our known-crewmate identity."""
+
+        if (
+            not solver_early_chat_enabled()
+            or self._solver_self_defense_sent
+            or not self._chat_cooldown_ready(belief)
+        ):
+            return None
+        self_color = belief.self_color or belief.voting.self_marker_color
+        vote_count = votes_against(belief).get(self_color, 0) if self_color else 0
+        if vote_count < 1:
+            return None
+
+        self._solver_self_defense_sent = True
+        if (
+            belief.last_tick - belief.phase_start_tick
+            >= solver_early_chat_offset_ticks()
+        ):
+            self._solver_early_chat_attempted = True
+        self.emit.event(
+            "solver_self_defense",
+            {
+                "target": self_color,
+                "votes": vote_count,
+                "meeting_age_ticks": belief.last_tick - belief.phase_start_tick,
+            },
+        )
+        return self._send_chat_intent(
+            belief,
+            f"{self_color} is not sus. don't pile me without evidence; skip.",
+            reason="challenging unsupported self votes",
+        )
+
+    def _maybe_solver_early_chat(self, belief: Belief) -> Intent | None:
+        """Share one high-precision public solve before the first ballot wave."""
+
+        if (
+            not solver_early_chat_enabled()
+            or self._solver_early_chat_attempted
+            or belief.last_tick - belief.phase_start_tick
+            < solver_early_chat_offset_ticks()
+        ):
+            return None
+
+        # Retry would admit evidence beyond the calibrated replay cutoff.
+        self._solver_early_chat_attempted = True
+        report = public_solver_report(belief)
+        sources = solver_current_meeting_sources(belief, report)
+        target = solver_early_chat_pick(report, current_sources=sources)
+        self.emit.event(
+            "solver_early_chat",
+            {
+                "fired": target is not None,
+                "meeting_age_ticks": belief.last_tick - belief.phase_start_tick,
+                "current_sources": sources,
+                "report": report,
+            },
+        )
+        if target is None:
+            return None
+
+        text = (
+            f"{sources[0]} and {sources[1]} both called {target} sus. "
+            f"vote {target}"
+        )
+        return self._send_chat_intent(
+            belief,
+            text,
+            reason="sharing early public solver target",
+        )
 
     def _decide_imposter(self, belief: Belief) -> Intent:
         """Deflect onto crewmates, never teammates. Prefer a **real** accusation against
@@ -477,6 +562,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._vote_submitted = False
         self._chat_parse_cache = {}
         self._decision_traced = False
+        self._solver_early_chat_attempted = False
+        self._solver_self_defense_sent = False
         self._meeting_entry_vote_target = (
             top_suspect(belief)
             if (solver_enabled() or solver_defer_enabled()) and not belief.chat_log

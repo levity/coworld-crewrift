@@ -275,9 +275,11 @@ transport tuning never do.
 | `CREWBORG_BE_DUMB` (alias `BE_DUMB`) | off | `1` = aggressive imposter selector: Search/Hunt only (skip Evade + body reports). An experiment. |
 | `CREWBORG_CHAT_NLP` | **on** | `0` kills the spaCy chat NLP (never imports spaCy); the imposter chat-bandwagon then degrades to vote-only. |
 | `CREWBORG_SOLVER` | off | `1` enables the persistent joint-hypothesis crewmate meeting solver; it waits until the learned meeting deadline backstop before deciding. |
+| `CREWBORG_SOLVER_EARLY_CHAT` | off | `1` adds a chat-only public solve at tick 240 when `P>=0.76` and two attributed sources in the current meeting agree, plus truthful reactive self-defense when another player votes for crewborg. Neither path stages the final vote. |
 | `CREWBORG_SOLVER_VETO` | off | `1` lets the solver reject a base-policy vote whose joint marginal is below `CREWBORG_SOLVER_VETO_P`. |
 | `CREWBORG_SOLVER_P` / `CREWBORG_SOLVER_MARGIN` | `0.65` / `0.10` | Minimum live-player marginal and separation from the strongest below-threshold alternative. |
 | `CREWBORG_SOLVER_ROBUST_P` / `CREWBORG_SOLVER_ROBUST_MAX_P` | `0.0` / `0.39` | For a target supported by exactly one accusation source, require its source-removed marginal to remain the leader but stay below the crowd-pile cap. Set either bound below zero to disable it. |
+| `CREWBORG_SOLVER_EARLY_CHAT_TICKS` / `_P` / `_MIN_SOURCES` | `240` / `0.76` / `2` | Replay-calibrated early-chat cutoff and precision gates. |
 | `CREWBORG_SOLVER_<CONFIG_FIELD>` | see `SolverConfig` in `strategy/meeting/solver.py` | Evidence provenance, repeat decay, prior strength, and role-conditioned likelihood knobs. |
 | `CREWBORG_RECON_WINDOW` | `100` | Recon lead window (ticks before kill-ready) to pre-position on a victim. |
 | `CREWBORG_EVADE_TICKS` | `72` | Evade window (ticks) after our own kill before returning to the kill loop. |

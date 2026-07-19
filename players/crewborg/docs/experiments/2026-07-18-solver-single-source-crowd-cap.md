@@ -50,3 +50,35 @@ The held-out separation is narrow: the highest correct marginal is `0.388` and
 the lowest false marginal is `0.400`. Hosted evaluation must therefore verify
 both that the gate fires and that reduced wrong subject votes do not cost
 useful impostor ejections.
+
+## Hosted result
+
+Fresh matched requests ran 100 games per arm against the same pinned roster.
+The control was `crewborg-solver-timing-candidate:v1`
+(`xreq_f5242562-4b12-4466-9ddd-4b84bb6ba711`); the candidate was
+`crewborg-solver-crowd-cap:v1`
+(`xreq_3da4e8ee-3c47-4578-953d-03ab4510db23`). Both completed without request
+failures or subject connect, disconnect, or vote timeouts.
+
+| Metric | Control | Crowd cap |
+| --- | ---: | ---: |
+| Crew wins | 35/100 | 39/100 |
+| Subject votes: impostor / crew / skip | 24 / 1 / 75 | 25 / 0 / 75 |
+| Team ballots: impostor / crew | 247 / 83 | 209 / 111 |
+| Ejections: impostor / crew | 18 / 8 | 16 / 14 |
+
+The crew-win delta is +4 points with Fisher `p=0.66` and an approximate
+95% interval of -9.4 to +17.4 points. It is not outcome evidence.
+
+The direct mechanism did reproduce. On candidate history the cap removed two
+false public-solver picks, changing 16/18 to 16/16. On control history it
+removed one correct pick, changing 32/33 to 31/32. The candidate's own ballot
+therefore became slightly safer, but its teammates produced more crew-target
+ballots and crew ejections. Transcript audit found that the subject did not
+vote for any of the 14 candidate-arm crew ejections.
+
+Retain the cap as a narrow subject-ballot safeguard because it actively removed
+fresh false picks and the hosted outcome was not adverse. It does not solve the
+larger coordination problem. Most fixed-roster crew ballots arrive around tick
+300, while the final solver message arrives at tick 1,152 after those ballots
+are immutable.

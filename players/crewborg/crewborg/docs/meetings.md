@@ -159,6 +159,16 @@ The report placed in the meeting trace contains global marginals and the five
 highest-probability joint assignments. `CREWBORG_SOLVER_VETO=1` can independently
 use those marginals to reject a base-policy vote.
 
+`CREWBORG_SOLVER_EARLY_CHAT=1` adds one independent coordination pass at
+meeting tick 240. This pass deliberately excludes private suspicion, witnessed
+pins, and watched-task clears so its input matches public replay analysis. It
+speaks only when the top marginal is at least `0.76` and at least two attributed
+sources in the current meeting support the target. The line does not stage a
+vote; the ordinary solver still recomputes from all evidence at tick 1,152.
+The same flag also reacts to any public ballot against crewborg while it is a
+known crewmate with a truthful self-defense line. This likewise does not stage
+or alter the final ballot.
+
 When exactly one attributed accusation source supports a decisive candidate,
 the solver removes that actor's claims and ballots and solves again. The target
 must remain the leader, but its source-removed marginal must not exceed

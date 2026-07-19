@@ -6,7 +6,7 @@ import crewborg.modes.attend_meeting as attend_meeting
 
 from crewborg.action import BTN_A, BTN_DOWN, resolve_action
 from crewborg.modes import AccuseMode, AttendMeetingMode, ReportBodyMode
-from crewborg.perception.entities import VoteCandidate, VotingState
+from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
 from crewborg.strategy.meeting import MeetingDecision, MeetingLLMResult
 from crewborg.types import ActionState, Belief, BodyEntry, ChatEvent, PlayerEvent, PlayerRecord
 
@@ -176,6 +176,120 @@ def test_solver_uses_most_of_the_advertised_vote_deadline(monkeypatch) -> None:
     vote = mode.decide(belief, ActionState())
     assert vote.kind == "vote"
     assert vote.target_color == "red"
+
+
+def test_solver_shares_public_target_early_without_freezing_final_vote(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
+    monkeypatch.setattr(attend_meeting, "solver_early_chat_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_early_chat_offset_ticks", lambda: 240)
+    monkeypatch.setattr(
+        attend_meeting,
+        "public_solver_report",
+        lambda belief: {"pick": "red", "top_p": 0.8},
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_current_meeting_sources",
+        lambda belief, report: ["green", "yellow"],
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_early_chat_pick",
+        lambda report, current_sources: report["pick"],
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_report",
+        lambda belief: {"pick": "red", "marginals": {"red": 0.9}},
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "build_accusation",
+        lambda belief, target: f"{target} final",
+    )
+
+    mode = AttendMeetingMode()
+    belief = _meeting_belief(tick=239)
+    belief.self_role = "crewmate"
+    belief.vote_timer_ticks = 1200
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+    belief.last_tick = 240
+    early = mode.decide(belief, ActionState())
+    assert early.kind == "chat"
+    assert early.text == "green and yellow both called red sus. vote red"
+
+    belief.last_tick = 1152
+    final = mode.decide(belief, ActionState())
+    assert final.kind == "chat"
+    assert final.text == "red final"
+
+    belief.last_tick = 1153
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote"
+    assert vote.target_color == "red"
+
+
+def test_solver_early_chat_attempt_does_not_retry_after_calibrated_tick(
+    monkeypatch,
+) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
+    monkeypatch.setattr(attend_meeting, "solver_early_chat_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_early_chat_offset_ticks", lambda: 240)
+    monkeypatch.setattr(
+        attend_meeting,
+        "public_solver_report",
+        lambda belief: calls.append(belief.last_tick) or {"pick": None},
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_current_meeting_sources",
+        lambda belief, report: [],
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_early_chat_pick",
+        lambda report, current_sources: None,
+    )
+
+    mode = AttendMeetingMode()
+    belief = _meeting_belief(tick=240)
+    belief.self_role = "crewmate"
+    belief.vote_timer_ticks = 1200
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+    belief.last_tick = 300
+    assert mode.decide(belief, ActionState()).kind == "idle"
+    assert calls == [240]
+
+
+def test_solver_truthfully_defends_self_without_staging_vote(monkeypatch) -> None:
+    monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
+    monkeypatch.setattr(attend_meeting, "solver_early_chat_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_early_chat_offset_ticks", lambda: 240)
+
+    mode = AttendMeetingMode()
+    belief = _meeting_belief(tick=300)
+    belief.self_role = "crewmate"
+    belief.self_color = "blue"
+    belief.vote_timer_ticks = 1200
+    belief.voting = belief.voting.model_copy(
+        update={"dots": (VoteDot(voter=0, target=1),)}
+    )
+
+    defense = mode.decide(belief, ActionState())
+
+    assert defense.kind == "chat"
+    assert defense.text == "blue is not sus. don't pile me without evidence; skip."
+
+    belief.last_tick = 301
+    assert mode.decide(belief, ActionState()).kind == "idle"
 
 
 def test_solver_off_timing_control_defers_the_frozen_legacy_vote(monkeypatch) -> None:
