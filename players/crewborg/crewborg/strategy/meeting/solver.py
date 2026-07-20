@@ -9,9 +9,12 @@ deflect onto crew and avoid accusing a partner.
 
 Repeated lines from the same attributed source about the same target collapse
 within a meeting. Relays collapse by their original source and receive less
-weight than direct assertions. Repetition across later meetings still contributes,
-with configurable decay. Evidence wording, body reporters, direct observations,
-and a tempered copy of crewborg's existing suspicion posterior provide additional
+weight than direct assertions. Additional speakers making the same claim within
+one meeting receive diminishing weight because relays and bandwagons are
+correlated, while later meetings still contribute independently. Repetition by
+the same source or voter-target pair across later meetings has a separate
+configurable decay. Evidence wording, body reporters, direct observations, and a
+tempered copy of crewborg's existing suspicion posterior provide additional
 provenance.
 """
 
@@ -44,6 +47,8 @@ class SolverConfig:
     clear_lr: float = 0.31
     prior_strength: float = 0.20
     repeat_decay: float = 0.70
+    same_target_decay: float = 0.80
+    vote_repeat_decay: float = 0.70
     vote_weight: float = 0.35
     reporter_weight: float = 1.15
     bare_weight: float = 0.25
@@ -60,12 +65,40 @@ class WeightedClaim:
     weight: float
 
 
+@dataclass(frozen=True)
+class WeightedVote:
+    voter: str
+    target: str
+    weight: float
+
+
 def enabled() -> bool:
-    return os.environ.get("CREWBORG_SOLVER", "").strip().lower() in {"1", "true", "yes", "on"}
+    return os.environ.get("CREWBORG_SOLVER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def veto_enabled() -> bool:
-    return os.environ.get("CREWBORG_SOLVER_VETO", "").strip().lower() in {"1", "true", "yes", "on"}
+    return os.environ.get("CREWBORG_SOLVER_VETO", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def defer_enabled() -> bool:
+    """Whether to delay the legacy crew vote for a solver timing control."""
+
+    return os.environ.get("CREWBORG_SOLVER_DEFER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _env_float(name: str, default: float) -> float:
@@ -90,6 +123,10 @@ def _threshold() -> float:
 
 def _margin() -> float:
     return _env_float("CREWBORG_SOLVER_MARGIN", 0.10)
+
+
+def _robust_threshold() -> float:
+    return _env_float("CREWBORG_SOLVER_ROBUST_P", 0.0)
 
 
 def _veto_keep() -> float:
@@ -120,7 +157,7 @@ def _weighted_claims(
     players: set[str],
     config: SolverConfig,
 ) -> list[WeightedClaim]:
-    """Deduplicate per meeting/original-source/target and decay later repeats."""
+    """Deduplicate source claims and discount correlated same-meeting consensus."""
 
     reporters = {
         meeting.meeting_id: meeting.caller_color
@@ -152,16 +189,39 @@ def _weighted_claims(
                 weight,
             )
 
+    ordered = sorted(
+        best.values(),
+        key=lambda item: (
+            item[0].meeting_id,
+            item[0].stance,
+            item[0].targets,
+            -item[1],
+            item[0].tick,
+            item[0].source_color or item[0].speaker_color or "",
+        ),
+    )
     repeated: dict[tuple[str, str, tuple[str, ...]], int] = {}
+    same_target: dict[tuple[int, str, tuple[str, ...]], int] = {}
     weighted: list[WeightedClaim] = []
-    for claim, base_weight in sorted(best.values(), key=lambda item: (item[0].meeting_id, item[0].tick)):
-        identity = (claim.source_color or claim.speaker_color or "", claim.stance, claim.targets)
+    for claim, base_weight in ordered:
+        identity = (
+            claim.source_color or claim.speaker_color or "",
+            claim.stance,
+            claim.targets,
+        )
         repeat_index = repeated.get(identity, 0)
         repeated[identity] = repeat_index + 1
+        target_identity = (claim.meeting_id, claim.stance, claim.targets)
+        target_index = same_target.get(target_identity, 0)
+        same_target[target_identity] = target_index + 1
         weighted.append(
             WeightedClaim(
                 claim=claim,
-                weight=base_weight * (config.repeat_decay ** repeat_index),
+                weight=(
+                    base_weight
+                    * (config.repeat_decay**repeat_index)
+                    * (config.same_target_decay**target_index)
+                ),
             )
         )
     return weighted
@@ -177,14 +237,18 @@ def _actor_claim_probability(
     target_is_imp = any(target in hypothesis for target in claim.targets)
     if claim.stance in {"accuse", "at_least_one"}:
         if actor_is_imp:
-            return config.imp_accuse_partner if target_is_imp else config.imp_accuse_crew
+            return (
+                config.imp_accuse_partner if target_is_imp else config.imp_accuse_crew
+            )
         return config.crew_accuse_hit if target_is_imp else config.crew_accuse_miss
     if actor_is_imp:
         return config.imp_defend_partner if target_is_imp else config.imp_defend_crew
     return config.crew_defend_imp if target_is_imp else config.crew_defend_crew
 
 
-def _claim_probability(hypothesis: frozenset[str], claim: SocialClaim, config: SolverConfig) -> float:
+def _claim_probability(
+    hypothesis: frozenset[str], claim: SocialClaim, config: SolverConfig
+) -> float:
     source = claim.source_color or claim.speaker_color
     probability = _actor_claim_probability(hypothesis, source, claim, config)
     if (
@@ -217,6 +281,35 @@ def _vote_probability(
     if voter_is_imp:
         return config.imp_vote_partner if target_is_imp else config.imp_vote_crew
     return config.crew_vote_imp if target_is_imp else config.crew_vote_crew
+
+
+def _weighted_votes(
+    meetings: Iterable[MeetingRecord],
+    players: set[str],
+    config: SolverConfig,
+) -> list[WeightedVote]:
+    """Decay repeated voter-target pairs across meetings."""
+
+    repeated: dict[tuple[str, str], int] = {}
+    weighted_votes: list[WeightedVote] = []
+    for meeting in sorted(meetings, key=lambda item: item.meeting_id):
+        for voter, target in sorted(meeting.votes.items()):
+            if voter not in players or target not in players or voter == target:
+                continue
+            identity = (voter, target)
+            repeat_index = repeated.get(identity, 0)
+            repeated[identity] = repeat_index + 1
+            weight = config.vote_weight * (config.vote_repeat_decay**repeat_index)
+            if weight <= 0:
+                continue
+            weighted_votes.append(
+                WeightedVote(
+                    voter=voter,
+                    target=target,
+                    weight=weight,
+                )
+            )
+    return weighted_votes
 
 
 def _logit(probability: float) -> float:
@@ -253,12 +346,11 @@ def solve_hypotheses(
 
     meeting_list = list(meetings)
     weighted_claims = _weighted_claims(claims, meeting_list, player_set, config)
-    public_votes = [
-        (voter, target)
-        for meeting in meeting_list
-        for voter, target in meeting.votes.items()
-        if voter in player_set and target in player_set and voter != target
-    ]
+    weighted_votes = _weighted_votes(
+        meeting_list,
+        player_set,
+        config,
+    )
     base_probability = imposter_count / len(players)
     log_weights: dict[frozenset[str], float] = {}
     for hypothesis in hypotheses:
@@ -275,9 +367,14 @@ def solve_hypotheses(
         for weighted in weighted_claims:
             probability = _claim_probability(hypothesis, weighted.claim, config)
             log_weight += weighted.weight * math.log(max(probability, 1e-6))
-        for voter, target in public_votes:
-            probability = _vote_probability(hypothesis, voter, target, config)
-            log_weight += config.vote_weight * math.log(max(probability, 1e-6))
+        for weighted in weighted_votes:
+            probability = _vote_probability(
+                hypothesis,
+                weighted.voter,
+                weighted.target,
+                config,
+            )
+            log_weight += weighted.weight * math.log(max(probability, 1e-6))
         log_weights[hypothesis] = log_weight
 
     maximum = max(log_weights.values())
@@ -287,11 +384,14 @@ def solve_hypotheses(
     }
     total = sum(unnormalized.values()) or 1.0
     probabilities = {
-        hypothesis: weight / total
-        for hypothesis, weight in unnormalized.items()
+        hypothesis: weight / total for hypothesis, weight in unnormalized.items()
     }
     marginals = {
-        player: sum(probability for hypothesis, probability in probabilities.items() if player in hypothesis)
+        player: sum(
+            probability
+            for hypothesis, probability in probabilities.items()
+            if player in hypothesis
+        )
         for player in players
     }
     ranked_hypotheses = sorted(probabilities.items(), key=lambda item: -item[1])
@@ -302,7 +402,7 @@ def solve_hypotheses(
             for hypothesis, probability in ranked_hypotheses
         ],
         "n_claims": len(weighted_claims),
-        "n_votes": len(public_votes),
+        "n_votes": len(weighted_votes),
     }
 
 
@@ -341,7 +441,9 @@ def _live_vote_targets(belief: Any, players: set[str]) -> list[str]:
     candidates = [
         candidate.color
         for candidate in getattr(getattr(belief, "voting", None), "candidates", ())
-        if candidate.alive and candidate.color in players and candidate.color != belief.self_color
+        if candidate.alive
+        and candidate.color in players
+        and candidate.color != belief.self_color
     ]
     if candidates:
         return candidates
@@ -352,6 +454,70 @@ def _live_vote_targets(belief: Any, players: set[str]) -> list[str]:
         and color != getattr(belief, "self_color", None)
         and getattr(record, "life_status", "unknown") != "dead"
     ]
+
+
+def _without_actor(
+    *,
+    actor: str,
+    candidate: str,
+    players: list[str],
+    live: list[str],
+    imposter_count: int,
+    claims: list[SocialClaim],
+    meetings: list[MeetingRecord],
+    pins: set[str],
+    clears: set[str],
+    priors: dict[str, float],
+) -> dict[str, Any]:
+    """Measure whether a pick survives removal of its sole claim source."""
+
+    filtered_claims = [
+        claim
+        for claim in claims
+        if actor
+        not in {
+            claim.source_color or claim.speaker_color,
+            claim.speaker_color,
+        }
+    ]
+    filtered_meetings = [
+        meeting.model_copy(
+            update={
+                "votes": {
+                    voter: target
+                    for voter, target in meeting.votes.items()
+                    if voter != actor
+                }
+            }
+        )
+        for meeting in meetings
+    ]
+    result = solve_hypotheses(
+        players,
+        imposter_count,
+        filtered_claims,
+        filtered_meetings,
+        pins=pins,
+        clears=clears,
+        priors=priors,
+    )
+    marginals = result["marginals"]
+    ranked = sorted(
+        ((color, marginals[color]) for color in live if color in marginals),
+        key=lambda item: (-item[1], item[0]),
+    )
+    candidate_p = marginals.get(candidate, 0.0)
+    top = ranked[0][0] if ranked else None
+    competitor = ranked[imposter_count][1] if len(ranked) > imposter_count else 0.0
+    margin = candidate_p - competitor
+    threshold = _robust_threshold()
+    return {
+        "passed": threshold < 0
+        or (top == candidate and candidate_p >= threshold and margin >= 0.0),
+        "min_p": candidate_p,
+        "min_margin": margin,
+        "weakest_actor": actor,
+    }
 
 
 def solver_report(belief: Any) -> dict[str, Any]:
@@ -371,6 +537,13 @@ def solver_report(belief: Any) -> dict[str, Any]:
         "clears": [],
         "marginals": None,
         "hypotheses": [],
+        "top_candidate": None,
+        "pre_robust_pick": None,
+        "candidate_sources": [],
+        "robust_required": False,
+        "robust_min_p": None,
+        "robust_min_margin": None,
+        "robust_weakest_actor": None,
         "vetoed": None,
         "error": None,
     }
@@ -427,7 +600,9 @@ def solver_report(belief: Any) -> dict[str, Any]:
             n_meetings=len(meetings),
             pins=sorted(pins),
             clears=sorted(clears),
-            marginals={color: round(probability, 3) for color, probability in marginals.items()},
+            marginals={
+                color: round(probability, 3) for color, probability in marginals.items()
+            },
             hypotheses=[
                 {"imposters": item["imposters"], "p": round(item["p"], 4)}
                 for item in result["hypotheses"][:5]
@@ -441,6 +616,7 @@ def solver_report(belief: Any) -> dict[str, Any]:
         )
         if not ranked:
             return out
+        out["top_candidate"] = ranked[0][0]
         out["top_p"] = round(ranked[0][1], 3)
         out["second_p"] = round(ranked[1][1], 3) if len(ranked) > 1 else 0.0
 
@@ -453,8 +629,46 @@ def solver_report(belief: Any) -> dict[str, Any]:
             and ranked[0][1] >= threshold
             and ranked[0][1] - competitor >= _margin()
         ):
-            out["fired"] = True
-            out["pick"] = ranked[0][0]
+            candidate = ranked[0][0]
+            out["pre_robust_pick"] = candidate
+            candidate_sources = {
+                claim.source_color or claim.speaker_color
+                for claim in claims
+                if claim.stance in {"accuse", "at_least_one"}
+                and candidate in claim.targets
+                and (claim.source_color or claim.speaker_color) in player_set
+            }
+            out["candidate_sources"] = sorted(candidate_sources)
+            robustness_required = len(candidate_sources) == 1
+            out["robust_required"] = robustness_required
+            robustness: dict[str, Any] | None = None
+            if robustness_required:
+                robustness = _without_actor(
+                    actor=next(iter(candidate_sources)),
+                    candidate=candidate,
+                    players=players,
+                    live=live,
+                    imposter_count=imposter_count,
+                    claims=claims,
+                    meetings=meetings,
+                    pins=set(pins),
+                    clears=set(clears),
+                    priors=priors,
+                )
+                out.update(
+                    robust_min_p=round(robustness["min_p"], 3),
+                    robust_min_margin=round(robustness["min_margin"], 3),
+                    robust_weakest_actor=robustness["weakest_actor"],
+                )
+            if candidate in pins or (
+                candidate_sources
+                and (
+                    not robustness_required
+                    or (robustness is not None and robustness["passed"])
+                )
+            ):
+                out["fired"] = True
+                out["pick"] = candidate
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out

@@ -50,3 +50,10 @@ Evidence: Reconstructing 243 meetings through the real parser/solver exposed pic
 coverage before another hosted run, but the warehouse cannot reproduce private witness pins,
 task clears, or fitted suspicion priors. Use it to reject parser/inference regressions, then use a
 matched hosted A/B for crew-win judgment.
+
+### Correlation controls need a coverage constraint and per-history audit
+Evidence: Aggressive same-target decay, claim/vote deduplication, and vote-bloc decay looked
+mechanistically plausible but either reduced precision or achieved it by abstaining. A mild
+same-meeting claim decay plus repeated-vote decay and a sole-source counterfactual improved pooled
+precision 83.3% -> 87.3% while retaining 92% of correct picks; checking each retained history
+prevented a pooled gain from hiding a local regression.
