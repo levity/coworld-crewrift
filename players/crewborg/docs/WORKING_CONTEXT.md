@@ -9,6 +9,52 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
+## Current update (2026-07-20, append-only deduction)
+
+Active branch/worktree: `crewborg-deduction-history` at
+`.claude/worktrees/crewborg-deduction-history`, rebased on current
+`origin/master`. The main worktree is clean. This is a new default-off code
+path, not a rewrite of the legacy solver in place.
+
+`CREWBORG_DEDUCTION_HISTORY=1` now collects a frozen append-only stream of
+personal world observations, exact public text/votes, meetings, deaths, and
+task-count changes. Pure functions rederive witnessed actions, relational
+kill-window constraints, role-conditioned claims, every fixed-size impostor
+assignment, its complete contribution audit, marginals, and a parity-aware
+meeting decision. The pipeline is explicitly staged as raw history -> derived
+evidence -> viable assignment table -> scored posterior -> board policy. With
+the flag on for crew, runtime skips the legacy player event log, alibi/social
+accumulators, and suspicion model; crew meetings bypass both the LLM and old
+solver. Impostors retain the complete legacy evidence, movement, and meeting
+path. The default path is unchanged.
+
+Cheap validation exists at `tools/evaluate_deduction.py`. Seed 7 over 1,000
+synthetic histories gives 94.9% vote precision at 49.4% coverage and no
+murder-clear violations. Six retained public warehouse sets cover 770 crew
+meetings while the subject was alive; the new decision spends 73 votes and gets
+63 correct (86.3%).
+Historical replay intentionally omits unavailable first-person frames.
+Sampling found and fixed one unsound parse: “saw X near the vent” is proximity,
+not witnessed vent use. On the richest 181-eligible-meeting set this removed
+one wrong vote and moved precision 73.3% -> 78.6%.
+
+Pre-host hardening adds full factor-table telemetry, history/evidence counts,
+solve latency, posterior calibration, and a threshold sweep. Across all six
+sets, default threshold decisions are 63/73 correct; 0.70/0.85 is 47/54 and
+0.60/0.75 is 90/109, so behavior remains unchanged. Compact slotted world
+values reduced a dense 20,000-frame benchmark from 140 MB to 79 MB RSS; solve
+time was 81 ms.
+
+The fixed amd64 image passed an activated Gate 1 over two sequential scenario
+games: eight meetings, zero vote/connect/disconnect timeouts, no inference
+errors, complete factor-table artifacts, and 1-77 ms final solves with 48 ticks
+remaining. The smoke caught and then verified the fix for one unsound detector:
+walking onto a visible vent is no longer treated as emerging from it.
+
+The path is not uploaded or hosted-tested. The next experiment should be a
+matched, crew-role hosted A/B of this complete path, not another threshold fit
+on reused histories.
+
 ## Current update (2026-07-20, source-backed commitment)
 
 Inert `crewborg-solver-commit:v1`

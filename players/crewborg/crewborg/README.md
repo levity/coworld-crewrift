@@ -274,6 +274,7 @@ transport tuning never do.
 |---|---|---|
 | `CREWBORG_BE_DUMB` (alias `BE_DUMB`) | off | `1` = aggressive imposter selector: Search/Hunt only (skip Evade + body reports). An experiment. |
 | `CREWBORG_CHAT_NLP` | **on** | `0` kills the spaCy chat NLP (never imports spaCy); the imposter chat-bandwagon then degrades to vote-only. |
+| `CREWBORG_DEDUCTION_HISTORY` | off | `1` replaces legacy suspicion and the old meeting solver for crew with an append-only observation stream, pure pair inference, and parity-aware meeting policy. See [`docs/deduction-history.md`](./docs/deduction-history.md). |
 | `CREWBORG_SOLVER` | off | `1` enables the persistent joint-hypothesis crewmate meeting solver; it waits until the learned meeting deadline backstop before deciding. |
 | `CREWBORG_SOLVER_EARLY_CHAT` | off | `1` adds a public solve at tick 240 when `P>=0.65` and two non-self attributed sources accumulated across the episode agree, plus truthful reactive self-defense when another player votes for crewborg. The target is provisional until the same public gate agrees again at tick 360, when crewborg commits the ballot. |
 | `CREWBORG_SOLVER_VETO` | off | `1` lets the solver reject a base-policy vote whose joint marginal is below `CREWBORG_SOLVER_VETO_P`. |
@@ -324,7 +325,8 @@ transport tuning never do.
   [perception & belief](./docs/perception-and-belief.md), [navigation](./docs/navigation.md),
   [imposter play](./docs/imposter-play.md) & [crewmate play](./docs/crewmate-play.md),
   [suspicion](./docs/suspicion.md), [agent tracking](./docs/agent-tracking.md),
-  [meetings](./docs/meetings.md), the [LLM commander](./docs/commander.md), and
+  [meetings](./docs/meetings.md), [append-only deduction](./docs/deduction-history.md),
+  the [LLM commander](./docs/commander.md), and
   [trace logs](./docs/trace-logs.md).
 - **[`docs/trace-logs.md`](./docs/trace-logs.md)** — the `domain.*` trace-log format + how to
   read a game; **[`viewer/`](./viewer/)** — the trace-replay viewer.

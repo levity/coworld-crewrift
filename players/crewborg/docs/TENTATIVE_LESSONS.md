@@ -17,6 +17,47 @@ optional `Status:` note. Terse. One lesson per `###`.
 
 ---
 
+### Store observations once and derive conclusions on replay
+Evidence: The first append-only collector stored both world frames and
+`DirectActionObserved` conclusions. That duplicated information and froze the
+current detector. Recording visible vent occupancy and body/player frames
+instead lets every witnessed-action pin be rederived after detector changes.
+
+### Measure Python object shape before replacing readable identities
+Evidence: A dense 20,000-frame history used about 140 MB RSS with nested
+Pydantic observation values. Frozen slotted values reduced it to 79 MB and cut
+construction from 0.81s to 0.35s while preserving readable color names and JSON
+round trips. Integer enums would have targeted the smaller identity field.
+
+### Treat hand-built posterior values as calibration hypotheses
+Evidence: Six non-overlapping warehouses produced monotonic eject calibration
+in aggregate (85.3%, 88.0%, 90.0% across increasing decisive buckets), but one
+batch was non-monotonic and the sample sizes were small. Threshold sweeps are
+useful screens, not proof that a stated 0.90 is literally a 90% probability.
+
+### Geometric vent occupancy is not vent use
+Evidence: In an activated local meeting smoke, Orange hard-pinned crewmate Cyan
+when Cyan merely walked onto an empty visible vent. Requiring an emerging actor
+to have been absent from the entire preceding visible-player frame retained the
+actual Red vent pin and removed the Cyan false positive.
+
+### Public replay adapters must represent missing channels as absent evidence
+Evidence: Three older warehouses lacked `chat` or `died` partitions. Treating
+those optional partitions as mandatory crashed DuckDB; treating them as empty
+produced explicit zero-opportunity results without inventing facts.
+
+### Eligibility needs redundant death signals
+Evidence: The warehouse's `died` partition omitted some known kill victims, so
+the first narrative sample let a killed subject act in a later meeting. Unioning
+`kill.victim_slot` into the death census removed 98 impossible subject meetings
+from one 279-meeting reconstruction.
+
+### Proximity language is not action evidence
+Evidence: “I saw Pink near the vent earlier but also doing tasks” became a
+witnessed-vent accusation and contributed to a wrong Pink eject. Rejecting the
+near-vent interpretation while retaining the raw utterance removed one wrong
+decision on 181 eligible meetings, improving vote precision 73.3% -> 78.6%.
+
 ### Preserve relational evidence before reducing it to per-player counters
 Evidence: The fitted social counters persisted across meetings but discarded speaker-target
 edges, meeting identity, disjunctions, and source provenance, making joint constraints

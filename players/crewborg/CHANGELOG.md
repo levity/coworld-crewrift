@@ -1,5 +1,81 @@
 # Changelog
 
+## 2026-07-20 - Deduction experiment hardening
+
+Before implementation:
+
+- Preserve the raw-history concept while making the successive semantic,
+  assignment, scoring, posterior, and policy layers explicit and independently
+  callable.
+- Keep the prior impostor policy completely intact, add enough hosted telemetry
+  to rescore every assignment factor, measure realistic history cost before
+  changing representation, and check posterior/threshold calibration locally.
+
+After implementation:
+
+- Added `derive_evidence`, `build_assignment_table`, `score_assignments`, and
+  `decide_from_inference`; `infer` and `decide` are compatibility compositions.
+  Final traces include the full assignment factor table, history/evidence
+  counts, solve latency, and deadline state.
+- Scoped the feature to crewmates. Impostors now retain the complete legacy
+  evidence, suspicion, movement, and meeting paths when the flag is present.
+- Replaced nested Pydantic world values with frozen slotted values. A dense
+  20,000-frame benchmark moved from 140 MB to 79 MB RSS and from 0.81s to 0.35s
+  construction; inference took 81 ms.
+- Added warehouse calibration buckets and threshold sensitivity. Across 770
+  retained meetings, defaults remain the best precision/coverage compromise:
+  63/73 correct versus 47/54 at 0.70/0.85 and 90/109 at 0.60/0.75.
+- An activated local meeting smoke caught an unsound vent transition: walking
+  onto an empty visible vent was treated as emerging. Emergence now requires
+  absence from the complete preceding player frame, with a regression test.
+- The fixed amd64 image completed two sequential activated scenario games with
+  eight meetings, zero vote/connect/disconnect timeouts, no inference errors,
+  full factor-table artifacts, and final solve latency of 1-77 ms at the
+  48-tick backstop.
+- Final validation: 575 passed / 13 skipped, changed-file Ruff clean, and
+  `git diff --check` clean.
+
+## 2026-07-20 - Parallel append-only deduction path
+
+Before implementation:
+
+- Build a new, default-off path in an isolated worktree. Its complete solver
+  input is a frozen game specification plus an append-only stream of personal
+  semantic observations, exact utterances, public votes, meetings, and deaths.
+- Make evidence extraction, joint role inference, and the vote decision pure
+  functions. Never consume the old suspicion scalar or a previous solver
+  conclusion, and retain enough input to reinterpret every contribution.
+- Preserve useful reasoning nuances from prior work without treating that
+  implementation as authoritative: role-conditioned sources, relational
+  per-kill alibis, source-target deduplication, cross-meeting persistence,
+  correlation discounts, killed-player clears, and ejection uncertainty.
+- Add a single switch that bypasses both old evidence paths, a synthetic
+  generator for thousands of cheap cases, and a historical warehouse adapter
+  that does not invent missing private observations.
+
+After implementation:
+
+- Added `deduction/model.py`, `collector.py`, `inference.py`, and `decision.py`.
+  Runtime history contains observations only; witnessed kills/vents, alibis,
+  parsed claims, pair exclusions, marginals, and vote decisions are rebuilt.
+- `CREWBORG_DEDUCTION_HISTORY=1` skips the legacy event/social/suspicion fold,
+  clears legacy scalar outputs, and routes crew meetings around the LLM and old
+  solver. The final solve uses the 48-tick deadline after a provisional
+  tick-240 communication pass.
+- Added parity-aware vote thresholds, full evidence/pair audit, killed-player
+  hard clears, ejection role uncertainty, exact utterance retention, and
+  guards against unary “with me” clears and “near a vent” vent accusations.
+- Added seeded synthetic and JSONL/warehouse replay evaluation. Seed 7 over
+  1,000 synthetic histories produced 94.9% vote precision at 49.4% coverage
+  with zero murder-clear violations. Six usable retained warehouse sets cover
+  770 meetings while crewborg was alive and produced 63/73 correct
+  counterfactual eject decisions (86.3% precision).
+- Added focused coverage for persistence, deduplication, direct-action
+  re-derivation, alibi constraints, death sources, runtime collection, legacy
+  bypass, deadline behavior, known-role constraints, and non-monotonic parity
+  policy. Final validation: 571 passed / 13 skipped, changed-file Ruff clean,
+  and `git diff --check` clean.
+
 ## 2026-07-20 - Source-backed meeting commitment
 
 Before implementation:

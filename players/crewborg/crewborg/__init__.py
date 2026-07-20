@@ -12,6 +12,8 @@ from typing import Protocol
 
 from crewborg.agent_tracking import update_agent_tracking
 from crewborg.action import resolve_action
+from crewborg.deduction.collector import update_deduction_history
+from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
 from crewborg.events import CrewborgEventTracer
 from crewborg.map import MapData, load_croatoan_map
 from crewborg.modes import (
@@ -124,14 +126,21 @@ def build_runtime(
         map_data = load_croatoan_map()
 
     def fold_belief(belief: Belief, percept: Percept) -> None:
-        """Fast-loop belief update: perception, tracking, event log, social evidence, suspicion."""
+        """Fold perception into either the legacy or append-only evidence path."""
 
         update_belief(belief, percept)
         update_agent_tracking(belief)
-        update_event_log(belief)
-        update_alibi(belief)  # opt-in co-presence alibis (CREWBORG_ALIBI); no-op otherwise
-        update_social_evidence(belief)
-        update_suspicion(belief)
+        if deduction_history_enabled(belief.self_role):
+            update_deduction_history(belief, percept)
+            # The new path must not silently consume conclusions from either
+            # legacy evidence pipeline.
+            belief.suspicion.clear()
+            belief.believed_imposters.clear()
+        else:
+            update_event_log(belief)
+            update_alibi(belief)
+            update_social_evidence(belief)
+            update_suspicion(belief)
 
     commander_trace = CommanderTrace()
     feature_on = commander_feature_enabled(dict(os.environ))
