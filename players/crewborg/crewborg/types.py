@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from crewborg.agent_tracking import AgentTrackingState
 from crewborg.coworld.scene import SceneState
+from crewborg.deduction.model import DeductionEvent
 from crewborg.map.types import MapData
 from crewborg.nav import NavGraph, build_nav_graph
 from crewborg.navbake import load_navbake
@@ -446,6 +447,12 @@ class Belief(BaseModel):
     # always be recomputed from the original observation rather than a compressed
     # player-level score (default OFF; empty until that module populates it).
     alibi_state: dict = Field(default_factory=dict)
+
+    # New deduction path: exact semantic observations in append-only order.
+    # Conclusions are deliberately absent; every solve rebuilds from this ledger.
+    deduction_events: list[DeductionEvent] = Field(default_factory=list)
+    deduction_event_ids: set[str] = Field(default_factory=set)
+    deduction_world_ticks: set[int] = Field(default_factory=set)
 
     # Bookkeeping for ``strategy.social_evidence`` (cumulative public-evidence
     # counters on PlayerRecord): chat lines already counted (keys survive the

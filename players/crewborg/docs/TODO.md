@@ -32,6 +32,15 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## Open
 
+### Consume joint posterior in self-preservation movement (2026-07-20)
+
+Keep deduction pure and append-only, but later add a separate movement-policy
+consumer for the current joint posterior: avoid strongly suspected impostors,
+seek corroborating witnesses, or tail a suspect only when the survival risk is
+acceptable. Do not feed movement choices back as evidence or store them in the
+deduction history. This was explicitly deferred until the meeting solver has a
+hosted result.
+
 ### Add map-aware possible-killer constraints to the pair ledger (2026-07-20)
 
 Per-kill close co-presence is sound but too sparse to exclude pairs by itself,

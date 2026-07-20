@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
+from time import perf_counter
 from typing import Any
 
+from crewborg.deduction.collector import history_from_belief
+from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
+from crewborg.deduction.decision import MeetingDecision as DeductionMeetingDecision
+from crewborg.deduction.decision import decide as decide_from_history
+from crewborg.deduction.model import DeductionHistory
 from crewborg.strategy.meeting import (
     CHAT_MAX_CHARS,
     VOTE_SKIP,
@@ -51,6 +58,7 @@ AUTO_SUBMIT_REMAINING_TICKS = 48
 MEETING_TICKS_PER_SECOND = 24
 LLM_TIMEOUT_MARGIN_TICKS = LLM_MIN_CALL_INTERVAL_TICKS
 DEFAULT_LLM_TIMEOUT_SECONDS = 3.0
+DEDUCTION_EARLY_CHAT_TICKS = 240
 
 
 class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
@@ -81,6 +89,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._solver_early_target: str | None = None
         self._solver_early_vote_attempted = False
         self._solver_self_defense_sent = False
+        self._deduction_early_chat_attempted = False
+        self._deduction_finalized = False
 
     def is_legal(self, belief: Belief) -> bool:
         return belief.phase == "Voting"
@@ -95,6 +105,9 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             return Intent(kind="idle", reason="vote already confirmed")
         if self._active_vote_target is not None:
             return self._vote_intent(self._active_vote_target, reason=self._active_vote_reason)
+
+        if deduction_history_enabled(belief.self_role):
+            return self._decide_from_deduction_history(belief)
 
         if not self._llm_client.enabled:
             return self._decide_deterministic(belief, trace_disabled=True)
@@ -127,6 +140,167 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         return self._apply_decision(belief, decision)
 
     # --- deterministic fallback ------------------------------------------
+
+    def _decide_from_deduction_history(self, belief: Belief) -> Intent:
+        """Use only the append-only history, waiting until the deadline to vote."""
+
+        history = history_from_belief(belief)
+        if history is None:
+            if self._should_auto_submit(belief):
+                self._tentative_vote = VOTE_SKIP
+                return self._submit_vote_intent(
+                    belief,
+                    reason="deduction history unavailable at deadline",
+                )
+            return Intent(kind="idle", reason="waiting for deduction history")
+
+        live_targets = tuple(sorted(valid_vote_targets(belief)))
+        meeting_age = belief.last_tick - belief.phase_start_tick
+        if (
+            not self._deduction_early_chat_attempted
+            and meeting_age >= DEDUCTION_EARLY_CHAT_TICKS
+        ):
+            self._deduction_early_chat_attempted = True
+            solve_started = perf_counter()
+            early = decide_from_history(history, live_targets=live_targets)
+            solve_ms = (perf_counter() - solve_started) * 1000
+            self.emit.event(
+                "deduction_history_early",
+                self._deduction_trace(
+                    belief,
+                    history,
+                    early,
+                    solve_ms=solve_ms,
+                    include_factor_table=False,
+                ),
+            )
+            text = self._deduction_chat(
+                early,
+                live_targets=live_targets,
+                allow_clear=True,
+            )
+            if text is not None and self._chat_cooldown_ready(belief):
+                return self._send_chat_intent(
+                    belief,
+                    text,
+                    reason="sharing early append-only deduction",
+                )
+
+        if not self._should_auto_submit(belief):
+            return Intent(
+                kind="idle",
+                reason="gathering complete meeting transcript before deduction",
+            )
+        if self._deduction_finalized:
+            return self._submit_vote_intent(
+                belief,
+                reason="append-only deduction vote",
+            )
+
+        solve_started = perf_counter()
+        final = decide_from_history(history, live_targets=live_targets)
+        solve_ms = (perf_counter() - solve_started) * 1000
+        self._deduction_finalized = True
+        self._tentative_vote = (
+            final.target
+            if final.action == "eject" and final.target is not None
+            else VOTE_SKIP
+        )
+        self.emit.event(
+            "deduction_history_decision",
+            self._deduction_trace(
+                belief,
+                history,
+                final,
+                solve_ms=solve_ms,
+                include_factor_table=True,
+            ),
+        )
+        text = self._deduction_chat(
+            final,
+            live_targets=live_targets,
+            allow_clear=False,
+        )
+        if (
+            text is not None
+            and text not in self._sent_chat_texts
+            and self._chat_cooldown_ready(belief)
+        ):
+            return self._send_chat_intent(
+                belief,
+                text,
+                reason="sharing final append-only deduction",
+            )
+        return self._submit_vote_intent(
+            belief,
+            reason=f"append-only deduction: {final.reason}",
+        )
+
+    def _deduction_trace(
+        self,
+        belief: Belief,
+        history: DeductionHistory,
+        decision: DeductionMeetingDecision,
+        *,
+        solve_ms: float,
+        include_factor_table: bool,
+    ) -> dict[str, Any]:
+        history_counts = Counter(event.kind for event in history.events)
+        active_counts = Counter(
+            evidence.channel
+            for evidence in decision.inference.evidence
+            if evidence.status == "active"
+        )
+        payload: dict[str, Any] = {
+            "meeting_age_ticks": belief.last_tick - belief.phase_start_tick,
+            "remaining_ticks": self._remaining_ticks(belief),
+            "solve_ms": round(solve_ms, 3),
+            "history_event_count": len(history.events),
+            "history_event_counts": dict(sorted(history_counts.items())),
+            "active_evidence_counts": dict(sorted(active_counts.items())),
+            "decision": decision.as_trace(),
+        }
+        if include_factor_table:
+            payload["factor_table"] = decision.inference.as_factor_trace()
+        return payload
+
+    def _deduction_chat(
+        self,
+        decision: DeductionMeetingDecision,
+        *,
+        live_targets: tuple[str, ...],
+        allow_clear: bool,
+    ) -> str | None:
+        target = decision.target
+        if decision.action == "eject" and target is not None:
+            if target in decision.inference.pins:
+                return f"saw {target} kill or vent. vote {target}"
+            if decision.structural:
+                return f"{target} is forced by the remaining pairs. vote {target}"
+            sources = " and ".join(decision.sources[:2])
+            if sources:
+                return f"{sources} both point to {target}. vote {target}"
+            return f"combined evidence points to {target}. vote {target}"
+        if not allow_clear or decision.inference.error is not None:
+            return None
+        active_evidence = any(
+            item.status == "active"
+            for item in decision.inference.evidence
+        )
+        if not active_evidence:
+            return None
+        live_marginals = [
+            (color, probability)
+            for color, probability in decision.inference.marginals
+            if color in live_targets
+            and color not in decision.inference.murder_clears
+        ]
+        if not live_marginals:
+            return None
+        clear, probability = min(live_marginals, key=lambda item: (item[1], item[0]))
+        if probability > 0.10:
+            return None
+        return f"{clear} looks clear from the combined evidence"
 
     def _decide_deterministic(self, belief: Belief, *, trace_disabled: bool) -> Intent:
         """No default-firing chat; chat and vote are always coupled (accuse exactly who
@@ -644,9 +818,15 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._solver_early_target = None
         self._solver_early_vote_attempted = False
         self._solver_self_defense_sent = False
+        self._deduction_early_chat_attempted = False
+        self._deduction_finalized = False
         self._meeting_entry_vote_target = (
             top_suspect(belief)
-            if (solver_enabled() or solver_defer_enabled()) and not belief.chat_log
+            if (
+                not deduction_history_enabled(belief.self_role)
+                and (solver_enabled() or solver_defer_enabled())
+                and not belief.chat_log
+            )
             else None
         )
 
@@ -697,6 +877,13 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         return self._fallback_vote_target(belief)
 
     def _fallback_vote_target(self, belief: Belief) -> str:
+        if deduction_history_enabled(belief.self_role):
+            target = self._tentative_vote
+            if target is not None and (
+                target == VOTE_SKIP or target in valid_vote_targets(belief)
+            ):
+                return target
+            return VOTE_SKIP
         if solver_enabled() or solver_defer_enabled():
             target = self._meeting_entry_vote_target
             if target is not None and target in valid_vote_targets(belief):

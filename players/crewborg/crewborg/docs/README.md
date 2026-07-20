@@ -17,6 +17,7 @@ in present tense.
 | [suspicion.md](./suspicion.md) | the Bayesian P(imposter) model — the prior, the per-event log-LR evidence, the fitted weights, and how they're learned |
 | [agent-tracking.md](./agent-tracking.md) | the probabilistic occupancy/location belief (reachability discs, the expected-crew grid) that feeds imposter seeking |
 | [meetings.md](./meetings.md) | the meeting subsystem: the always-present deterministic vote + the opt-in LLM chat/vote path, chat reading, and imposter deflection |
+| [deduction-history.md](./deduction-history.md) | the opt-in append-only observation stream, pure joint inference, pair audit, parity-aware meeting decision, and cheap replay/synthetic harness |
 | [commander.md](./commander.md) | the opt-in, gated-off LLM gameplay commander that writes priorities the modes read to bias execution |
 | [trace-logs.md](./trace-logs.md) | the `domain.*` JSONL trace format, the trace controls, and how to read a finished game |
 
@@ -24,7 +25,7 @@ in present tense.
 
 - **"How does it play?"** → [imposter-play.md](./imposter-play.md) (imposter) / [crewmate-play.md](./crewmate-play.md) (crewmate).
 - **"How does it see and move?"** → [perception-and-belief.md](./perception-and-belief.md) / [navigation.md](./navigation.md).
-- **"How does it decide who's the imposter?"** → [suspicion.md](./suspicion.md) (+ [agent-tracking.md](./agent-tracking.md) for where players are).
+- **"How does it decide who's the imposter?"** → [suspicion.md](./suspicion.md) for the legacy path / [deduction-history.md](./deduction-history.md) for the parallel append-only path.
 - **"How do meetings / the LLM work?"** → [meetings.md](./meetings.md) (+ [commander.md](./commander.md) for the gameplay commander).
 - **"How do I debug a game?"** → [trace-logs.md](./trace-logs.md).
 
