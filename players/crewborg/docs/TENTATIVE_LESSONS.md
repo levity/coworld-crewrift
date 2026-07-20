@@ -17,6 +17,24 @@ optional `Status:` note. Terse. One lesson per `###`.
 
 ---
 
+### A joint posterior still needs semantically valid decision support
+Evidence: In the append-only hosted A/B, three of four fresh public-solver
+errors treated two ballots as independent support even though no utterance
+accused the chosen target. Requiring one active accusation retained all 14
+correct candidate-history selections while removing those three errors.
+
+### Synthetic social evidence must share latent beliefs
+Evidence: Independent synthetic chat and ballot draws predicted 94.9% vote
+precision at 49.4% coverage; fresh hosted public history produced 77.8% at
+19.4%. Hosted errors were persistent or shared false piles, a dependency the
+generator cannot currently express.
+
+### Reject incomplete replay traces before meeting evaluation
+Evidence: One candidate expansion stopped at tick 5060 on a hash failure. The
+new evaluator initially counted its two partial meetings, including a correct
+selection, while the legacy analyzer excluded it. Explicit trace-warning
+filtering restored the same 93-meeting denominator.
+
 ### Store observations once and derive conclusions on replay
 Evidence: The first append-only collector stored both world frames and
 `DirectActionObserved` conclusions. That duplicated information and froze the

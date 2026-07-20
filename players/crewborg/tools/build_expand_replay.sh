@@ -21,9 +21,12 @@
 #   plus `src/crewrift/{sim,replays}.nim`. We do NOT vendor a prebuilt binary and we
 #   do NOT clone — we export the repo's tree at `--ref` with `git archive` (read-only;
 #   never touches your working tree or its checked-out commit), resolve Nim deps with
-#   `nimby`, and compile host-native. It is a HOST analysis tool you run locally to
-#   read replays, so it builds for this host's arch (no Docker, no amd64). The
-#   crewrift source + its bitworld dep are public, so no credentials are needed.
+#   `nimby`, and compile host-native. The exported tree remains beside the binary:
+#   `expand_replay` loads map resources relative to its compile-time source path, so
+#   deleting that tree makes an otherwise valid binary fail at runtime. It is a HOST
+#   analysis tool you run locally to read replays, so it builds for this host's arch
+#   (no Docker, no amd64). The crewrift source + its bitworld dep are public, so no
+#   credentials are needed.
 #
 # HOW TO USE
 #   Build at the pinned game ref (default CREWRIFT_REF from tools/build/versions.env):
@@ -111,11 +114,14 @@ export PATH="$HOME/.local/bin:$HOME/.nimby/nim/bin:$PATH"
 command -v nim   >/dev/null 2>&1 || die "nim not found (install via nimby; see the crewrift repo README)"
 command -v nimby >/dev/null 2>&1 || die "nimby not found (https://github.com/treeform/nimby)"
 
-# Export the repo's tree AT THE REF into a throwaway dir — read-only on your checkout
-# (no worktree mutation, no branch/commit change). nim.cfg is gitignored, so the
-# archive lacks it and the deps; `nimby sync` regenerates nim.cfg and fetches deps.
-src_dir="$(mktemp -d)"
-trap 'rm -rf "$src_dir"' EXIT
+# Export the repo's tree AT THE REF into a stable companion dir — read-only on your
+# checkout (no worktree mutation, no branch/commit change). `expand_replay` uses
+# currentSourcePath() to find data/croatoan.resources at runtime, so this exact path
+# must outlive the build. nim.cfg is gitignored, which is why `nimby sync` is still
+# required after the archive is unpacked.
+src_dir="${out_bin}.source"
+rm -rf "$src_dir"
+mkdir -p "$src_dir"
 echo "==> exporting $REPO_ROOT @ $ref (git archive; your checkout is untouched)"
 git -C "$REPO_ROOT" archive --format=tar "$ref" | tar -x -C "$src_dir"
 [ -f "$src_dir/tools/expand_replay.nim" ] || die "export missing tools/expand_replay.nim at $ref"
@@ -135,6 +141,7 @@ build_native
 
 echo ""
 echo "Built: $out_bin   (host-native; game ref $ref)"
+echo "Runtime resources: $src_dir   (keep beside the binary)"
 echo "Use it:  export CREWRIFT_EXPAND_REPLAY='$out_bin'"
 if [[ -n "$run_replay" ]]; then
   echo "==> verifying on $run_replay (expect trace_complete:true, exit 0)"

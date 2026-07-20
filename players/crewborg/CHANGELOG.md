@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-20 - Append-only deduction hosted result
+
+- Completed the same-image 100/arm forced-crew A/B: candidate wins were 37/100
+  versus 42/100 control (`p=0.563`). The candidate is not promotable because
+  subject ballots regressed from 25/25 to 21/24 correct, added three crew
+  ballots, and retained only 71.2% of control non-skip coverage.
+- Verified the intended timing in public replay. Tick-241 output was 13/13
+  correct accusations plus one correct clear; the two spoken false accusations
+  appeared only at tick 1153. Hosted factor logs were unavailable.
+- Replayed both solvers on the same 93 clean candidate meetings: legacy was
+  16/17 and the new path 14/18. A requirement for at least one explicit
+  accusation removes three vote-only errors without removing a correct new-path
+  selection; threshold increases remove correct picks first.
+- Added compact `evaluate_deduction.py --details` output and automatic exclusion
+  of trace-warning episodes. Fixed `build_expand_replay.sh` to retain the
+  compile-time source/resource tree required by the generated binary at runtime.
+- Identified a synthetic-evaluation distribution gap: independent chat and
+  ballot draws omit the correlated, persistent false beliefs behind hosted
+  crowd errors.
+
 ## 2026-07-20 - Deduction experiment hardening
 
 Before implementation:

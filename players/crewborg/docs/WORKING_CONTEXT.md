@@ -51,11 +51,22 @@ errors, complete factor-table artifacts, and 1-77 ms final solves with 48 ticks
 remaining. The smoke caught and then verified the fix for one unsound detector:
 walking onto a visible vent is no longer treated as emerging from it.
 
-The path is not uploaded or hosted-tested. The next experiment should be a
-matched, crew-role hosted A/B of this complete path, not another threshold fit
-on reused histories. The exact same-image upload configuration, fixed roster,
-streaming procedure, precommitted gates, and closeout checklist are recorded in
-`docs/experiments/2026-07-20-deduction-history-hosted-handoff.md`.
+The first matched 100/arm hosted test is complete. Candidate crew wins were
+37/100 versus 42/100 control (`p=0.563`), but the treatment fails the stronger
+precommitted behavioral screen: clean subject ballots were 21 impostor / 3 crew
+/ 69 skip versus 25 / 0 / 44, so precision fell 100% -> 87.5% and non-skip
+coverage retained only 71.2% of control. Do not promote or submit it.
+
+The early mechanism was sound in this sample: all ten direct accusations,
+three public accusations, and one clear spoken at tick 241 were correct. The
+late public solve caused the visible errors. Same-history replay on 93 clean
+candidate meetings gives legacy 16/17 versus new 14/18; three new errors were
+just two-source ballot piles with no accusation against the target. Requiring
+at least one active accusation would retain all 14 correct selections and
+remove those three errors. Next: implement that narrow decision gate, validate
+across every retained warehouse, and make synthetic histories model correlated
+and persistent false beliefs before considering another hosted run. Full
+result: `docs/experiments/2026-07-20-deduction-history-hosted-handoff.md`.
 
 ## Current update (2026-07-20, source-backed commitment)
 
