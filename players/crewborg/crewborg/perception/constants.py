@@ -140,6 +140,10 @@ PHASE_TEXT_WAS_KILLED = "WAS KILLED"
 PHASE_TEXT_DRAW = "DRAW"
 PHASE_TEXT_CREW_WINS = "CREW WINS"
 PHASE_TEXT_IMPS_WIN = "IMPS WIN"
+PHASE_TEXT_GAME_INFO = "GAME INFO"
+
+# Live settings shown on the pre-game GameInfo interstitial.
+GAME_INFO_PREFIX_VOTE_TIMER = "VOTE TIMER "  # "VOTE TIMER 1200T"
 
 # The full set of interstitial phase/result texts, for membership tests.
 PHASE_TEXTS: frozenset[str] = frozenset(

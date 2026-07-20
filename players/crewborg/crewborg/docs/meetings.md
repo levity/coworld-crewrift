@@ -137,6 +137,28 @@ It then submits the staged vote. Loose accusing is negative-EV for crew, so sile
 the default, not a failure mode. The *when-to-accuse* policy lives in
 [`./crewmate-play.md`](./crewmate-play.md); the ranking lives in [`./suspicion.md`](./suspicion.md).
 
+With `CREWBORG_SOLVER=1`, crew instead waits until the learned 48-tick deadline
+backstop and runs `strategy/meeting/solver.py` once. The solver:
+
+- keeps structured accusations, defenses, disjunctions, vote tallies, callers,
+  and ejections across every meeting;
+- separates the current speaker from an attributed source, discounts relays,
+  and de-duplicates an original-source/stance/target set within one meeting,
+  then lets the same relation contribute with decay in later meetings;
+- enumerates the fixed-size impostor assignments over the original roster,
+  including dead players, and conditions direct assertions on their speaker and
+  relays on both the attributed source and current speaker;
+- weights body, vent, sighting, bare, and vote evidence separately, boosts a
+  body reporter's evidence, applies witnessed-impostor pins and watched-task
+  clears, and uses the fitted suspicion posterior only as a tempered prior; and
+- votes only when the top live marginal clears `CREWBORG_SOLVER_P` and separates
+  from the first player outside the available impostor slots by
+  `CREWBORG_SOLVER_MARGIN`.
+
+The report placed in the meeting trace contains global marginals and the five
+highest-probability joint assignments. `CREWBORG_SOLVER_VETO=1` can independently
+use those marginals to reject a base-policy vote.
+
 ### Imposter (`_decide_imposter`)
 
 Deflect heat onto crewmates, never teammates, and survive the meeting. Order of preference:
@@ -286,7 +308,8 @@ the caller falls back. The result carries the decision plus call metadata
 One pre-digested, side-effect-free projection of belief per LLM tick. It spells out, so the
 model reasons over already-computed signals rather than re-deriving them:
 
-- `meeting` — id, tick, age, estimated remaining ticks (`VOTE_TIMER_TICKS = 240`).
+- `meeting` — id, tick, age, and estimated remaining ticks from the live
+  `VOTE TIMER` GameInfo value (conservative 240-tick fallback on older servers).
 - `self` — our color, role, and teammate colors.
 - `constraints` — the action menu, `valid_vote_targets` (§3), `CHAT_MAX_CHARS`, printable-ASCII
   requirement, and chat-cooldown readiness (`CHAT_COOLDOWN_TICKS = 100`).
@@ -393,6 +416,12 @@ never miss the vote. The guards:
   so the final prompt is never scheduled too late to finish.
 - `_should_auto_submit` force-submits the staged vote at `AUTO_SUBMIT_REMAINING_TICKS` (48)
   regardless of LLM state.
+- Solver-enabled deterministic crew gathers until the same learned
+  `AUTO_SUBMIT_REMAINING_TICKS` (48) backstop, then solves once over its
+  episode-persistent claim and meeting ledger. On the standard 1200-tick timer
+  this consumes 1152 ticks of utterances before deciding. If the solver abstains,
+  it may use only the legacy target captured when the meeting opened, not one
+  recomputed from the late chat it just consumed.
 - `_decide_after_llm_failure`: at the `deadline` trigger a failure force-submits; at
   `meeting_start` it falls through to the deterministic path; otherwise it idles and waits for
   the next trigger.

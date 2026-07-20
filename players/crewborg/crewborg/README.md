@@ -274,6 +274,10 @@ transport tuning never do.
 |---|---|---|
 | `CREWBORG_BE_DUMB` (alias `BE_DUMB`) | off | `1` = aggressive imposter selector: Search/Hunt only (skip Evade + body reports). An experiment. |
 | `CREWBORG_CHAT_NLP` | **on** | `0` kills the spaCy chat NLP (never imports spaCy); the imposter chat-bandwagon then degrades to vote-only. |
+| `CREWBORG_SOLVER` | off | `1` enables the persistent joint-hypothesis crewmate meeting solver; it waits until the learned meeting deadline backstop before deciding. |
+| `CREWBORG_SOLVER_VETO` | off | `1` lets the solver reject a base-policy vote whose joint marginal is below `CREWBORG_SOLVER_VETO_P`. |
+| `CREWBORG_SOLVER_P` / `CREWBORG_SOLVER_MARGIN` | `0.65` / `0.10` | Minimum live-player marginal and separation from the strongest below-threshold alternative. |
+| `CREWBORG_SOLVER_<CONFIG_FIELD>` | see `SolverConfig` in `strategy/meeting/solver.py` | Evidence provenance, repeat decay, prior strength, and role-conditioned likelihood knobs. |
 | `CREWBORG_RECON_WINDOW` | `100` | Recon lead window (ticks before kill-ready) to pre-position on a victim. |
 | `CREWBORG_EVADE_TICKS` | `72` | Evade window (ticks) after our own kill before returning to the kill loop. |
 | `CREWBORG_PICKROOM_W_{OCCUPANCY,UNVISITED,RECENCY,DISTANCE,TEAMMATE,TASKBONUS,COMMANDER}` | see `modes/search.py` | weights of Search's scored `PICK_ROOM` arg-max (expected crew occupancy, unvisitedness, recency penalty, travel cost, teammate pressure, task-room bonus, commander nudge). |

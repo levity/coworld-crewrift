@@ -418,6 +418,11 @@ before trusting a transition.
   from the resolved scene.
 - `chat_log: list[ChatEvent]` — meeting chat, de-duplicated by `(speaker, text)`
   and cleared when a new meeting opens.
+- `social_claims: list[SocialClaim]` + `meeting_history: list[MeetingRecord]` —
+  episode-persistent relational memory for the opt-in solver. Claims preserve
+  meeting, current speaker, attributed source, direct/relayed provenance, target
+  set, stance, text, and evidence kind; meeting records preserve caller, public
+  voter-to-target edges, and the ejection.
 - `teammate_colors` — imposter teammates from the role-reveal icons, so the
   imposter never targets a teammate (see [`./imposter-play.md`](./imposter-play.md)).
 - the **imposter kill-cooldown timing** fields — `last_kill_tick`,
