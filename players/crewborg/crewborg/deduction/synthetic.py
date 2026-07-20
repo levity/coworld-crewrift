@@ -1,8 +1,8 @@
 """Seeded synthetic histories for cheap solver-policy evaluation.
 
 This is not a simulator substitute. It generates semantic observations and raw
-meeting text from an independent behavioral model, then evaluates the exact
-production parser, inference, and decision functions.
+meeting text from persistent actor beliefs with shared crowd influence, then
+evaluates the exact production parser, inference, and decision functions.
 """
 
 from __future__ import annotations
@@ -42,6 +42,11 @@ class SyntheticBehavior:
     crew_vote_accuracy: float = 0.56
     imp_votes_crew_probability: float = 0.84
     kill_between_meetings_probability: float = 0.75
+    belief_persistence: float = 0.70
+    crowd_belief_probability: float = 0.65
+    crew_crowd_adoption_probability: float = 0.35
+    imp_crowd_adoption_probability: float = 0.55
+    vote_follows_belief_probability: float = 0.80
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,7 @@ def generate_game(
     self_color = colors[0]
     imposters = tuple(sorted(rng.sample(list(colors[1:]), 2)))
     alive = set(colors)
+    beliefs: dict[str, str] = {}
     events = []
     event_index = 0
 
@@ -116,17 +122,18 @@ def generate_game(
                 call_kind=rng.choice(("body", "button")),
             )
         )
+        beliefs = _meeting_beliefs(
+            rng,
+            actors=alive - {self_color},
+            alive=alive,
+            imposters=set(imposters),
+            previous=beliefs,
+            behavior=behavior,
+        )
         for speaker in sorted(alive - {self_color}):
             if rng.random() >= behavior.speak_probability:
                 continue
-            target = _accusation_target(
-                rng,
-                actor=speaker,
-                alive=alive,
-                imposters=set(imposters),
-                crew_accuracy=behavior.crew_accusation_accuracy,
-                imp_targets_crew=behavior.imp_accuses_crew_probability,
-            )
+            target = beliefs.get(speaker)
             if target is None:
                 continue
             event_index += 1
@@ -148,14 +155,16 @@ def generate_game(
             )
 
         for voter in sorted(alive - {self_color}):
-            target = _accusation_target(
-                rng,
-                actor=voter,
-                alive=alive,
-                imposters=set(imposters),
-                crew_accuracy=behavior.crew_vote_accuracy,
-                imp_targets_crew=behavior.imp_votes_crew_probability,
-            )
+            target = beliefs.get(voter)
+            if rng.random() >= behavior.vote_follows_belief_probability:
+                target = _accusation_target(
+                    rng,
+                    actor=voter,
+                    alive=alive,
+                    imposters=set(imposters),
+                    crew_accuracy=behavior.crew_vote_accuracy,
+                    imp_targets_crew=behavior.imp_votes_crew_probability,
+                )
             event_index += 1
             events.append(
                 VoteObserved(
@@ -246,6 +255,64 @@ def evaluate_synthetic(
         mean_true_pair_probability=pair_probability / denominator,
         murder_clear_failures=murder_clear_failures,
     )
+
+
+def _meeting_beliefs(
+    rng: random.Random,
+    *,
+    actors: set[str],
+    alive: set[str],
+    imposters: set[str],
+    previous: dict[str, str],
+    behavior: SyntheticBehavior,
+) -> dict[str, str]:
+    crowd_anchor = None
+    crowd_target = None
+    crew_actors = sorted(actors - imposters)
+    if crew_actors and rng.random() < behavior.crowd_belief_probability:
+        crowd_anchor = rng.choice(crew_actors)
+        crowd_target = _accusation_target(
+            rng,
+            actor=crowd_anchor,
+            alive=alive,
+            imposters=imposters,
+            crew_accuracy=behavior.crew_accusation_accuracy,
+            imp_targets_crew=behavior.imp_accuses_crew_probability,
+        )
+
+    beliefs: dict[str, str] = {}
+    for actor in sorted(actors):
+        target = previous.get(actor)
+        if (
+            target not in alive
+            or target == actor
+            or rng.random() >= behavior.belief_persistence
+        ):
+            target = _accusation_target(
+                rng,
+                actor=actor,
+                alive=alive,
+                imposters=imposters,
+                crew_accuracy=behavior.crew_accusation_accuracy,
+                imp_targets_crew=behavior.imp_accuses_crew_probability,
+            )
+        adoption_probability = (
+            behavior.imp_crowd_adoption_probability
+            if actor in imposters
+            else behavior.crew_crowd_adoption_probability
+        )
+        if actor == crowd_anchor:
+            target = crowd_target
+        elif (
+            crowd_target is not None
+            and crowd_target != actor
+            and (actor not in imposters or crowd_target not in imposters)
+            and rng.random() < adoption_probability
+        ):
+            target = crowd_target
+        if target is not None:
+            beliefs[actor] = target
+    return beliefs
 
 
 def _accusation_target(

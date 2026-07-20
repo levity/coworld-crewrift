@@ -4,7 +4,8 @@ The loss decomposition showed crew lose a task-completion race that is ended by 
 kills (96% of losses had both imposters killing freely). Kills happen to isolated crew, so
 a crewmate who has *finished its own tasks* is worth more loitering with the pack than
 wandering alone: it denies kill windows (an imposter won't kill in front of a witness) and
-maximises the co-visible set that :mod:`crewborg.strategy.alibi` turns into exonerations.
+maximises the co-present set that hidden-kill reasoning can use to exclude impossible
+impostor assignments.
 
 Design (merge-friendly, default OFF):
 
@@ -15,7 +16,7 @@ Design (merge-friendly, default OFF):
   intent when Normal would otherwise idle or head back to the start room (i.e. our task
   list is done). So the shared task bar — the actual win condition — is never slowed.
 - Biases toward the densest cluster of live crewmates (safety in numbers), and holds still
-  once inside it to keep an unbroken line of sight (which is what earns alibis).
+  once inside it to preserve the continuous co-presence needed by kill constraints.
 """
 
 from __future__ import annotations

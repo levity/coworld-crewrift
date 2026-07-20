@@ -147,7 +147,16 @@ def decide_from_inference(
         bool(result.hypotheses)
         and all(target in hypothesis.imposters for hypothesis in result.hypotheses)
     )
-    has_support = structural or len(sources) >= policy.min_independent_sources
+    has_accusation = any(
+        evidence.status == "active"
+        and evidence.channel == "claim"
+        and evidence.stance in {"accuse", "at_least_one"}
+        and target in evidence.targets
+        for evidence in result.evidence
+    )
+    has_support = structural or (
+        has_accusation and len(sources) >= policy.min_independent_sources
+    )
     has_evidence = bool(
         result.pins
         or result.murder_clears
@@ -164,7 +173,7 @@ def decide_from_inference(
         elif structural:
             reason = "target appears in every surviving role assignment"
         else:
-            reason = "independent public sources support the joint solve"
+            reason = "accusation-backed public sources support the joint solve"
         return MeetingDecision(
             action="eject",
             target=target,
@@ -182,7 +191,9 @@ def decide_from_inference(
     reason_parts: list[str] = []
     if not has_evidence:
         reason_parts.append("no deduction evidence")
-    if not has_support:
+    if not structural and not has_accusation:
+        reason_parts.append("ballot evidence lacks accusation or structural support")
+    elif not has_support:
         reason_parts.append("insufficient independent or structural support")
     if probability < required:
         reason_parts.append("posterior below parity-aware threshold")

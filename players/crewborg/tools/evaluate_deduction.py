@@ -15,7 +15,7 @@ from crewborg.deduction.decision import (
     decide,
     decide_from_inference,
 )
-from crewborg.deduction.inference import infer
+from crewborg.deduction.inference import InferenceConfig, infer
 from crewborg.deduction.model import (
     DeathObserved,
     DeductionHistory,
@@ -71,9 +71,20 @@ def main() -> None:
         action="store_true",
         help="Include one compact decision row per eligible meeting",
     )
+    parser.add_argument(
+        "--inference-config",
+        type=json.loads,
+        default=None,
+        metavar="JSON",
+        help="InferenceConfig field overrides for offline counterfactuals",
+    )
     args = parser.parse_args()
     if args.history_jsonl is not None and args.warehouse is not None:
         parser.error("choose only one of --history-jsonl and --warehouse")
+    try:
+        inference_config = InferenceConfig(**(args.inference_config or {}))
+    except (TypeError, ValueError) as exc:
+        parser.error(f"invalid --inference-config: {exc}")
     if args.warehouse is not None:
         print(
             json.dumps(
@@ -82,6 +93,7 @@ def main() -> None:
                     decision_offset=args.decision_offset,
                     sample_count=max(0, args.samples),
                     include_details=args.details,
+                    inference_config=inference_config,
                 ),
                 indent=2,
                 sort_keys=True,
@@ -91,7 +103,11 @@ def main() -> None:
     if args.history_jsonl is None:
         print(
             json.dumps(
-                evaluate_synthetic(args.games, seed=args.seed).as_dict(),
+                evaluate_synthetic(
+                    args.games,
+                    seed=args.seed,
+                    inference_config=inference_config,
+                ).as_dict(),
                 indent=2,
                 sort_keys=True,
             )
@@ -99,14 +115,21 @@ def main() -> None:
         return
     print(
         json.dumps(
-            _evaluate_jsonl(args.history_jsonl),
+            _evaluate_jsonl(
+                args.history_jsonl,
+                inference_config=inference_config,
+            ),
             indent=2,
             sort_keys=True,
         )
     )
 
 
-def _evaluate_jsonl(path: Path) -> dict[str, int | float]:
+def _evaluate_jsonl(
+    path: Path,
+    *,
+    inference_config: InferenceConfig,
+) -> dict[str, int | float]:
     games = 0
     top_correct = 0
     votes = 0
@@ -124,7 +147,7 @@ def _evaluate_jsonl(path: Path) -> dict[str, int | float]:
                 f"{path}:{line_number}: invalid history row: {exc}"
             ) from exc
         live = tuple(row.get("live_targets") or ())
-        result = infer(history)
+        result = infer(history, config=inference_config)
         ranked = sorted(
             (
                 (color, result.marginal(color))
@@ -140,6 +163,7 @@ def _evaluate_jsonl(path: Path) -> dict[str, int | float]:
         decision = decide(
             history,
             live_targets=live or None,
+            inference_config=inference_config,
         )
         if decision.action == "eject" and decision.target is not None:
             votes += 1
@@ -159,6 +183,7 @@ def _evaluate_warehouse(
     decision_offset: int,
     sample_count: int,
     include_details: bool = False,
+    inference_config: InferenceConfig | None = None,
 ) -> dict[str, Any]:
     try:
         import duckdb
@@ -338,7 +363,7 @@ def _evaluate_warehouse(
             live = tuple(
                 color for color in players if color != self_color and color not in dead
             )
-            result = infer(history)
+            result = infer(history, config=inference_config)
             decision = decide_from_inference(
                 history,
                 result,

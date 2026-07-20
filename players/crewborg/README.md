@@ -71,7 +71,9 @@ wire by `coworld/`.
 - **[`docs/reference/`](docs/reference/README.md)** — the ground-truth, source-cited reference for the
   **game** and the **platform**: `crewrift-gameplay.md`, `crewrift-protocol.md` (Sprite-v1),
   `crewrift-replays.md` (reading finished games), `coworld-platform.md` (the runner + Bedrock), and
-  `report-style.md` (how the HTML reports look).
+  `report-style.md` (how the HTML reports look). The reproducible synthetic and
+  hosted solver workflow is in
+  [`deduction-analysis.md`](docs/reference/deduction-analysis.md).
 - **[`docs/WORKING_CONTEXT.md`](docs/WORKING_CONTEXT.md)** — the live, one-screen state of what's being
   worked on now (the active version, the current lens, open threads). The resume signal.
 - **[`docs/user_preferences.md`](docs/user_preferences.md)** — the human's durable preferences.

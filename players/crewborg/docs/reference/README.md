@@ -25,6 +25,7 @@ the source** when something changes. Every claim is cited to a `file:Symbol` wit
 | [crewrift-replays.md](./crewrift-replays.md) | Reading a finished game — the visual viewer vs the `expand_replay` event timeline vs policy logs; the `.bitreplay` format; the version-matched `expand_replay` build + `hash failed` recovery; slot↔policy mapping; the league-vs-experience-request episode split. |
 | [coworld-platform.md](./coworld-platform.md) | The Coworld platform — what a Coworld is, the player-image contract, the `coworld_manifest.json` structure, the runner lifecycle (league vs experience-request), artifacts, roles, and the in-pod Bedrock sidecar. |
 | [report-style.md](./report-style.md) | The **Ink & Print** house style for the analysis skills' HTML reports (survey / diagnose / experiment / ab) — the non-negotiables, the reusable building blocks, and how to *adapt* (not Mad-Libs) a report and verify it by looking. |
+| [deduction-analysis.md](./deduction-analysis.md) | Reproducible synthetic, warehouse, and same-history comparison commands for the append-only deduction solver. |
 
 > 🔌 **Debugging an LLM in a hosted episode (403, silent non-LLM fallback)?** The Bedrock runtime
 > contract — the *One Rule* (route through `AWS_ENDPOINT_URL_BEDROCK_RUNTIME`, **InvokeModel not
