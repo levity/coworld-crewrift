@@ -37,6 +37,18 @@ uv run python "$B" --episode <uuid> --episode ereq_xyz --out /tmp/wh --expand-re
 uv run python "$B" --policy crewborg -n 200 --out /tmp/wh --expand-replay /tmp/expand-<commit>
 ```
 
+For XP episodes, the separate results artifact may be unavailable even though
+`episode.json` carries authoritative score rows. The wrapper accepts those
+replay-complete directories and stages a minimal `results.json` from validated
+slot-aligned participants, scores, and forced roles. It never alters the
+downloaded artifact directory and aborts if that alignment is ambiguous. A
+`+100` WinReward identifies the winning **role**, which is then applied to every
+teammate; it is not a per-player score threshold. If neither role has a
+WinReward-sized score, every `win` flag is false while action rewards remain
+intact. XP metadata does not carry aggregate task or kill totals, so the
+warehouse worker fills those dimension fields from objective replay
+`completed_task` and `kill` events.
+
 It prints the manifest summary and exits nonzero for extraction failures or **`trace_warning`
 episodes** (the #1 failure, below).
 

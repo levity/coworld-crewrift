@@ -33,8 +33,10 @@ from crewborg.strategy.meeting.solver import (
     early_chat_enabled as solver_early_chat_enabled,
     early_chat_offset_ticks as solver_early_chat_offset_ticks,
     early_chat_pick as solver_early_chat_pick,
+    early_vote_offset_ticks as solver_early_vote_offset_ticks,
     enabled as solver_enabled,
     persistent_target_sources as solver_persistent_target_sources,
+    public_source_backed_pick as solver_public_source_backed_pick,
     public_solver_report,
     solver_report,
     solver_vetoes,
@@ -76,6 +78,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._decision_traced = False
         self._meeting_entry_vote_target: str | None = None
         self._solver_early_chat_attempted = False
+        self._solver_early_target: str | None = None
+        self._solver_early_vote_attempted = False
         self._solver_self_defense_sent = False
 
     def is_legal(self, belief: Belief) -> bool:
@@ -191,6 +195,9 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             self_defense = self._maybe_solver_self_defense(belief)
             if self_defense is not None:
                 return self_defense
+            early_vote = self._maybe_solver_early_vote(belief)
+            if early_vote is not None:
+                return early_vote
             early_chat = self._maybe_solver_early_chat(belief)
             if early_chat is not None:
                 return early_chat
@@ -204,6 +211,20 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         report = solver_report(belief)  # runs once, after the persistent ledger is current
         self._solver_report = report
         target = report.get("pick")
+        public_report: dict[str, Any] | None = None
+        public_sources: list[str] = []
+        public_target: str | None = None
+        if target is None:
+            public_report = public_solver_report(belief)
+            public_target = solver_public_source_backed_pick(public_report)
+            public_sources = solver_persistent_target_sources(
+                belief,
+                public_report,
+            )
+            report["public_fallback_target"] = public_target
+            report["public_fallback_sources"] = public_sources
+            report["public_fallback_top_p"] = public_report.get("top_p")
+            target = public_target
         if target is None:
             # Do not let the same late meeting chatter influence the solver ledger
             # and then independently mutate the legacy fallback. Preserve only the
@@ -216,8 +237,15 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
 
         if target is not None:
             self._tentative_vote = target
-            accusation = build_accusation(belief, target) or f"{target} sus: multiple players flagged them"
-            path = "accuse" if report.get("pick") else "accuse_own"
+            if public_target == target:
+                accusation = self._public_solver_accusation(target, public_sources)
+                path = "accuse_public_fallback"
+            else:
+                accusation = (
+                    build_accusation(belief, target)
+                    or f"{target} sus: multiple players flagged them"
+                )
+                path = "accuse" if report.get("pick") else "accuse_own"
             self._trace_meeting_decision(belief, role="crewmate", path=path, target=target)
             return self._send_chat_intent(belief, accusation, reason="accuse (post-chat solve)")
 
@@ -287,15 +315,65 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         if target is None:
             return None
 
-        text = (
-            f"{sources[0]} and {sources[1]} called {target} sus. "
-            f"vote {target}"
-        )
+        self._solver_early_target = target
+        text = self._public_solver_accusation(target, sources)
         return self._send_chat_intent(
             belief,
             text,
             reason="sharing early public solver target",
         )
+
+    def _maybe_solver_early_vote(self, belief: Belief) -> Intent | None:
+        """Commit an early public target only when the tick-360 re-solve agrees."""
+
+        if (
+            not solver_early_chat_enabled()
+            or self._solver_early_target is None
+            or self._solver_early_vote_attempted
+            or belief.last_tick - belief.phase_start_tick
+            < solver_early_vote_offset_ticks()
+        ):
+            return None
+
+        self._solver_early_vote_attempted = True
+        report = public_solver_report(belief)
+        sources = solver_persistent_target_sources(belief, report)
+        target = solver_early_chat_pick(report, supporting_sources=sources)
+        stable_target = target if target == self._solver_early_target else None
+        self.emit.event(
+            "solver_early_vote",
+            {
+                "fired": stable_target is not None,
+                "target": stable_target,
+                "early_target": self._solver_early_target,
+                "resolved_target": target,
+                "meeting_age_ticks": belief.last_tick - belief.phase_start_tick,
+                "supporting_sources": sources,
+                "report": report,
+            },
+        )
+        if stable_target is None:
+            return None
+
+        self._tentative_vote = stable_target
+        self._trace_meeting_decision(
+            belief,
+            role="crewmate",
+            path="early_public_vote",
+            target=stable_target,
+        )
+        return self._submit_vote_intent(
+            belief,
+            reason="committing stable early public solver target",
+        )
+
+    @staticmethod
+    def _public_solver_accusation(target: str, sources: list[str]) -> str:
+        if len(sources) >= 2:
+            return f"{sources[0]} and {sources[1]} called {target} sus. vote {target}"
+        if sources:
+            return f"{sources[0]} called {target} sus. vote {target}"
+        return f"{target} sus: public evidence points there. vote {target}"
 
     def _decide_imposter(self, belief: Belief) -> Intent:
         """Deflect onto crewmates, never teammates. Prefer a **real** accusation against
@@ -563,6 +641,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._chat_parse_cache = {}
         self._decision_traced = False
         self._solver_early_chat_attempted = False
+        self._solver_early_target = None
+        self._solver_early_vote_attempted = False
         self._solver_self_defense_sent = False
         self._meeting_entry_vote_target = (
             top_suspect(belief)

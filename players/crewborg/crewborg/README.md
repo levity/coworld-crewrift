@@ -275,11 +275,12 @@ transport tuning never do.
 | `CREWBORG_BE_DUMB` (alias `BE_DUMB`) | off | `1` = aggressive imposter selector: Search/Hunt only (skip Evade + body reports). An experiment. |
 | `CREWBORG_CHAT_NLP` | **on** | `0` kills the spaCy chat NLP (never imports spaCy); the imposter chat-bandwagon then degrades to vote-only. |
 | `CREWBORG_SOLVER` | off | `1` enables the persistent joint-hypothesis crewmate meeting solver; it waits until the learned meeting deadline backstop before deciding. |
-| `CREWBORG_SOLVER_EARLY_CHAT` | off | `1` adds a chat-only public solve at tick 240 when `P>=0.76` and two non-self attributed sources accumulated across the episode agree, plus truthful reactive self-defense when another player votes for crewborg. Neither path stages the final vote. |
+| `CREWBORG_SOLVER_EARLY_CHAT` | off | `1` adds a public solve at tick 240 when `P>=0.65` and two non-self attributed sources accumulated across the episode agree, plus truthful reactive self-defense when another player votes for crewborg. The target is provisional until the same public gate agrees again at tick 360, when crewborg commits the ballot. |
 | `CREWBORG_SOLVER_VETO` | off | `1` lets the solver reject a base-policy vote whose joint marginal is below `CREWBORG_SOLVER_VETO_P`. |
 | `CREWBORG_SOLVER_P` / `CREWBORG_SOLVER_MARGIN` | `0.65` / `0.10` | Minimum live-player marginal and separation from the strongest below-threshold alternative. |
 | `CREWBORG_SOLVER_ROBUST_P` / `CREWBORG_SOLVER_ROBUST_MAX_P` | `0.0` / `0.39` | For a target supported by exactly one accusation source, require its source-removed marginal (with independent structural facts preserved) to remain the leader, while its social-only marginal stays below the crowd-pile cap. Set either bound below zero to disable it. |
-| `CREWBORG_SOLVER_EARLY_CHAT_TICKS` / `_P` / `_MIN_SOURCES` | `240` / `0.76` / `2` | Replay-calibrated early-chat cutoff and precision gates. |
+| `CREWBORG_SOLVER_EARLY_CHAT_TICKS` / `_P` / `_MIN_SOURCES` | `240` / `0.65` / `2` | Replay-calibrated early public-solve cutoff and precision gates. |
+| `CREWBORG_SOLVER_EARLY_VOTE_TICKS` | `360` | Re-solve cutoff for committing a tick-240 public target; the same target must still pass the early public gate. |
 | `CREWBORG_SOLVER_<CONFIG_FIELD>` | see `SolverConfig` in `strategy/meeting/solver.py` | Evidence provenance, repeat decay, prior strength, and role-conditioned likelihood knobs. |
 | `CREWBORG_STICK` | off | `1` keeps a living crewmate's own task behavior unchanged, then regroups with a recent cluster of at least two players instead of returning to spawn. While active for crew, it disables `tailing_self` collection because the proximity is policy-induced. |
 | `CREWBORG_ALIBI` | off | `1` records per-kill continuous co-presence sets and excludes joint impostor assignments whose every member was alibied for the same kill. Never clears one player permanently. |

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pyarrow as pa
@@ -8,6 +9,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from crewrift_event_reporter.bundles import BundleReader
+from crewrift_event_reporter.events import EventRow
 from crewrift_event_reporter.protocol import ReporterEpisodeInput
 from crewrift_event_reporter.service import extract_episode_rows
 
@@ -46,6 +48,8 @@ def process_episode(episode: ReporterEpisodeInput, events_dir: Path) -> EpisodeR
         return EpisodeResult(episode_id, "failed", message=f"{type(exc).__name__}: {exc}")
 
     player_rows, identities = build_episode_players(episode, results, episode_id)
+    if results.warehouse_synthesized:
+        player_rows = _fill_replay_behavior(player_rows, rows)
     table = enriched_events_table(rows, episode_id=episode_id, identities=identities)
     keys = _write_partitioned(table, events_dir, episode_id)
     trace_warning = any(row.key == "trace_warning" for row in rows)
@@ -57,6 +61,24 @@ def process_episode(episode: ReporterEpisodeInput, events_dir: Path) -> EpisodeR
         keys=keys,
         trace_warning=trace_warning,
     )
+
+
+def _fill_replay_behavior(
+    player_rows: list[EpisodePlayerRow],
+    rows: list[EventRow],
+) -> list[EpisodePlayerRow]:
+    """Replace synthetic result placeholders with objective replay counts."""
+
+    tasks = Counter(row.player for row in rows if row.key == "completed_task")
+    kills = Counter(row.player for row in rows if row.key == "kill")
+    return [
+        replace(
+            player,
+            tasks=tasks[player.slot],
+            kills=kills[player.slot],
+        )
+        for player in player_rows
+    ]
 
 
 def _write_partitioned(table: pa.Table, events_dir: Path, episode_id: str) -> list[str]:

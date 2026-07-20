@@ -1,5 +1,161 @@
 # Changelog
 
+## 2026-07-20 - Source-backed meeting commitment
+
+Before implementation:
+
+- Preserve a precise tick-240 public conclusion as an explicit provisional
+  target. Re-solve at tick 360 and commit the ballot early only when the same
+  target remains decisive and supported by at least two independent sources.
+- Lower the early public threshold from 0.76 to the standard 0.65 solver bar
+  while retaining the two-source requirement. Retained history found 22/22
+  correct tick-240 opportunities at that gate versus 10/10 at the old gate.
+- At the deadline, do not let an opaque private posterior turn a still-decisive,
+  source-backed public conclusion into a skip. Prefer a fused private pick, then
+  a fresh source-backed public pick, then the frozen meeting-entry fallback.
+- Tighten no-source conclusions: structural evidence may unlock a ballot only
+  when the candidate appears in every hypothesis surviving the structural
+  facts alone, not merely when those facts amplify soft votes past a threshold.
+- Validate the exact policy against retained histories before upload, then run
+  a fresh fixed-roster crew A/B and measure activation, subject vote precision,
+  vote timing, and impostor/crew ejections.
+
+After implementation:
+
+- Added a retained tick-240 public target and a tick-360 stability re-solve,
+  lowered the two-source public gate to 0.65, added a source-backed public
+  deadline fallback behind fused evidence, and required structural facts alone
+  to force every source-free conclusion.
+- Retained-history validation found 22/22 tick-240 targets stable and correct
+  at tick 360. Final public replay produced 42/42 correct source-backed picks
+  and no source-free guesses. The production image passed 556 tests with 13
+  skips, Ruff, and local Gate 1.
+- Uploaded inert `crewborg-solver-commit:v1`
+  (`c2fe8244-fb51-4ddb-912c-1a0b0155d457`) with full telemetry. Its fresh
+  matched 100/arm run completed without operational failures.
+- Hosted wins were 35/100 candidate versus 45/100 control (`Fisher p=0.194`).
+  Subject ballots moved 25 impostors / 3 crew / 66 skips to 29 / 8 / 50;
+  crew-voter ballots moved 264 impostors / 90 crew / 216 skips to
+  230 / 118 / 206. Candidate histories also had worse public claim precision
+  and eight more subject kills.
+- The early path activated five times, always against an impostor; all eight
+  wrong candidate crew ballots occurred at the deadline. No source-free pick
+  fired and no deadline public-fallback chat was confirmed. Five precise early
+  activations cannot explain the ten-game aggregate deficit.
+- Do not promote the bundled treatment. Split early voting and deadline
+  fallback into separately flagged experiments and give public-only aggression
+  an explicit board-state risk budget. Details:
+  `docs/experiments/2026-07-20-source-backed-meeting-commitment.md`.
+
+## 2026-07-20 - Auditable per-kill pair evidence
+
+Before implementation:
+
+- Preserve every sound hidden-kill alibi as an immutable event with victim,
+  observation tick, possible death window, co-present players, and the players
+  who could still have performed that kill. Do not replace or merge earlier
+  events when later facts arrive.
+- Recompute the complete impostor-assignment table from the raw claim, vote,
+  direct-observation, and alibi ledgers. Correlation handling may change an
+  item's scoring weight, but must not delete its underlying record.
+- Replace the current alibi-only hard exclusion with a conservative per-kill
+  likelihood. A pair with one continuously co-present member remains possible
+  but is less likely; a pair whose surviving members were all co-present for
+  the same kill is impossible.
+- Expose stable evidence identities and per-hypothesis score contributions so
+  a conclusion can be traced and reevaluated. Keep public spoken clears out of
+  this treatment: first establish that the private pair posterior is calibrated.
+- Gate on focused soundness and recomputation tests plus retained-history
+  reachability and correctness. Upload inertly and run a fresh fixed-roster
+  hosted comparison only if those checks show a real, correctly directed
+  mechanism.
+
+After implementation:
+
+- Added immutable `KillAlibi` records and retained every usable hidden-kill
+  observation in an append-only ledger. The solver now recomputes all pair
+  hypotheses from raw evidence and exposes stable evidence IDs, exclusion
+  reasons, and per-pair contributions whose sum reproduces each log weight.
+- Retained-history reconstruction falsified the planned soft likelihood.
+  Continuously rendered killers could be 61-68 pixels away while killing
+  behind the observer's sight boundary, so screen visibility was not physical
+  co-presence. A 28-pixel continuous-distance bound removed those violations,
+  but two of three retained close observations were the non-killing impostor:
+  "not this killer" is not evidence of crew when impostors specialize.
+- Disabled singleton alibi weighting in production (`alibi_weight=0`). A kill
+  event now has only its assumption-free consequence: exclude an assignment
+  when it has no member who was both eligible to kill and not continuously
+  co-present. A singleton event alone remains non-decisive, but can combine with
+  an independent member-ineligibility fact. Events remain in the audit trail
+  and never become lossy player-level clears.
+- The exact uploaded image passed 551 tests with 13 skips and Gate 1. After the
+  post-run possible-killer combination fix, latest source passes 552 tests with
+  13 skips; focused solver/alibi tests passed 51/51. The complete pair audit
+  added about 2 ms on a synthetic 20-claim solve.
+- Fresh fixed-roster hosted comparison completed 200/200 without failures:
+  28-pixel close co-presence won 47/100 crew games versus 42/100 for legacy
+  screen visibility (`Fisher p=0.569`). Subject kill-death rate was 52% in both
+  arms; player-vote precision was 28/28 versus 27/28.
+- Full-tick reconstruction found only singleton alibi events in either deployed
+  arm, so neither arm excluded a pair or changed the posterior through this
+  channel. The five-point win difference is therefore outcome noise, not a
+  treatment effect. Keep the ledger and audit infrastructure; do not promote
+  either alibi gate as a gameplay gain.
+- Fixed two event-warehouse streaming drift bugs exposed by the run: child
+  downloaders now reuse the selected Python environment, and incremental builds
+  preflight replay encodings before calling the current `build_request` API.
+  The resulting warehouse contains 200/200 episodes, 10,479,375 events, zero
+  failed extractions, and zero trace warnings.
+
+## 2026-07-19 - Speak witnessed task clears
+
+Before implementation:
+
+- Add a default-off `CREWBORG_SPEAK_CLEARS` collaboration module that lets a
+  living crewmate publish up to two watched real-task clears near meeting
+  start. Keep the line chat-only and leave solver thresholds and ballots
+  unchanged.
+- Use an existing-parser-compatible sentence whose targets become direct
+  `defend` claims with `sighting` evidence. Verify the parser contract in tests
+  rather than assuming natural-language wording.
+- Do not verbalize per-kill co-presence as a player clear. With two impostors it
+  is only a relational assignment exclusion and requires a separate public
+  claim representation.
+- Conservative objective-replay reconstruction finds watched-task broadcast
+  opportunities before the first meeting in 77-84% of the fresh constraint
+  A/B games. Validate actual runtime activation locally, then compare the
+  exact v3 artifact against the flag-on candidate in a fresh hosted run.
+
+After implementation:
+
+- Added the isolated `strategy/meeting/collaboration.py` policy and wired one
+  chat-only attempt into each meeting. It ranks living watched-task clears by
+  witnessed completion count, publishes at most two, and never stages a vote.
+- Kept the feature default-off and limited it to living players whose own role
+  is known to be crewmate. The emitted one- and two-target forms parse as
+  direct `defend` claims with `sighting` evidence and preserve source identity.
+- Repeats the objective fact in later meetings so teammates without persistent
+  transcripts can still consume it. The existing solver handles correlated
+  repeats with cross-meeting decay.
+- Verified the production-image full suite (`554 passed, 13 skipped`), four
+  focused parser/selection tests, two meeting-mode integration tests, Ruff,
+  and `git diff --check`.
+
+Hosted outcome and correction:
+
+- The fresh 100/arm hosted test tied at 47 crew wins in each arm. Candidate v4
+  emitted 65 lines with 88 clear mentions, 47 of which named fixed impostors.
+- Exact replay reconstruction found 392/550 inferred completer attributions
+  wrong, including 258 credits to impostors. The live client exposes only a
+  global task decrement; it cannot identify which other player completed.
+- Rejected inert v4 and removed the public emission path. Runtime now leaves
+  the fitted model's `tasks_completed_watched` compatibility field at zero and
+  supplies no task clear to the joint solver.
+- Fixed XP artifact handling uncovered during analysis: optional results/log
+  absence no longer causes repeated downloads; replay-complete XP episodes can
+  stage validated slot-aligned result dimensions; and a WinReward identifies
+  the winning role rather than each teammate independently.
+
 ## 2026-07-19 - Constraint-aware solver composition
 
 - Disabled `tailing_self` collection for living crewmates while

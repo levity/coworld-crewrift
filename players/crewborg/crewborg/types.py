@@ -179,8 +179,10 @@ class PlayerRecord(BaseModel):
 
     # Cumulative social/public-evidence counters for the fitted suspicion model,
     # maintained by ``strategy.social_evidence`` (whole-episode, never reset):
-    # chat stances, attributed meeting votes, and watched real-task completions
-    # (the strongest exculpatory cue — imposters cannot produce one).
+    # chat stances and attributed meeting votes. ``tasks_completed_watched`` is
+    # retained at zero for compatibility with the fitted-model feature schema;
+    # the client has no direct signal tying a global task decrement to another
+    # visible player's completion.
     accusations_made: int = 0
     times_accused: int = 0
     times_defended: int = 0
@@ -288,6 +290,21 @@ class MeetingRecord(BaseModel):
     call_kind: str | None = None
     votes: dict[str, str | None] = Field(default_factory=dict)
     ejected_color: str | None = None
+
+
+class KillAlibi(BaseModel):
+    """One immutable hidden-kill observation retained for joint inference."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    observer_color: str
+    victim_color: str
+    death_source: Literal["body", "census"]
+    death_seen_tick: int
+    window_start_tick: int
+    window_end_tick: int
+    alibied_colors: tuple[str, ...]
+    possible_killers: tuple[str, ...]
 
 
 # How many recent raw observation frames the perception tape keeps (~1 s at 24 Hz).
@@ -424,20 +441,20 @@ class Belief(BaseModel):
     social_claims: list[SocialClaim] = Field(default_factory=list)
     meeting_history: list[MeetingRecord] = Field(default_factory=list)
     solver_counted_chats: set[tuple[int, str | None, str]] = Field(default_factory=set)
-    # Opt-in co-presence alibi bookkeeping, owned entirely by strategy/alibi.py
-    # (default OFF; an empty dict until that module populates it).
+    # Opt-in co-presence alibi bookkeeping, owned entirely by strategy/alibi.py.
+    # Its immutable KillAlibi event list is append-only so joint hypotheses can
+    # always be recomputed from the original observation rather than a compressed
+    # player-level score (default OFF; empty until that module populates it).
     alibi_state: dict = Field(default_factory=dict)
 
     # Bookkeeping for ``strategy.social_evidence`` (cumulative public-evidence
     # counters on PlayerRecord): chat lines already counted (keys survive the
     # per-meeting chat_log clear), the staged/banked meeting vote tallies, and the
-    # previous global task counter for the watched-completion detector.
     social_counted_chats: set[tuple[int, str, str]] = Field(default_factory=set)
     social_staged_votes: set[tuple[int, int]] = Field(default_factory=set)
     social_staged_slots: dict[int, str] = Field(default_factory=dict)
     social_staged_meeting_tick: int | None = None
     social_banked_meeting_tick: int | None = None
-    social_prev_tasks_remaining: int | None = None
     # The current meeting's caller, parsed from the MeetingCall interstitial text
     # (game 4b9297d): color + kind ("body"|"button"|"unknown"), with the tick the
     # interstitial was first seen (social_evidence banks each sighting once).

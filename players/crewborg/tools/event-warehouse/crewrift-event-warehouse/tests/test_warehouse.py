@@ -5,15 +5,19 @@ from pathlib import Path
 
 import duckdb
 import pyarrow.parquet as pq
-import pytest
 
 from conftest import write_episode, write_request
 
-from crewrift_event_warehouse.identity import build_episode_players, resolve_slot_identity
+from crewrift_event_warehouse.identity import (
+    EpisodePlayerRow,
+    resolve_slot_identity,
+)
 from crewrift_event_warehouse.inputs import load_batch
 from crewrift_event_warehouse.results import CrewriftResults
 from crewrift_event_warehouse.warehouse import build_warehouse
+from crewrift_event_warehouse.worker import _fill_replay_behavior
 
+from crewrift_event_reporter.events import EventRow
 from crewrift_event_reporter.protocol import PlayerIdentity, ReporterEpisodeInput
 
 
@@ -90,6 +94,35 @@ def test_resolve_identity_fallbacks_leave_policy_version_null() -> None:
     assert no_request.policy_version is None
     assert no_request.policy_name == "from-results"
     assert no_request.identity_source == "results.names"
+
+
+def test_synthesized_results_fill_behavior_from_replay_events() -> None:
+    players = [
+        EpisodePlayerRow(
+            episode_id="ereq-test",
+            slot=slot,
+            policy_version=policy,
+            policy_name=policy,
+            role=role,
+            score=score,
+            win=True,
+            tasks=0,
+            kills=0,
+            identity_source="request.player_id",
+        )
+        for slot, policy, role, score in [
+            (0, "crew", "crew", 108),
+            (1, "imp", "imposter", 130),
+        ]
+    ]
+    rows = [
+        EventRow(ts=1, player=0, key="completed_task"),
+        EventRow(ts=2, player=0, key="completed_task"),
+        EventRow(ts=3, player=1, key="kill"),
+    ]
+
+    filled = _fill_replay_behavior(players, rows)
+    assert [(row.tasks, row.kills) for row in filled] == [(2, 0), (0, 1)]
 
 
 def test_load_batch_dedupes_by_episode_id(tmp_path: Path) -> None:

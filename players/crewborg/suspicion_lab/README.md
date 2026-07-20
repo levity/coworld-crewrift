@@ -103,15 +103,19 @@ next night).
 
 ## Current state (2026-06-12, v3)
 
-Full-corpus fit on **1,857 games / 196k rows**: **runtime model AUC 0.812 — the
-full-feature ceiling**. The `strategy/social_evidence.py` detectors (watched task
-completions via the `crew_tasks_remaining` decrement + dwell gate, chat stances,
-attributed vote dots) plus the MeetingCall-interstitial caller parse
-(`reported_bodies`/`button_calls_made`) make every offline feature
-runtime-observable. Held-out decision sim @ P≥0.9: 0.20
+Full-corpus fit on **1,857 games / 196k rows**: **offline model AUC 0.812 — the
+full-feature ceiling**. The `strategy/social_evidence.py` detectors (chat stances
+and attributed vote dots) plus the MeetingCall-interstitial caller parse
+(`reported_bodies`/`button_calls_made`) expose the remaining shipped social
+features at runtime. Held-out decision sim @ P>=0.9 produced 0.20
 votes/decision at **94% imposter precision** (live hand model: 42%), net +17.3/100
 vs always-skip. `tasks_completed_watched` is the single strongest weight (−10.9;
-imposters produced ZERO across 62k labelled rows). Weights vendored at
+imposters produced ZERO across 62k labelled rows), but its offline definition
+uses the replay's ground-truth completer identity. The live client does not
+expose that identity, and the former global-decrement+dwell approximation
+miscredited 392/550 reconstructed events in a current hosted batch, including
+258 credits to impostors. Runtime therefore holds this schema field at zero.
+Weights vendored at
 `crewrift/crewborg/data/suspicion_weights.json`; every cue's direction was stable
 from the 341-game interim fit to the full corpus. Next: Gate-1 smoke → 2-imp A/B
 (crew win + votes-at-crew rate) → Gate-2.

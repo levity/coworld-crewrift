@@ -178,13 +178,14 @@ def test_solver_uses_most_of_the_advertised_vote_deadline(monkeypatch) -> None:
     assert vote.target_color == "red"
 
 
-def test_solver_shares_public_target_early_without_freezing_final_vote(
+def test_solver_commits_public_target_when_tick_360_resolve_agrees(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
     monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
     monkeypatch.setattr(attend_meeting, "solver_early_chat_enabled", lambda: True)
     monkeypatch.setattr(attend_meeting, "solver_early_chat_offset_ticks", lambda: 240)
+    monkeypatch.setattr(attend_meeting, "solver_early_vote_offset_ticks", lambda: 360)
     monkeypatch.setattr(
         attend_meeting,
         "public_solver_report",
@@ -200,17 +201,6 @@ def test_solver_shares_public_target_early_without_freezing_final_vote(
         "solver_early_chat_pick",
         lambda report, supporting_sources: report["pick"],
     )
-    monkeypatch.setattr(
-        attend_meeting,
-        "solver_report",
-        lambda belief: {"pick": "red", "marginals": {"red": 0.9}},
-    )
-    monkeypatch.setattr(
-        attend_meeting,
-        "build_accusation",
-        lambda belief, target: f"{target} final",
-    )
-
     mode = AttendMeetingMode()
     belief = _meeting_belief(tick=239)
     belief.self_role = "crewmate"
@@ -222,10 +212,96 @@ def test_solver_shares_public_target_early_without_freezing_final_vote(
     assert early.kind == "chat"
     assert early.text == "green and yellow called red sus. vote red"
 
-    belief.last_tick = 1152
-    final = mode.decide(belief, ActionState())
-    assert final.kind == "chat"
-    assert final.text == "red final"
+    belief.last_tick = 359
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+    belief.last_tick = 360
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote"
+    assert vote.target_color == "red"
+
+
+def test_solver_does_not_commit_early_when_tick_360_target_changes(
+    monkeypatch,
+) -> None:
+    reports = iter(
+        [
+            {"pick": "red", "top_p": 0.8},
+            {"pick": "green", "top_p": 0.8},
+        ]
+    )
+    monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
+    monkeypatch.setattr(attend_meeting, "solver_early_chat_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_early_chat_offset_ticks", lambda: 240)
+    monkeypatch.setattr(attend_meeting, "solver_early_vote_offset_ticks", lambda: 360)
+    monkeypatch.setattr(
+        attend_meeting,
+        "public_solver_report",
+        lambda belief: next(reports),
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_persistent_target_sources",
+        lambda belief, report: ["blue", "yellow"],
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_early_chat_pick",
+        lambda report, supporting_sources: report["pick"],
+    )
+
+    mode = AttendMeetingMode()
+    belief = _meeting_belief(tick=240)
+    belief.self_role = "crewmate"
+    belief.vote_timer_ticks = 1200
+    assert mode.decide(belief, ActionState()).kind == "chat"
+
+    belief.last_tick = 360
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+    belief.last_tick = 500
+    assert mode.decide(belief, ActionState()).kind == "idle"
+
+
+def test_solver_uses_source_backed_public_pick_when_private_solve_is_silent(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(attend_meeting, "solver_enabled", lambda: True)
+    monkeypatch.setattr(attend_meeting, "solver_veto_enabled", lambda: False)
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_report",
+        lambda belief: {"pick": None, "marginals": {"red": 0.4}},
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "public_solver_report",
+        lambda belief: {
+            "pick": "red",
+            "candidate_sources": ["green"],
+            "top_p": 0.72,
+        },
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_public_source_backed_pick",
+        lambda report: report["pick"],
+    )
+    monkeypatch.setattr(
+        attend_meeting,
+        "solver_persistent_target_sources",
+        lambda belief, report: ["green"],
+    )
+
+    mode = AttendMeetingMode()
+    belief = _meeting_belief(tick=1152)
+    belief.self_role = "crewmate"
+    belief.vote_timer_ticks = 1200
+
+    chat = mode.decide(belief, ActionState())
+    assert chat.kind == "chat"
+    assert chat.text == "green called red sus. vote red"
 
     belief.last_tick = 1153
     vote = mode.decide(belief, ActionState())

@@ -375,11 +375,18 @@ def episode_dirname(ref: EpisodeRef) -> str:
 
 
 def episode_is_complete(out_dir: Path, want_replay: bool, want_logs: bool) -> bool:
+    """Whether another automatic fetch attempt could add a required artifact.
+
+    Results, logs, and policy telemetry are best-effort. Their routes may be
+    definitively unavailable for an otherwise valid XP episode, so their
+    absence must not cause repeated downloads or mark the replay unusable.
+    ``--force`` remains the explicit way to retry optional artifacts.
+    """
+
+    del want_logs  # Retained in the signature for callers and older integrations.
     if not (out_dir / "episode.json").exists():
         return False
     if want_replay and not (out_dir / "replay.json").exists():
-        return False
-    if want_logs and not (out_dir / "logs").exists():
         return False
     return True
 
@@ -415,6 +422,7 @@ def fetch_episode(
     job = ref.job_id
     if job is None:
         summary["errors"].append("no job_id on episode -- artifacts unavailable")
+        (out_dir / "artifact_status.json").write_text(json.dumps(summary, indent=2))
         return summary
 
     # 2. Results (scores / metrics).
@@ -501,6 +509,7 @@ def fetch_episode(
         (out_dir / "error_info.json").write_text(err)
         summary["error_info"] = True
 
+    (out_dir / "artifact_status.json").write_text(json.dumps(summary, indent=2))
     return summary
 
 
@@ -527,9 +536,10 @@ def select_watch_fetches(
     """Partition an xreq's episodes into (to_fetch, waiting, exhausted, done).
 
     Pure disk+status logic so it is unit-testable: an episode is `done` when
-    its dir passes episode_is_complete, `waiting` while non-terminal (unless
-    the whole xreq is drained), `exhausted` after max_attempts error-laden
-    fetches, else `to_fetch`.
+    its record and requested replay are present, `waiting` while non-terminal
+    (unless the whole xreq is drained), `exhausted` after max_attempts with no
+    requested replay, else `to_fetch`. Optional results/log absence is recorded
+    but does not cause retries.
     """
     to_fetch: list[EpisodeRef] = []
     waiting: list[EpisodeRef] = []

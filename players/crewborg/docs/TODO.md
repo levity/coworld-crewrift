@@ -32,6 +32,18 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## Open
 
+### Add map-aware possible-killer constraints to the pair ledger (2026-07-20)
+
+Per-kill close co-presence is sound but too sparse to exclude pairs by itself,
+and a singleton cannot be weighted toward crew because non-killing impostors
+often stay with the group. Extend `KillAlibi` or add a sibling immutable event
+that retains the victim's last-known position/time, its reachable map region,
+and each player's tracked reachable region over the death window. Exclude a
+pair only when neither member could have intersected the victim. Keep the raw
+geometry and timing in the audit trail; any derived possible-killer set must be
+recomputable when tracking assumptions change. Validate reachability against
+known replay killers before permitting solver impact.
+
 ### Give the solver a prior that excludes evidence it scores structurally (2026-07-19)
 
 `belief.suspicion` is a useful legacy posterior for field behavior and meeting

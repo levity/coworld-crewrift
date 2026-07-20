@@ -18,6 +18,7 @@ class CrewriftResults(BaseModel):
     kills: list[int] = Field(default_factory=list)
     imposter: list[int] = Field(default_factory=list)
     crew: list[int] = Field(default_factory=list)
+    warehouse_synthesized: bool = False
 
     @model_validator(mode="after")
     def scores_are_present(self) -> "CrewriftResults":

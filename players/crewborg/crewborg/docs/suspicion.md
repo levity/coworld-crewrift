@@ -169,7 +169,7 @@ vent visits count per dwell interval.
 | `copresence_killrange_samples` | `tailing_self` ticks within 28 px (`COPRESENCE_DIST_SQ` = 28²) | + | sustained close co-presence with the agent |
 | `task_site_dwell_samples` | `task` dwell ticks | mixed | short dwell mildly exculpatory; long bare dwell reads Pretend-like (positive) |
 | `observed_samples` | `record.seen_ticks` (exposure) | + | how long the agent watched the suspect — the **exposure** denominator weighing evidence against opportunity |
-| `tasks_completed_watched` | watched real-task completion (`social_evidence`) | **−− (large)** | the strongest exculpation; imposters cannot complete tasks |
+| `tasks_completed_watched` | reserved compatibility field, always `0` at runtime | n/a | the offline feature uses ground-truth completer identity, which the live client cannot observe |
 | `accusations_made` | chat accusations the suspect made | + | accusing a lot leans guilty on this field |
 | `times_accused` | chat accusations against the suspect | − | being accused leans innocent on this field |
 | `times_defended` | chat defenses of the suspect | ~0 | currently carries no weight |
@@ -298,11 +298,12 @@ mid-episode:
   `votes_skipped`, `voted_against_me`, and `vote_agreed_with_me`.
 - **Meeting caller** — `_bank_meeting_caller` credits the MeetingCall interstitial's
   caller into `reported_bodies` (body report) or `button_calls_made` (button).
-- **Watched real-task completion** — `_detect_watched_completions` credits
-  `tasks_completed_watched` (the strongest exculpation) only when the global
-  `crew_tasks_remaining` HUD counter drops by exactly one while **exactly one**
-  visible living player is finishing a near-full task dwell (≥ `WATCHED_DWELL_MIN_TICKS`,
-  56). A fake task hold never decrements the counter, so it cannot trigger this.
+- **Task completion compatibility field** — the fitted schema still contains
+  `tasks_completed_watched`, but runtime leaves it at zero. The client exposes a
+  global `crew_tasks_remaining` decrement and other players' positions, not the
+  identity of the completing player. A visible impostor can fake-task while an
+  unseen crewmate completes elsewhere, so proximity to a task site cannot
+  support an individual clear.
 
 ### 6.3 The witnessed-catch detectors
 
@@ -388,9 +389,10 @@ A league replay records every player's true role, and the replay expander comput
 **exact rendered-view visibility** for every (observer, target) pair every tick. So
 "what did this crewmate actually see" is *computed*, not modelled: an observer's
 evidence is the global event stream clipped to their visibility intervals — the same
-clipping the runtime perception performs. Offline and runtime features are therefore
-the **same quantities**, which is what lets the fitted coefficients drop straight
-into the runtime.
+clipping the runtime perception performs. Each feature still needs an
+identity-level runtime equivalence check. `tasks_completed_watched` failed that
+check because visibility did not reveal which player caused a global task
+decrement, so runtime holds that fitted-schema field at zero.
 
 ### Feature design
 

@@ -35,6 +35,9 @@ One directory per episode (`<timestamp>_<short-id>/`) containing:
 
 Plus a top-level `index.json` summarizing the run. Every artifact is best-effort:
 a missing replay or one missing log is logged and recorded, never aborts the run.
+Each attempted episode also gets `artifact_status.json`; automatic watch retries
+are reserved for a missing requested replay. Definitively unavailable optional
+results, logs, or policy telemetry do not cause three identical downloads.
 
 ## The model (read this before debugging a 404)
 
@@ -100,7 +103,8 @@ server.
   the streaming half of the default eval flow (see
   `coworld-experience-requests` step 4). Resume-safe: completeness is judged
   from disk, so a killed watch just picks up where it left off;
-  `watch_state.json` bounds retries (3) for episodes whose artifacts error.
+  `watch_state.json` bounds retries (3) when a requested replay is still
+  missing. Optional artifact absence is recorded but does not trigger retries.
 - For *interactive* one-off inspection of a single experience-request episode, the
   `coworld` CLI (`coworld episodes|replays|episode-logs|episode-results`) is
   fine — see `references/endpoint-map.md`. This script is for discovering across a

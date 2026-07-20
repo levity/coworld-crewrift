@@ -6,6 +6,7 @@ from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
 from crewborg.strategy.meeting import solver as solver_module
 from crewborg.strategy.meeting.solver import (
     SolverConfig,
+    SolverEvidence,
     early_chat_pick,
     persistent_target_sources,
     public_solver_report,
@@ -501,6 +502,7 @@ def test_report_fires_from_a_decisive_alibi_constraint_without_an_accuser(
 
     assert report["candidate_sources"] == []
     assert report["constraint_decisive"] is True
+    assert report["constraint_forced"] is True
     assert report["constraint_channels"] == ["alibis"]
     assert report["pick"] == "red"
 
@@ -578,7 +580,7 @@ def test_report_accepts_decisive_multi_source_consensus(monkeypatch) -> None:
     assert report["pick"] == "red"
 
 
-def test_public_report_excludes_private_pins_clears_and_priors(monkeypatch) -> None:
+def test_public_report_excludes_private_pins_and_priors(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_SOLVER", "1")
     belief = Belief(
         self_role="crewmate",
@@ -588,7 +590,6 @@ def test_public_report_excludes_private_pins_clears_and_priors(monkeypatch) -> N
     )
     for color in ("white", "red", "blue", "green", "yellow", "pink"):
         belief.roster[color] = PlayerRecord(color=color, life_status="alive")
-    belief.roster["blue"].tasks_completed_watched = 1
     belief.roster["red"].events = [
         PlayerEvent(kind="vent_use", start_tick=4, end_tick=4)
     ]
@@ -602,7 +603,7 @@ def test_public_report_excludes_private_pins_clears_and_priors(monkeypatch) -> N
     public = public_solver_report(belief)
 
     assert private["pins"] == ["red"]
-    assert private["clears"] == ["blue"]
+    assert private["clears"] == []
     assert public["pins"] == []
     assert public["clears"] == []
     assert public["pick"] == "blue"
@@ -624,6 +625,42 @@ def test_early_chat_requires_two_persistent_sources_at_selected_threshold(
         {"pick": "red", "top_p": 0.759},
         supporting_sources=["green", "yellow"],
     ) is None
+
+
+def test_early_chat_defaults_to_standard_solver_probability_gate(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("CREWBORG_SOLVER_EARLY_CHAT_P", raising=False)
+    monkeypatch.delenv("CREWBORG_SOLVER_EARLY_CHAT_MIN_SOURCES", raising=False)
+
+    assert early_chat_pick(
+        {"pick": "red", "top_p": 0.65},
+        supporting_sources=["green", "yellow"],
+    ) == "red"
+    assert early_chat_pick(
+        {"pick": "red", "top_p": 0.649},
+        supporting_sources=["green", "yellow"],
+    ) is None
+
+
+def test_source_free_constraint_must_force_candidate_in_every_assignment() -> None:
+    players = ["red", "blue", "green", "yellow"]
+
+    not_forced = solver_module._constraint_forces_candidate(
+        candidate="red",
+        players=players,
+        imposter_count=2,
+        evidence=SolverEvidence(hard_clears=frozenset({"blue"})),
+    )
+    forced = solver_module._constraint_forces_candidate(
+        candidate="red",
+        players=players,
+        imposter_count=2,
+        evidence=SolverEvidence(pins=frozenset({"red"})),
+    )
+
+    assert not_forced == {"passed": False, "n_hypotheses": 3}
+    assert forced == {"passed": True, "n_hypotheses": 3}
 
 
 def test_persistent_sources_span_meetings_and_exclude_self_output() -> None:
