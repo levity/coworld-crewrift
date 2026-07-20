@@ -28,6 +28,13 @@ The real question is not "is P above 0.65" but "given crew/impostor counts,
 expected kills before the next meeting, and task-bar progress, does ejecting at
 confidence P beat skipping."
 
+**Ejections are unconfirmed, which makes a wrong eject strictly worse than the
+generic Among Us analysis assumes.** Crewrift Prime is "confirm ejects: OFF"
+(see §7). With confirmation, a wrong eject at least buys information — the crew
+learns the pool did not shrink and re-bases. Here it buys *nothing*: you lose a
+body, step toward parity, and no belief is corrected. The error is silent and
+uncompensated, so the eject bar should sit higher than external guides suggest.
+
 **Status in code:** absent for crew. `base_probability = imposter_count /
 len(players)` (`strategy/meeting/solver.py:539`) conditions the *belief* on the
 roster, which is not the same thing — the *decision thresholds*
@@ -99,3 +106,41 @@ Related: co-presence alibis currently fire almost never —
 co-presence (retained histories show screen-visible actual killers at 61-68
 pixels). A principle that is sound in theory can be inert or actively wrong at
 the observation layer. Verify the sensor before building inference on it.
+
+## 7. Death carries information; ejection does not
+
+Two facts from the simulator source, both certain and both free:
+
+**Ejections reveal nothing.** `VoteResult` renders exactly one sprite — the
+ejected player's ordinary icon (`global.nim:1683`
+`addProtocolVoteResultActorSprites` → `playerIconSpriteId`, built only from
+color and join order). `applyVoteResult` (`sim.nim:3624`) flips `alive=false`,
+clears bodies and chat, teleports everyone home. No role is broadcast anywhere.
+Contrast the start-of-game `RoleReveal` icons (`9500+`), which *do* encode role.
+So an ejected player **must remain a live impostor hypothesis**.
+
+**Killed players are provably crew.** `tryKill` skips any candidate with
+`role == Imposter` (`sim.nim:2924`), so impostors cannot be killed. Any death
+with `death_source in ("body", "census")` is therefore a *logically certain*
+crew clear — the strongest evidence class in the game, requiring no observation
+skill, only noticing how someone died.
+
+**Status in code — half right.** The solver correctly keeps ejected players in
+the hypothesis space: it enumerates assignments "over the original roster,
+including dead players" (`strategy/meeting/solver.py:3-4`), and builds its
+player list with no alive filter (`solver.py:628`). Dead players are excluded
+only from *vote candidates* (`solver.py:512-523`), which is right — you can only
+vote for the living.
+
+But it never reads `death_source`; grep finds zero uses in `solver.py`. So the
+kill-clear is unused. Concretely: 8 players minus self = 7, `C(7,2)` = 21
+hypotheses. After two kills, two of those seven are provably crew, so the sound
+space is `C(5,2)` = 10. **The solver carries 11 logically impossible hypotheses
+— over half the space — excluded by a fact already sitting in
+`belief.roster[color].death_source`** (`strategy/alibi.py` already reads exactly
+this field, `_KILL_SOURCES = ("body", "census")`).
+
+This is the mirror image of the §6 failure: task clears were *unsound evidence
+being used*; kill clears are *sound evidence going unused*. It is also the rare
+candidate that passes §6 cleanly — observable, already tracked, and certain
+rather than inferred.
