@@ -23,30 +23,37 @@ This is *not* a log or archive: finished work lives in git history / the
 - League telemetry: upload with `CREWBORG_METRICS=1 CREWBORG_TRACE_GROUPS=all` (see
   user_preferences.md); league artifacts are EPHEMERAL (~one round) — harvest promptly.
 
-**Current experiment branch (2026-07-17):** `worktree-crewborg-solver-deferred` carries an
-opt-in persistent joint-hypothesis meeting solver. Its first matched hosted A/B regressed
-crew win 28.1% -> 20.3% and player-vote precision 95.2% -> 57.9% because the parser
-treated attributed witnesses as targets. The predicate-aware fix is implemented and has
-cleared the 125-replay offline gate: on solver-arm history, social-only counterfactual
-pick precision moved 73.0% -> 84.4%, false picks 10 -> 5, and yellow picks 5 -> 1.
-Full suite: 511 passed, 13 skipped. It is ready for a new matched hosted A/B, but remains
-opt-in and must not be submitted or enabled by default first. Results:
+**Current experiment branch (2026-07-18):** `worktree-crewborg-solver-deferred` carries the
+correlation-aware persistent joint-hypothesis meeting solver. Three fresh matched
+A/Bs now all favor it: 34/64 vs 24/64, 35/64 vs 31/64, and a 100/arm
+confirmation at 50/100 vs 37/100. Cumulatively, solver arms are 119/228 crew
+wins versus 92/228 controls (+11.8pp, stratified `p=0.011`, common OR 1.62).
+The confirmation held median subject vote timing at 1,163 ticks in both arms and
+increased impostor ejections 9 -> 14 with crew ejections flat at 18. It did not
+replicate the earlier individual precision gain: player votes were 26/34
+correct versus 28/28 control. Across all nine retained arms, however, the
+current public-evidence solver is 162/181 on decisive picks (89.5%). Exact
+template grouping, same-tick template decay, non-vote grounding, conditional
+threshold reductions, and other correlation/weight variants all lose useful
+coverage without removing enough errors. The unchanged timing-matched candidate
+is the promotion target with veto off. Do not submit it to the league without
+explicit human approval. Results:
 `docs/experiments/2026-07-17-solver-ab-result.md` and
-`docs/experiments/2026-07-17-claim-parser-offline.md`.
+`docs/experiments/2026-07-17-claim-parser-offline.md`, plus the v3 hosted screen:
+`docs/experiments/2026-07-18-solver-parser-hosted-screen.md` and the correlation gate:
+`docs/experiments/2026-07-18-solver-correlation-offline.md`, and hosted A/B:
+`docs/experiments/2026-07-18-solver-correlation-hosted-ab.md`.
 
-## ▶ Open threads (2026-07-17)
+## ▶ Open threads (2026-07-18)
 
 1. **Crew vote rate is evidence-limited, not gate-limited.** Crew votes only at fitted P≥0.9
    (`CREWBORG_WEIGHTS_VOTE_P`, `strategy/suspicion.py`); live posteriors cross it in only ~23% of
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **Persistent solver needs a second matched hosted A/B.** Predicate/provenance parsing,
-   relay discounting, original-source deduplication, and the meeting-entry fallback snapshot
-   pass the offline gate. Reuse the original fixed roster and 64/arm design; require crew win
-   improvement and preserved vote precision before enabling or submitting.
-3. **Slot-4 role-limbo**: a crew seat at slot 4 can miss the CREWMATE reveal text entirely →
-   `self_role=None` forever → frozen, 0 task attempts (~15% of crew games). Needs a bounded
-   fallback-to-crew escape in `types.py` (keep the positive latch as primary).
-4. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
+2. **Promote the confirmed solver, pending approval.** The three-run crew-win
+   effect is resolved (`p=0.011`) and the exact candidate artifact is already
+   uploaded. Keep `CREWBORG_SOLVER=1`, veto off, and deadline timing unchanged.
+   Individual vote precision remains a monitoring metric, not a claimed gain.
+3. **Imposter 2nd-kill conversion**: sits kill-ready with a target visible ~43% of ready ticks
    (4× rivals) yet converts no faster — the long-standing hesitancy lever.

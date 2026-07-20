@@ -39,7 +39,7 @@ def _json_value(raw: str) -> dict[str, Any]:
     return json.loads(raw)
 
 
-def analyze(warehouse: Path) -> dict[str, Any]:
+def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]:
     os.environ["CREWBORG_SOLVER"] = "1"
     os.environ["CREWBORG_SOLVER_VETO"] = "0"
     con = duckdb.connect()
@@ -52,7 +52,27 @@ def analyze(warehouse: Path) -> dict[str, Any]:
         (episode_id, slot): {"policy_version": policy_version, "role": role}
         for episode_id, slot, policy_version, role in player_rows
     }
-    episodes = sorted({episode_id for episode_id, _, _, _ in player_rows})
+    trace_warning_files = list(
+        (warehouse / "events" / "key=trace_warning").glob("*.parquet")
+    )
+    trace_warning_episodes = (
+        {
+            row[0]
+            for row in con.execute(
+                f"SELECT DISTINCT episode_id FROM "
+                f"read_parquet('{_events(warehouse, 'trace_warning')}')"
+            ).fetchall()
+        }
+        if trace_warning_files
+        else set()
+    )
+    episodes = sorted(
+        {
+            episode_id
+            for episode_id, _, _, _ in player_rows
+            if episode_id not in trace_warning_episodes
+        }
+    )
 
     color_rows = con.execute(
         f"SELECT episode_id, slot, value FROM read_parquet('{_events(warehouse, 'player_joined')}')"
@@ -102,6 +122,8 @@ def analyze(warehouse: Path) -> dict[str, Any]:
             },
         )
         stats["episodes"] += 1
+        if include_details:
+            stats.setdefault("decisions", [])
         imposter_colors = {
             color
             for slot, color in slot_colors.items()
@@ -162,13 +184,13 @@ def analyze(warehouse: Path) -> dict[str, Any]:
                 if voter is None:
                     continue
                 target_slot = payload.get("target_slot")
-                votes[voter] = slot_colors.get(target_slot) if target_slot is not None else None
+                votes[voter] = (
+                    slot_colors.get(target_slot) if target_slot is not None else None
+                )
             meetings.append(MeetingRecord(meeting_id=meeting_id, votes=votes))
 
             dead_slots = {
-                slot
-                for _, ts, slot, _ in died_rows.get(episode_id, ())
-                if ts < cutoff
+                slot for _, ts, slot, _ in died_rows.get(episode_id, ()) if ts < cutoff
             }
             if 0 in dead_slots:
                 continue
@@ -193,12 +215,84 @@ def analyze(warehouse: Path) -> dict[str, Any]:
                 ),
                 self_marker_color=subject_color,
             )
-            pick = solver_report(belief).get("pick")
+            report = solver_report(belief)
+            pick = report.get("pick")
             if pick is not None:
                 stats["solver_picks"] += 1
                 stats["solver_targets"][pick] += 1
                 if pick in imposter_colors:
                     stats["correct_solver_picks"] += 1
+            if include_details:
+                candidate = report.get("pre_robust_pick") or report.get("top_candidate")
+                candidate_sources = {
+                    claim.source_color or claim.speaker_color
+                    for claim in claims
+                    if candidate is not None
+                    and claim.stance in {"accuse", "at_least_one"}
+                    and candidate in claim.targets
+                }
+                current_vote_support = sum(
+                    target == candidate for target in votes.values()
+                )
+                persistent_vote_support = sum(
+                    target == candidate
+                    for recorded_meeting in meetings
+                    for target in recorded_meeting.votes.values()
+                )
+                actual_vote = None
+                for _, ts, slot, raw in vote_rows.get(episode_id, ()):
+                    if slot != 0 or not (meeting_id <= ts < end):
+                        continue
+                    target_slot = _json_value(raw).get("target_slot")
+                    actual_vote = (
+                        slot_colors.get(target_slot)
+                        if target_slot is not None
+                        else None
+                    )
+                    break
+                stats["decisions"].append(
+                    {
+                        "episode_id": episode_id,
+                        "meeting_id": meeting_id,
+                        "pick": candidate,
+                        "selected": pick is not None,
+                        "correct": (
+                            candidate in imposter_colors
+                            if candidate is not None
+                            else None
+                        ),
+                        "actual_vote": actual_vote,
+                        "actual_vote_correct": (
+                            actual_vote in imposter_colors
+                            if actual_vote is not None
+                            else None
+                        ),
+                        "candidate_sources": sorted(
+                            source
+                            for source in candidate_sources
+                            if source is not None
+                        ),
+                        "current_vote_support": current_vote_support,
+                        "persistent_vote_support": persistent_vote_support,
+                        "imposters": sorted(imposter_colors),
+                        "report": report,
+                        "support": [
+                            {
+                                "meeting_id": claim.meeting_id,
+                                "tick": claim.tick,
+                                "speaker": claim.speaker_color,
+                                "source": claim.source_color,
+                                "provenance": claim.provenance,
+                                "stance": claim.stance,
+                                "targets": claim.targets,
+                                "evidence": claim.evidence_kind,
+                                "text": claim.text,
+                            }
+                            for claim in claims
+                            if candidate is not None and candidate in claim.targets
+                        ],
+                    }
+                )
 
     for stats in by_arm.values():
         target_count = stats["accusation_targets"]
@@ -210,7 +304,9 @@ def analyze(warehouse: Path) -> dict[str, Any]:
         stats["solver_pick_precision"] = (
             stats["correct_solver_picks"] / pick_count if pick_count else None
         )
-        stats["solver_pick_coverage"] = pick_count / meeting_count if meeting_count else None
+        stats["solver_pick_coverage"] = (
+            pick_count / meeting_count if meeting_count else None
+        )
         stats["false_targets"] = dict(stats["false_targets"].most_common())
         stats["solver_targets"] = dict(stats["solver_targets"].most_common())
     return by_arm
@@ -220,8 +316,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("warehouse", type=Path)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--details", action="store_true")
     args = parser.parse_args()
-    result = analyze(args.warehouse)
+    result = analyze(args.warehouse, include_details=args.details)
     payload = json.dumps(result, indent=2, sort_keys=True)
     if args.out is not None:
         args.out.write_text(payload + "\n")
