@@ -53,7 +53,9 @@ walking onto a visible vent is no longer treated as emerging from it.
 
 The path is not uploaded or hosted-tested. The next experiment should be a
 matched, crew-role hosted A/B of this complete path, not another threshold fit
-on reused histories.
+on reused histories. The exact same-image upload configuration, fixed roster,
+streaming procedure, precommitted gates, and closeout checklist are recorded in
+`docs/experiments/2026-07-20-deduction-history-hosted-handoff.md`.
 
 ## Current update (2026-07-20, source-backed commitment)
 
