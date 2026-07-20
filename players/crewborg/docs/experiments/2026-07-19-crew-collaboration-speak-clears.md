@@ -1,5 +1,15 @@
 # Crew collaboration: speak &amp; fuse your clears
 
+> **SUPERSEDED — the task-clear half of this proposal was built and rejected.**
+> `crewborg-solver-stick-alibi:v4` (`CREWBORG_SPEAK_CLEARS=1`) A/B tied 47-47
+> (`p=1.0`). Root cause: the client exposes only a *global task decrement*, not
+> completer identity, so 392/550 inferred completions were wrong and 258 were
+> credited to impostors. "Watched task clears" are not observable in this game
+> and must not be emitted or consumed. The co-presence/alibi half is separately
+> in doubt: reconstruction found zero pair exclusions firing.
+> See `docs/crew_strategy_principles.md` §6. The general principles below
+> (elimination over accusation, pooling, parity-aware voting) still hold.
+
 High-level design note. No code yet — this records the direction and the first
 spike so the reasoning survives a context reset.
 
