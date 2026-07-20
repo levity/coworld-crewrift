@@ -18,7 +18,12 @@ from typing import Any
 import duckdb
 
 from crewborg.perception.entities import VoteCandidate, VotingState
-from crewborg.strategy.meeting.solver import solver_report
+from crewborg.strategy.meeting.solver import (
+    early_chat_pick,
+    persistent_target_sources,
+    public_solver_report,
+    solver_report,
+)
 from crewborg.strategy.social_evidence import parse_social_claims
 from crewborg.types import Belief, ChatEvent, MeetingRecord, PlayerRecord
 
@@ -39,7 +44,13 @@ def _json_value(raw: str) -> dict[str, Any]:
     return json.loads(raw)
 
 
-def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]:
+def analyze(
+    warehouse: Path,
+    *,
+    include_details: bool = False,
+    decision_offset_ticks: int = VOTE_DECISION_OFFSET_TICKS,
+    early_chat: bool = False,
+) -> dict[str, Any]:
     os.environ["CREWBORG_SOLVER"] = "1"
     os.environ["CREWBORG_SOLVER_VETO"] = "0"
     con = duckdb.connect()
@@ -96,6 +107,7 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
     phase_rows = rows_for("phase")
     chat_rows = rows_for("chat")
     vote_rows = rows_for("vote_cast")
+    kill_rows = rows_for("kill")
     died_rows = rows_for("died")
 
     by_arm: dict[str, dict[str, Any]] = {}
@@ -119,6 +131,8 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
                 "solver_picks": 0,
                 "correct_solver_picks": 0,
                 "solver_targets": Counter(),
+                "early_chat_picks": 0,
+                "correct_early_chat_picks": 0,
             },
         )
         stats["episodes"] += 1
@@ -142,7 +156,7 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
         phase_changes = [ts for _, ts, _, _ in phase_rows.get(episode_id, ())]
         for meeting_id in voting_starts:
             end = min((ts for ts in phase_changes if ts > meeting_id), default=10**18)
-            cutoff = min(end, meeting_id + VOTE_DECISION_OFFSET_TICKS)
+            cutoff = min(end, meeting_id + decision_offset_ticks)
             meeting_chats = [
                 row
                 for row in chat_rows.get(episode_id, ())
@@ -192,6 +206,13 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
             dead_slots = {
                 slot for _, ts, slot, _ in died_rows.get(episode_id, ()) if ts < cutoff
             }
+            killed_slots = {
+                _json_value(raw).get("victim_slot")
+                for _, ts, _, raw in kill_rows.get(episode_id, ())
+                if ts < cutoff
+            }
+            killed_slots.discard(None)
+            dead_slots.update(killed_slots)
             if 0 in dead_slots:
                 continue
             stats["eligible_meetings"] += 1
@@ -207,6 +228,13 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
                 belief.roster[color] = PlayerRecord(
                     color=color,
                     life_status="dead" if slot in dead_slots else "alive",
+                    death_source=(
+                        "census"
+                        if slot in killed_slots
+                        else "ejection"
+                        if slot in dead_slots
+                        else None
+                    ),
                 )
             belief.voting = VotingState(
                 candidates=tuple(
@@ -215,13 +243,25 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
                 ),
                 self_marker_color=subject_color,
             )
-            report = solver_report(belief)
+            report = (
+                public_solver_report(belief) if early_chat else solver_report(belief)
+            )
             pick = report.get("pick")
             if pick is not None:
                 stats["solver_picks"] += 1
                 stats["solver_targets"][pick] += 1
                 if pick in imposter_colors:
                     stats["correct_solver_picks"] += 1
+            sources = persistent_target_sources(belief, report)
+            early_pick = (
+                early_chat_pick(report, supporting_sources=sources)
+                if early_chat
+                else None
+            )
+            if early_pick is not None:
+                stats["early_chat_picks"] += 1
+                if early_pick in imposter_colors:
+                    stats["correct_early_chat_picks"] += 1
             if include_details:
                 candidate = report.get("pre_robust_pick") or report.get("top_candidate")
                 candidate_sources = {
@@ -256,6 +296,8 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
                         "meeting_id": meeting_id,
                         "pick": candidate,
                         "selected": pick is not None,
+                        "early_chat_pick": early_pick,
+                        "supporting_sources": sources,
                         "correct": (
                             candidate in imposter_colors
                             if candidate is not None
@@ -309,6 +351,10 @@ def analyze(warehouse: Path, *, include_details: bool = False) -> dict[str, Any]
         )
         stats["false_targets"] = dict(stats["false_targets"].most_common())
         stats["solver_targets"] = dict(stats["solver_targets"].most_common())
+        early_count = stats["early_chat_picks"]
+        stats["early_chat_precision"] = (
+            stats["correct_early_chat_picks"] / early_count if early_count else None
+        )
     return by_arm
 
 
@@ -317,8 +363,23 @@ def main() -> None:
     parser.add_argument("warehouse", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--details", action="store_true")
+    parser.add_argument(
+        "--decision-offset",
+        type=int,
+        default=VOTE_DECISION_OFFSET_TICKS,
+    )
+    parser.add_argument(
+        "--early-chat",
+        action="store_true",
+        help="Use the public solver and report the configured early-chat gate.",
+    )
     args = parser.parse_args()
-    result = analyze(args.warehouse, include_details=args.details)
+    result = analyze(
+        args.warehouse,
+        include_details=args.details,
+        decision_offset_ticks=args.decision_offset,
+        early_chat=args.early_chat,
+    )
     payload = json.dumps(result, indent=2, sort_keys=True)
     if args.out is not None:
         args.out.write_text(payload + "\n")

@@ -1,5 +1,265 @@
 # Changelog
 
+## 2026-07-19 - Death-aware persistent early solve
+
+Before implementation:
+
+- The first hosted early-public A/B completed 100/100 episodes per arm with no
+  request failures. Its tick-240 line fired three times; every target was an
+  impostor and every target was ejected. Team crew-target ballots and crew
+  ejections moved down directionally, but crew wins were 40/100 candidate
+  versus 44/100 control (`p=0.67`), so the outcome effect is unresolved.
+- The current solver excludes dead players only from the live ballot ranking.
+  It still assigns impostor probability to players killed between meetings,
+  wasting fixed impostor mass and failing to reinterpret old claims through the
+  now-certain crew role of each kill victim.
+- Add killed players (`body` or newly-dead meeting `census`) as hard crew
+  constraints on the full joint hypothesis space. Preserve ejected players in
+  the hypotheses because an ejection does not reveal their role.
+- Recompute the public posterior at tick 240 after the meeting census and any
+  early current-meeting chat. Let the coordination gate use independent,
+  non-self attributed sources accumulated across all meetings, rather than
+  requiring both sources to repeat themselves in the current meeting.
+- Retain the chat-only invariant: the early line never stages a ballot, and the
+  deadline solver still recomputes from the final evidence window.
+- Replay the exact production implementation over retained hosted history,
+  measure target precision and coverage after the death constraints, then
+  build, smoke, upload inertly, and run a fresh matched hosted A/B.
+
+After implementation:
+
+- Added hidden-kill victims as hard crew constraints in the joint hypothesis
+  enumeration. Their marginals become zero, fixed impostor mass redistributes
+  across the surviving possibilities, and old claims are reinterpreted under
+  the victims' now-certain crew roles. Ejected players remain unconstrained.
+- Excluded crewborg's own prior chat from solver evidence so a derived
+  accusation cannot return in a later meeting as an independent source.
+- Changed the tick-240 source gate from two current-meeting sources to two
+  distinct non-self sources accumulated across the episode. The report still
+  recomputes at tick 240, so the new meeting census and any early utterances
+  update the line that is actually sent.
+- Extended `tools/analyze_solver_history.py` with exact decision offsets,
+  replay kill/ejection provenance, and early-chat reporting.
+- Replayed 12 retained hosted arms at tick 240. Lowering the confidence gate to
+  `0.65` admitted six false targets (`82/88`); retaining `0.76` produced
+  `42/42` correct targets across 29 games. On the latest 200-game A/B alone it
+  exposes 10/10 opportunities, versus three lines from the old current-meeting
+  source gate.
+- Focused solver/meeting validation passed (`55 passed`), changed-file Ruff and
+  `git diff --check` passed. Full image validation and hosted evaluation follow.
+
+## 2026-07-19 - Early public-solver coordination
+
+Before implementation:
+
+- The fresh crowd-cap A/B improved the subject's already-high vote precision
+  from 24 impostors / 1 crew to 25 / 0, but team ejections moved from 18
+  impostors / 8 crew to 16 / 14. The subject did not vote for any of the 14
+  ejected crew; this iteration targets coordination rather than ballot safety.
+- Replay transcripts show the structural timing gap: fixed-roster crew commonly
+  cast their first ballots about 300 ticks into a meeting, while crewborg's
+  accurate solver accusation arrives at tick 1,152 after those votes are final.
+- Add one optional, chat-only solve at tick 240. It must use public claims and
+  ballots only, excluding private suspicion, witnessed pins, and task clears,
+  so the hosted path exactly matches the replay-calibrated mechanism.
+- On the six correlation/timing/confirmation selection arms, require
+  `P(imposter) >= 0.76` and at least two attributed sources in the current
+  meeting. That region contains 29/29 correct targets.
+- Hold out both guidance experiments and the fresh 200-game crowd-cap A/B. The
+  selected gate is 29/29 there as well, for 58/58 pooled early targets. The
+  early line does not stage or alter the final tick-1,152 ballot.
+- Also react to any public ballot against crewborg's known-crewmate identity
+  with a truthful self-defense line. Five of the 22 fresh crew ejections hit
+  the subject itself; this branch uses role certainty rather than a fitted
+  posterior and likewise does not stage a ballot.
+
+After implementation:
+
+- Added `CREWBORG_SOLVER_EARLY_CHAT=1`, with a one-shot public-only solve at
+  tick 240. The early path excludes private suspicion, witnessed-impostor pins,
+  and watched-task clears; requires `P(imposter) >= 0.76` and two current-meeting
+  sources; and sends chat without staging or changing a ballot.
+- Added one truthful self-defense response when another player publicly votes
+  against crewborg's known-crewmate identity. It asks the field to skip, does
+  not counter-vote, and cannot replace the ordinary tick-1,152 solve.
+- The exact implemented early gate reproduces 29/29 correct targets on the six
+  selection arms and 29/29 on the held-out guidance plus crowd-cap arms.
+- Verified 68 focused meeting/parser tests, the production-image suite (`526
+  passed, 13 skipped`), changed-file Ruff, `git diff --check`, and a local
+  `scn_vote_basic` Gate 1 with a valid result/replay and zero vote,
+  connect, or disconnect timeouts. The short smoke timer exercises the
+  deadline path; unit and replay tests cover the tick-240 branch.
+
+## 2026-07-18 - Single-source crowd-pile cap
+
+Before implementation:
+
+- Retire the early-guidance gameplay path after two 100/arm hosted tests emitted
+  zero guidance lines. Preserve both uploads and outcomes as rejected experiment
+  history; do not interpret either scoreboard difference as a treatment effect.
+- Target the confirmed solver's wrong crew votes without changing its global
+  posterior threshold or multi-source decisions. Reuse the existing
+  leave-one-source solve only when exactly one attributed accusation source
+  supports the candidate.
+- On six pre-guidance arms, reject a single-source pick when its marginal stays
+  above `0.39` after removing that source. All 11 correct single-source picks
+  fall at or below `0.371`; all three false picks remain at or above `0.419`.
+- Hold out the four fresh guidance arms from threshold selection. The
+  pre-registered `0.39` cap retains all 6 correct single-source picks and rejects
+  all 8 false picks there. Across all ten arms it would remove 11/24 false
+  decisive picks while retaining 167/167 correct picks.
+- Keep the existing lower counterfactual gate: the target must still be the
+  leading candidate after source removal. The new upper cap rejects only the
+  opposite failure mode, where a nominally single-source conclusion is actually
+  sustained by a correlated public ballot pile.
+
+After implementation:
+
+- Removed the rejected early-guidance runtime, configuration, and tests. The
+  confirmed deadline solve and persistent evidence ledger are unchanged.
+- Added `CREWBORG_SOLVER_ROBUST_MAX_P=0.39` to the existing single-source
+  counterfactual. Values below zero disable the upper cap independently of the
+  existing lower bound.
+- Replayed the exact production image across all ten hash-complete retained
+  arms. The implemented gate reproduces 167/180 correct decisive picks (92.8%),
+  removing 11 false picks and zero correct picks from the 167/191 baseline.
+- Verified 62 focused meeting/parser tests, the production-image suite (520
+  passed, 13 skipped), changed-file Ruff, and `git diff --check`.
+
+Hosted result:
+
+- Fresh matched 100-game arms completed without request or subject operational
+  failures. The confirmed solver control `xreq_f5242562` won 35 games and the
+  crowd-cap candidate `xreq_3da4e8ee` won 39 (`+4pp`, Fisher `p=0.66`).
+- Subject ballots improved from 24 impostors / 1 crew / 75 skips to 25 / 0 /
+  75. Production replay showed the cap actively removed two false candidate
+  picks; applying it retrospectively to control removed one correct pick.
+- The team-level crew-kill result did not improve: crew ejections increased
+  8 -> 14, impostor ejections decreased 18 -> 16, and crew-target ballots
+  increased 83 -> 111. The subject did not vote for any of the 14 ejected crew.
+- Keep the cap as a direct ballot-precision safeguard, but do not attribute the
+  noisy win delta to it or treat it as a solution to team coordination. The
+  next iteration must speak before the fixed field's roughly tick-300 ballot
+  wave and separately measure subject complicity, subject self-ejections, and
+  total crew ejections.
+
+## 2026-07-18 - Early solver guidance plan
+
+Before implementation:
+
+- Recompute the correlation-aware solver once at meeting tick 1,000, after
+  five-sixths of the 1,200-tick discussion window but with about 200 ticks left
+  for other players to react.
+- Speak without committing the ballot only when the public solve is decisive,
+  `P(imposter) >= 0.80`, at least two independent attributed sources support
+  the target, and at most two public ballots already target them.
+- Keep collecting utterances after the guidance line and recompute the actual
+  vote at the existing 1,152-tick deadline. Do not let the early result freeze
+  or lower the final vote gate.
+- Gate locally on all retained replay warehouses. At tick 1,000 the proposed
+  guidance region contains 20/20 correct public-evidence picks, compared with
+  101/114 (88.6%) for the ordinary solver region.
+- Reject an early crowd-rescue rule: before tick 1,000 the solver does not
+  reliably identify false crowd leaders, while by tick 1,000 three-ballot
+  piles are usually already immutable.
+- In the hosted A/B, require guidance trace evidence and judge both sides of
+  the team outcome: increase impostor ejections without increasing crew
+  ejections. A win-rate change without the intended mechanism is not enough.
+
+After implementation:
+
+- Added a one-shot guidance attempt at tick 1,000 for standard meetings. The
+  attempt latches whether or not it speaks, so evidence arriving after the
+  calibrated cutoff cannot open a new early-chat path.
+- Added environment-backed gates for cutoff, posterior, independent source
+  count, and existing ballot support. The guidance line cites two attributed
+  sources and does not set a tentative vote or mark the final accusation sent.
+- Preserved the final tick-1,152 solve and coupled accusation/vote. A focused
+  test changes the solver pick between the early and final calls and verifies
+  that the ballot follows the recomputed target.
+- Replayed the production helper at tick 1,000 across seven retained
+  hash-complete warehouses: guidance fires on 20/20 correct targets, including
+  7/7 in the held-out confirmation candidate history.
+- Verified 50 focused meeting tests, the production-image full suite (`521
+  passed, 13 skipped`), Ruff, and `git diff --check`.
+
+Hosted v1 diagnosis and v2 repair plan, before repair:
+
+- A fresh 100/arm hosted A/B completed without operational failures. The
+  confirmed-solver control won 37/100 crew games and guidance v1 won 40/100
+  (`+3pp`, `p=0.77`), but the guidance template appeared in zero of 160
+  candidate meetings.
+- Team ejections moved in the wrong direction but without an active mechanism:
+  crew ejections were 19 control versus 24 candidate, while impostor ejections
+  were tied 12-12. Treat these differences as run variance, not guidance impact.
+- Root cause: hosted perception can retain the safe 240-tick fallback clock.
+  The proportional cap reduced the guidance window to 40 ticks, inside the
+  48-tick auto-submit window, making the guidance branch unreachable.
+- Repair only that timing contradiction: use the configured 200-tick window
+  directly, retain the final 48-tick backstop and every precision gate, add a
+  fallback-clock reachability regression, and replay the fresh hosted history.
+- The fresh public history contains 5/5 correct strict-gate opportunities at
+  the intended tick-1,000 cutoff across the two arms. Upload v2 only after the
+  production-image suite and a fallback-clock smoke pass.
+
+After v2 repair:
+
+- Removed the proportional `timer // 6` cap. The configured 200-tick guidance
+  window now remains outside the 48-tick auto-submit backstop even when hosted
+  perception retains the safe 240-tick fallback clock.
+- Added a regression that leaves `vote_timer_ticks` unknown and verifies the
+  strict guidance chat fires with 200 fallback ticks remaining.
+- Verified 64 focused meeting/solver/parser tests, the production-image full
+  suite (`522 passed, 13 skipped`), Ruff, and `git diff --check`.
+- Replayed the two fresh v1 arms at the intended cutoff through the production
+  parser and repaired gate: 5/5 guidance opportunities target impostors. This
+  is a coverage/precision gate, not an outcome estimate.
+
+Hosted v2 result and rejection:
+
+- Fresh matched requests completed 100/100 with zero failures. The confirmed
+  solver control `xreq_af54157d` won 46 crew games and guidance v2
+  `xreq_55ee44df` won 37 (`-9pp`, Fisher `p=0.25`).
+- Guidance again emitted zero lines in 158 candidate meetings. Candidate public
+  replay votes hit impostors 24 times and crew 9 times, versus 35 and 6 for
+  control. All crew players cast exactly 132 crew-target ballots in each arm.
+- Candidate ejections were 16 crew and 8 impostors, versus 17 crew and 20
+  impostors in control. With no treatment activation, these differences are run
+  variance and do not estimate guidance.
+- Public replay still exposes one 1/1 correct strict-gate opportunity in the
+  candidate history. The discrepancy between replay cutoff and runtime remained
+  unresolved after the bounded timing repair, so guidance was rejected and
+  removed rather than spending another hosted run on timing guesses.
+
+## 2026-07-18 - Commitment-aware solver offline gate
+
+- Found that the solver preserved accusation weight even when the attributed
+  source had not cast any visible ballot by the decision cutoff. Across all
+  retained histories, accusation targets were 80.9% correct when source and
+  ballot matched but only 47.2% correct when the source had no visible ballot.
+- Tested `SolverConfig.no_ballot_claim_decay=0.30`, limited to accusation
+  claims whose attributed source was absent from that meeting's public ballot
+  map. Explicit skips, votes for another target, and all actual ballots kept
+  their existing weights.
+- Replayed nine retained arms: decisive public-evidence precision improved from
+  162/181 (89.5%) to 154/168 (91.7%). The rule removed 5/19 errors while
+  retaining 154/162 correct picks; coverage changed 16.4% -> 15.3%.
+- Rejected unsupported-ballot decay and discounts for explicit skips or
+  contradictory ballots. Each lost more useful correct decisions.
+- Built exact image `sha256:ad221fff...`, uploaded inert
+  `crewborg-solver-commitment:v1`, and ran a fresh 100/arm matched A/B:
+  control `xreq_7b514e90` won 47/100 crew games; candidate `xreq_28dbdfa0`
+  won 32/100 (-15.0pp, `p=0.030`). Both requests had zero request failures.
+- Expanded all 200 public replays with complete hashes. Candidate subject
+  player votes were 24/30 correct versus 17/21 control, and candidate impostor
+  ejections increased 6 -> 15 while crew ejections increased 10 -> 14.
+  Replaying both decay settings changed zero decisive picks on either fresh
+  arm (control 7/9; candidate 13/13).
+- Rejected and removed the no-ballot discount: its retained-history precision
+  gain did not reproduce as an active mechanism, and its hosted outcome was
+  adverse. The confirmed correlation-aware solver remains the promotion
+  target.
+
 ## 2026-07-18 - Timing-matched solver confirmation
 
 - Reused the exact timing-matched artifacts for a fresh 100/arm confirmation:

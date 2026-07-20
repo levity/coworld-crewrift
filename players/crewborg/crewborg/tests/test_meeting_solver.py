@@ -5,6 +5,9 @@ from __future__ import annotations
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
 from crewborg.strategy.meeting.solver import (
     SolverConfig,
+    early_chat_pick,
+    persistent_target_sources,
+    public_solver_report,
     solve_hypotheses,
     solver_report,
 )
@@ -12,7 +15,14 @@ from crewborg.strategy.social_evidence import (
     parse_social_claims,
     update_social_evidence,
 )
-from crewborg.types import Belief, ChatEvent, MeetingRecord, PlayerRecord, SocialClaim
+from crewborg.types import (
+    Belief,
+    ChatEvent,
+    MeetingRecord,
+    PlayerEvent,
+    PlayerRecord,
+    SocialClaim,
+)
 
 
 def _claim(
@@ -438,6 +448,63 @@ def test_report_requires_single_source_pick_to_survive_source_removal(
     assert report["pick"] is None
 
 
+def test_report_rejects_single_source_pick_sustained_by_a_ballot_pile(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    monkeypatch.setenv("CREWBORG_SOLVER_P", "0.4")
+    monkeypatch.setenv("CREWBORG_SOLVER_MARGIN", "0")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=6,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.social_claims = [_claim(10, "green", ("red",), evidence="vent")]
+    belief.meeting_history = [
+        MeetingRecord(
+            meeting_id=10,
+            votes={"blue": "red", "yellow": "red", "pink": "red"},
+        )
+    ]
+
+    report = solver_report(belief)
+
+    assert report["pre_robust_pick"] == "red"
+    assert report["robust_required"] is True
+    assert report["robust_min_p"] > 0.39
+    assert report["pick"] is None
+
+
+def test_single_source_crowd_cap_can_be_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    monkeypatch.setenv("CREWBORG_SOLVER_P", "0.4")
+    monkeypatch.setenv("CREWBORG_SOLVER_MARGIN", "0")
+    monkeypatch.setenv("CREWBORG_SOLVER_ROBUST_MAX_P", "-1")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=6,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.social_claims = [_claim(10, "green", ("red",), evidence="vent")]
+    belief.meeting_history = [
+        MeetingRecord(
+            meeting_id=10,
+            votes={"blue": "red", "yellow": "red", "pink": "red"},
+        )
+    ]
+
+    report = solver_report(belief)
+
+    assert report["robust_min_p"] > 0.39
+    assert report["pick"] == "red"
+
+
 def test_report_accepts_decisive_multi_source_consensus(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_SOLVER", "1")
     belief = Belief(
@@ -457,6 +524,68 @@ def test_report_accepts_decisive_multi_source_consensus(monkeypatch) -> None:
 
     assert report["robust_required"] is False
     assert report["pick"] == "red"
+
+
+def test_public_report_excludes_private_pins_clears_and_priors(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=6,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.roster["blue"].tasks_completed_watched = 1
+    belief.roster["red"].events = [
+        PlayerEvent(kind="vent_use", start_tick=4, end_tick=4)
+    ]
+    belief.suspicion = {"red": 0.99, "blue": 0.01}
+    belief.social_claims = [
+        _claim(10, source, ("blue",), evidence="vent")
+        for source in ("green", "yellow", "pink")
+    ]
+
+    private = solver_report(belief)
+    public = public_solver_report(belief)
+
+    assert private["pins"] == ["red"]
+    assert private["clears"] == ["blue"]
+    assert public["pins"] == []
+    assert public["clears"] == []
+    assert public["pick"] == "blue"
+
+
+def test_early_chat_requires_two_persistent_sources_at_selected_threshold(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER_EARLY_CHAT_P", "0.76")
+    monkeypatch.setenv("CREWBORG_SOLVER_EARLY_CHAT_MIN_SOURCES", "2")
+    report = {"pick": "red", "top_p": 0.76}
+
+    assert early_chat_pick(report, supporting_sources=["green"]) is None
+    assert early_chat_pick(
+        report,
+        supporting_sources=["green", "yellow"],
+    ) == "red"
+    assert early_chat_pick(
+        {"pick": "red", "top_p": 0.759},
+        supporting_sources=["green", "yellow"],
+    ) is None
+
+
+def test_persistent_sources_span_meetings_and_exclude_self_output() -> None:
+    belief = Belief(phase="Voting", phase_start_tick=20, self_color="pink")
+    belief.social_claims = [
+        _claim(10, "green", ("red",)),
+        _claim(20, "yellow", ("red",)),
+        _claim(20, "pink", ("red",)),
+    ]
+
+    assert persistent_target_sources(belief, {"pick": "red"}) == [
+        "green",
+        "yellow",
+    ]
 
 
 def test_report_does_not_fire_from_vote_only_consensus(monkeypatch) -> None:
@@ -486,7 +615,9 @@ def test_report_does_not_fire_from_vote_only_consensus(monkeypatch) -> None:
     assert report["pick"] is None
 
 
-def test_report_keeps_dead_players_in_global_hypotheses(monkeypatch) -> None:
+def test_report_hard_clears_kill_victims_but_keeps_ejections_unknown(
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("CREWBORG_SOLVER", "1")
     belief = Belief(
         self_role="crewmate",
@@ -495,10 +626,11 @@ def test_report_keeps_dead_players_in_global_hypotheses(monkeypatch) -> None:
         imposter_count=2,
     )
     for color in ("white", "red", "blue", "green", "yellow", "pink"):
-        belief.roster[color] = PlayerRecord(
-            color=color,
-            life_status="dead" if color == "red" else "alive",
-        )
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.roster["red"].life_status = "dead"
+    belief.roster["red"].death_source = "census"
+    belief.roster["blue"].life_status = "dead"
+    belief.roster["blue"].death_source = "ejection"
     belief.suspicion = {color: 0.4 for color in ("blue", "green", "yellow", "pink")}
     belief.social_claims = [
         _claim(10, "green", ("red",)),
@@ -508,8 +640,14 @@ def test_report_keeps_dead_players_in_global_hypotheses(monkeypatch) -> None:
 
     report = solver_report(belief)
 
-    assert "red" in report["marginals"]
-    assert any("red" in hypothesis["imposters"] for hypothesis in report["hypotheses"])
+    assert report["hard_clears"] == ["red"]
+    assert report["marginals"]["red"] == 0.0
+    assert all(
+        "red" not in hypothesis["imposters"] for hypothesis in report["hypotheses"]
+    )
+    assert any(
+        "blue" in hypothesis["imposters"] for hypothesis in report["hypotheses"]
+    )
 
 
 def test_report_does_not_pick_from_a_symmetric_three_way_field(monkeypatch) -> None:

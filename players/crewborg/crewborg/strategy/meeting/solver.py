@@ -101,9 +101,25 @@ def defer_enabled() -> bool:
     }
 
 
+def early_chat_enabled() -> bool:
+    return os.environ.get("CREWBORG_SOLVER_EARLY_CHAT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
     except ValueError:
         return default
 
@@ -129,8 +145,39 @@ def _robust_threshold() -> float:
     return _env_float("CREWBORG_SOLVER_ROBUST_P", 0.0)
 
 
+def _robust_max_threshold() -> float:
+    return _env_float("CREWBORG_SOLVER_ROBUST_MAX_P", 0.39)
+
+
 def _veto_keep() -> float:
     return _env_float("CREWBORG_SOLVER_VETO_P", 0.65)
+
+
+def early_chat_offset_ticks() -> int:
+    return max(0, _env_int("CREWBORG_SOLVER_EARLY_CHAT_TICKS", 240))
+
+
+def early_chat_pick(
+    report: dict[str, Any],
+    *,
+    supporting_sources: list[str],
+) -> str | None:
+    """Return a replay-calibrated public solve suitable for early chat."""
+
+    target = report.get("pick")
+    if target is None:
+        return None
+    if (report.get("top_p") or 0.0) < _env_float(
+        "CREWBORG_SOLVER_EARLY_CHAT_P", 0.76
+    ):
+        return None
+    min_sources = max(
+        1,
+        _env_int("CREWBORG_SOLVER_EARLY_CHAT_MIN_SOURCES", 2),
+    )
+    if len(supporting_sources) < min_sources:
+        return None
+    return target
 
 
 def _imposter_count(belief: Any) -> int:
@@ -324,6 +371,7 @@ def solve_hypotheses(
     meetings: Iterable[MeetingRecord] = (),
     *,
     pins: frozenset[str] | set[str] = frozenset(),
+    hard_clears: frozenset[str] | set[str] = frozenset(),
     clears: frozenset[str] | set[str] = frozenset(),
     priors: dict[str, float] | None = None,
     config: SolverConfig | None = None,
@@ -339,7 +387,7 @@ def solve_hypotheses(
     hypotheses = [
         frozenset(combo)
         for combo in combinations(players, imposter_count)
-        if set(pins) <= set(combo)
+        if set(pins) <= set(combo) and not set(combo) & set(hard_clears)
     ]
     if not hypotheses:
         return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
@@ -466,10 +514,11 @@ def _without_actor(
     claims: list[SocialClaim],
     meetings: list[MeetingRecord],
     pins: set[str],
+    hard_clears: set[str],
     clears: set[str],
     priors: dict[str, float],
 ) -> dict[str, Any]:
-    """Measure whether a pick survives removal of its sole claim source."""
+    """Measure how much of a single-source pick survives source removal."""
 
     filtered_claims = [
         claim
@@ -498,6 +547,7 @@ def _without_actor(
         filtered_claims,
         filtered_meetings,
         pins=pins,
+        hard_clears=hard_clears,
         clears=clears,
         priors=priors,
     )
@@ -510,17 +560,22 @@ def _without_actor(
     top = ranked[0][0] if ranked else None
     competitor = ranked[imposter_count][1] if len(ranked) > imposter_count else 0.0
     margin = candidate_p - competitor
-    threshold = _robust_threshold()
+    min_threshold = _robust_threshold()
+    max_threshold = _robust_max_threshold()
+    survives_removal = (
+        min_threshold < 0
+        or (top == candidate and candidate_p >= min_threshold and margin >= 0.0)
+    )
+    crowd_is_bounded = max_threshold < 0 or candidate_p <= max_threshold
     return {
-        "passed": threshold < 0
-        or (top == candidate and candidate_p >= threshold and margin >= 0.0),
+        "passed": survives_removal and crowd_is_bounded,
         "min_p": candidate_p,
         "min_margin": margin,
         "weakest_actor": actor,
     }
 
 
-def solver_report(belief: Any) -> dict[str, Any]:
+def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
     """Build serializable diagnostics and, when decisive, a live vote target."""
 
     out: dict[str, Any] = {
@@ -530,10 +585,12 @@ def solver_report(belief: Any) -> dict[str, Any]:
         "second_p": None,
         "n_claims": 0,
         "n_raw_claims": 0,
+        "n_self_claims_ignored": 0,
         "n_accusers": 0,
         "n_votes": 0,
         "n_meetings": 0,
         "pins": [],
+        "hard_clears": [],
         "clears": [],
         "marginals": None,
         "hypotheses": [],
@@ -558,27 +615,54 @@ def solver_report(belief: Any) -> dict[str, Any]:
             return out
 
         player_set = set(players)
-        pins = witnessed_imposters(belief) & player_set
-        clears = {
+        pins = set() if public_only else witnessed_imposters(belief) & player_set
+        clears = (
+            set()
+            if public_only
+            else {
+                color
+                for color, record in roster.items()
+                if color in player_set
+                and color not in pins
+                and getattr(record, "tasks_completed_watched", 0) > 0
+            }
+        )
+        raw_claims = list(getattr(belief, "social_claims", ()) or ())
+        # Our own prior solver/chat output is derived from evidence already in this
+        # ledger. Re-ingesting it would turn one conclusion into a new independent
+        # source on later meetings.
+        claims = [
+            claim for claim in raw_claims if claim.speaker_color != self_color
+        ]
+        meetings = list(getattr(belief, "meeting_history", ()) or ())
+        hard_clears = {
             color
             for color, record in roster.items()
             if color in player_set
-            and color not in pins
-            and getattr(record, "tasks_completed_watched", 0) > 0
+            and getattr(record, "life_status", "unknown") == "dead"
+            and getattr(record, "death_source", None) in {"body", "census"}
         }
-        claims = list(getattr(belief, "social_claims", ()) or ())
-        meetings = list(getattr(belief, "meeting_history", ()) or ())
-        priors = {
-            color: probability
-            for color, probability in (getattr(belief, "suspicion", {}) or {}).items()
-            if color in player_set
-        }
+        # A direct witnessed kill is stronger than a contradictory death label.
+        # This guard keeps a perception conflict from emptying the hypothesis space.
+        hard_clears -= pins
+        priors = (
+            {}
+            if public_only
+            else {
+                color: probability
+                for color, probability in (
+                    getattr(belief, "suspicion", {}) or {}
+                ).items()
+                if color in player_set
+            }
+        )
         result = solve_hypotheses(
             players,
             imposter_count,
             claims,
             meetings,
             pins=pins,
+            hard_clears=hard_clears,
             clears=clears,
             priors=priors,
         )
@@ -588,7 +672,8 @@ def solver_report(belief: Any) -> dict[str, Any]:
 
         out.update(
             n_claims=result["n_claims"],
-            n_raw_claims=len(claims),
+            n_raw_claims=len(raw_claims),
+            n_self_claims_ignored=len(raw_claims) - len(claims),
             n_accusers=len(
                 {
                     claim.source_color or claim.speaker_color
@@ -599,6 +684,7 @@ def solver_report(belief: Any) -> dict[str, Any]:
             n_votes=result["n_votes"],
             n_meetings=len(meetings),
             pins=sorted(pins),
+            hard_clears=sorted(hard_clears),
             clears=sorted(clears),
             marginals={
                 color: round(probability, 3) for color, probability in marginals.items()
@@ -652,6 +738,7 @@ def solver_report(belief: Any) -> dict[str, Any]:
                     claims=claims,
                     meetings=meetings,
                     pins=set(pins),
+                    hard_clears=set(hard_clears),
                     clears=set(clears),
                     priors=priors,
                 )
@@ -672,6 +759,34 @@ def solver_report(belief: Any) -> dict[str, Any]:
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
+
+
+def solver_report(belief: Any) -> dict[str, Any]:
+    return _solver_report(belief, public_only=False)
+
+
+def public_solver_report(belief: Any) -> dict[str, Any]:
+    """Solve from replay-visible claims and ballots, excluding private evidence."""
+
+    return _solver_report(belief, public_only=True)
+
+
+def persistent_target_sources(belief: Any, report: dict[str, Any]) -> list[str]:
+    """Independent external sources supporting the pick across all meetings."""
+
+    target = report.get("pick")
+    if target is None:
+        return []
+    self_color = getattr(belief, "self_color", None)
+    sources = {
+        claim.source_color or claim.speaker_color
+        for claim in (getattr(belief, "social_claims", ()) or ())
+        if claim.speaker_color != self_color
+        and claim.stance in {"accuse", "at_least_one"}
+        and target in claim.targets
+        and (claim.source_color or claim.speaker_color) not in {None, self_color}
+    }
+    return sorted(sources)
 
 
 def solver_pick(belief: Any) -> str | None:

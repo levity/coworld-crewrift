@@ -159,6 +159,25 @@ The report placed in the meeting trace contains global marginals and the five
 highest-probability joint assignments. `CREWBORG_SOLVER_VETO=1` can independently
 use those marginals to reject a base-policy vote.
 
+`CREWBORG_SOLVER_EARLY_CHAT=1` adds one independent coordination pass at
+meeting tick 240. This pass deliberately excludes private suspicion, witnessed
+pins, and watched-task clears so its input matches public replay analysis. It
+speaks only when the top marginal is at least `0.76` and at least two attributed
+non-self sources accumulated across the episode support the target. Because the
+report is computed at tick 240, it includes the new meeting's kill census and
+early chat as well as retained meeting history. The line does not stage a vote;
+the ordinary solver still recomputes from all evidence at tick 1,152.
+The same flag also reacts to any public ballot against crewborg while it is a
+known crewmate with a truthful self-defense line. This likewise does not stage
+or alter the final ballot.
+
+When exactly one attributed accusation source supports a decisive candidate,
+the solver removes that actor's claims and ballots and solves again. The target
+must remain the leader, but its source-removed marginal must not exceed
+`CREWBORG_SOLVER_ROBUST_MAX_P` (default `0.39`). A higher counterfactual
+marginal means the named source is not driving the conclusion; a correlated
+public ballot pile is. Multi-source decisions do not use this cap.
+
 ### Imposter (`_decide_imposter`)
 
 Deflect heat onto crewmates, never teammates, and survive the meeting. Order of preference:
