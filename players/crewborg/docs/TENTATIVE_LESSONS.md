@@ -27,7 +27,22 @@ correct candidate-history selections while removing those three errors.
 Evidence: Independent synthetic chat and ballot draws predicted 94.9% vote
 precision at 49.4% coverage; fresh hosted public history produced 77.8% at
 19.4%. Hosted errors were persistent or shared false piles, a dependency the
-generator cannot currently express.
+generator could not express. After adding persistent actor beliefs, matching
+chat/ballots, and crowd adoption, the 1,000-game screen fell to a more
+discriminating 84.6% precision at 64.2% final-history coverage.
+
+### An assignment clear is not necessarily a player clear
+Evidence: Continuous co-presence with A and B during a hidden kill excludes
+the joint assignment `{A,B}` because one living impostor had to be outside the
+group. It does not clear A or B individually: either can be the non-killing
+partner of someone outside. With two impostors, this constraint first removes
+a pair when crewborg stays with at least two other players.
+
+### Synthetic precision gains must retain correct votes and survive hosted replay
+Evidence: Stronger repeat decay improved the 3,000-meeting synthetic audit from
+82.2% to 83.2% precision, but dropped 179 correct selections while removing
+only 55 errors. On the held-out hosted candidate history it regressed 14/15 to
+8/9. Do not promote an abstention-driven synthetic gain without both checks.
 
 ### Reject incomplete replay traces before meeting evaluation
 Evidence: One candidate expansion stopped at tick 5060 on a hash failure. The

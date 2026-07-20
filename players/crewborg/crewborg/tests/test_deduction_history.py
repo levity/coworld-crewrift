@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
 from crewborg.deduction.collector import update_deduction_history
@@ -21,8 +23,10 @@ from crewborg.deduction.model import (
     ObservedPlayer,
     ObservedVent,
     UtteranceObserved,
+    VoteObserved,
     WorldObserved,
 )
+from crewborg.deduction.synthetic import SyntheticBehavior, generate_game
 from crewborg.modes import AttendMeetingMode
 from crewborg.perception.entities import (
     ChatLine,
@@ -321,13 +325,86 @@ def test_near_a_vent_statement_is_not_promoted_to_witnessed_vent_use() -> None:
     )
 
 
-def test_continuous_copresence_excludes_only_the_all_alibied_pair() -> None:
+def test_synthetic_ballots_usually_share_the_speakers_latent_belief() -> None:
+    game = generate_game(
+        random.Random(7),
+        behavior=SyntheticBehavior(
+            meetings=2,
+            speak_probability=1.0,
+            kill_between_meetings_probability=0.0,
+            vote_follows_belief_probability=1.0,
+        ),
+    )
+    claims = derive_evidence(game.history).claims
+    claims_by_actor = {
+        (claim.meeting_id, claim.speaker): claim.targets[0] for claim in claims
+    }
+
+    for event in game.history.events:
+        if isinstance(event, VoteObserved):
+            assert event.target == claims_by_actor[(event.meeting_id, event.voter)]
+
+
+def test_synthetic_beliefs_can_persist_across_meetings() -> None:
+    game = generate_game(
+        random.Random(11),
+        behavior=SyntheticBehavior(
+            meetings=3,
+            speak_probability=0.0,
+            kill_between_meetings_probability=0.0,
+            belief_persistence=1.0,
+            crowd_belief_probability=0.0,
+            vote_follows_belief_probability=1.0,
+        ),
+    )
+    votes_by_actor: dict[str, set[str | None]] = {}
+    for event in game.history.events:
+        if isinstance(event, VoteObserved):
+            votes_by_actor.setdefault(event.voter, set()).add(event.target)
+
+    assert votes_by_actor
+    assert all(len(targets) == 1 for targets in votes_by_actor.values())
+
+
+def test_synthetic_crew_can_adopt_one_shared_crowd_belief() -> None:
+    game = generate_game(
+        random.Random(13),
+        behavior=SyntheticBehavior(
+            meetings=1,
+            speak_probability=0.0,
+            crowd_belief_probability=1.0,
+            crew_crowd_adoption_probability=1.0,
+            imp_crowd_adoption_probability=0.0,
+            vote_follows_belief_probability=1.0,
+        ),
+    )
+    crew_voters = set(game.history.game.players) - set(game.imposters) - {
+        game.history.game.self_color
+    }
+    crew_targets = [
+        event.target
+        for event in game.history.events
+        if isinstance(event, VoteObserved) and event.voter in crew_voters
+    ]
+
+    assert max(crew_targets.count(target) for target in set(crew_targets)) >= (
+        len(crew_targets) - 1
+    )
+
+
+def test_copresence_excludes_pairs_without_an_eligible_outside_killer() -> None:
     frames = [
         _world(0, ("red", "blue", "yellow")),
         *[_world(tick, ("blue", "yellow")) for tick in range(1, 6)],
     ]
     result = infer(
         _history(
+            DeathObserved(
+                event_id="eject:purple",
+                tick=-1,
+                color="purple",
+                source="ejection",
+            ),
             *frames,
             DeathObserved(
                 event_id="death:red",
@@ -342,6 +419,10 @@ def test_continuous_copresence_excludes_only_the_all_alibied_pair() -> None:
     assert any(
         reason.startswith("no_possible_killer:alibi:death:red")
         for reason in excluded[("blue", "yellow")]
+    )
+    assert any(
+        reason.startswith("no_possible_killer:alibi:death:red")
+        for reason in excluded[("blue", "purple")]
     )
     assert ("blue", "green") not in excluded
     assert result.marginal("blue") > 0.0
@@ -374,6 +455,32 @@ def test_single_public_source_does_not_spend_a_vote() -> None:
 
     assert decision.action == "skip"
     assert "insufficient independent" in decision.reason
+
+
+def test_ballot_pile_without_an_accusation_does_not_spend_a_vote() -> None:
+    eight_players = PLAYERS + ("orange", "cyan")
+    events = []
+    for meeting_id in (100, 1100, 2100):
+        for index, voter in enumerate(
+            ("blue", "yellow", "green", "purple", "orange")
+        ):
+            events.append(
+                VoteObserved(
+                    event_id=f"vote:{meeting_id}:{voter}",
+                    tick=meeting_id + 800 + index,
+                    meeting_id=meeting_id,
+                    voter=voter,
+                    target="red",
+                )
+            )
+    decision = decide(
+        _history(*events, players=eight_players),
+        live_targets=tuple(color for color in eight_players if color != "white"),
+    )
+
+    assert decision.probability > decision.required_probability
+    assert decision.action == "skip"
+    assert "lacks accusation" in decision.reason
 
 
 def test_parity_threshold_is_high_midgame_and_lower_at_forced_vote_edge() -> None:

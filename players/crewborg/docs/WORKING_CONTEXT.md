@@ -28,11 +28,11 @@ accumulators, and suspicion model; crew meetings bypass both the LLM and old
 solver. Impostors retain the complete legacy evidence, movement, and meeting
 path. The default path is unchanged.
 
-Cheap validation exists at `tools/evaluate_deduction.py`. Seed 7 over 1,000
-synthetic histories gives 94.9% vote precision at 49.4% coverage and no
-murder-clear violations. Six retained public warehouse sets cover 770 crew
-meetings while the subject was alive; the new decision spends 73 votes and gets
-63 correct (86.3%).
+Cheap validation exists at `tools/evaluate_deduction.py`. Before the correlated
+generator repair, seed 7 over 1,000 synthetic histories gave 94.9% vote
+precision at 49.4% coverage and no murder-clear violations. Six retained public
+warehouse sets cover 770 crew meetings while the subject was alive; the new
+decision spent 73 votes and got 63 correct (86.3%).
 Historical replay intentionally omits unavailable first-person frames.
 Sampling found and fixed one unsound parse: “saw X near the vent” is proximity,
 not witnessed vent use. On the richest 181-eligible-meeting set this removed
@@ -59,14 +59,37 @@ coverage retained only 71.2% of control. Do not promote or submit it.
 
 The early mechanism was sound in this sample: all ten direct accusations,
 three public accusations, and one clear spoken at tick 241 were correct. The
-late public solve caused the visible errors. Same-history replay on 93 clean
-candidate meetings gives legacy 16/17 versus new 14/18; three new errors were
-just two-source ballot piles with no accusation against the target. Requiring
-at least one active accusation would retain all 14 correct selections and
-remove those three errors. Next: implement that narrow decision gate, validate
-across every retained warehouse, and make synthetic histories model correlated
-and persistent false beliefs before considering another hosted run. Full
-result: `docs/experiments/2026-07-20-deduction-history-hosted-handoff.md`.
+late public solve caused the visible errors. A nonstructural eject now requires
+an active accusation; ballots still update the posterior but cannot authorize
+an eject alone. On the same 93 clean candidate meetings this moves the new path
+from 14/18 to 14/15, removing three wrong vote-only selections and no correct
+one. Legacy remains 16/17 on those public histories.
+
+The synthetic generator now gives actors persistent beliefs, correlates each
+actor's chat and ballot, and permits shared crowd beliefs. Seed 7 over 1,000
+games is consequently harder: 84.6% final-history precision at 64.2% coverage,
+and 82.2% precision across all 3,000 meeting snapshots. Lower ballot weights,
+zero ballot weight, minimum-claim gates, higher posterior thresholds, and
+stronger repeat decay all remove too many correct selections for their error
+reduction. Stronger decay also regresses candidate hosted replay from 14/15 to
+8/9. Keep the accusation gate; do not tune production weights from this sweep.
+
+Hidden-kill anti-alibis remain relational hard constraints. If crewborg stayed
+continuously close to A and B during a bounded offscreen kill, assignment
+`{A,B}` is impossible because at least one living impostor had to be outside
+that group. Neither A nor B is individually cleared. Earlier ejections now
+correctly leave the possible-killer set for later murders. `StickMode` already
+requires a cluster of at least two other live players, matching the point at
+which a two-impostor assignment can first be excluded.
+
+Analysis commands and interpretation limits are documented in
+`docs/reference/deduction-analysis.md`; detailed results are in
+`docs/experiments/2026-07-20-deduction-correlation-fixes.md`. The remaining
+synthetic failures are coordinated false testimony that simple evidence-weight
+knobs do not separate. A future iteration should model a shared latent crowd
+source explicitly or learn dependence from held-out hosted histories, then
+pass both the synthetic retained-correct screen and same-history hosted replay
+before another upload.
 
 ## Current update (2026-07-20, source-backed commitment)
 

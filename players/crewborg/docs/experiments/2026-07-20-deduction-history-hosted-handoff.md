@@ -315,3 +315,13 @@ support for a public eject while still allowing ballots to adjust the joint
 posterior. Validate that gate on every retained warehouse and add correlated,
 persistent latent beliefs to the synthetic generator so future cheap screens
 stress the observed failure mode.
+
+## Follow-up
+
+Implemented and validated in
+`docs/experiments/2026-07-20-deduction-correlation-fixes.md`. The accusation
+gate removes all three vote-only errors and no correct selection on the 93
+clean candidate meetings. The repaired 1,000-game generator now correlates
+chat, ballots, persistent beliefs, and crowd adoption. More aggressive ballot
+weight and repeat-decay variants failed retained-correct and hosted-history
+screens, so production weights remain unchanged.

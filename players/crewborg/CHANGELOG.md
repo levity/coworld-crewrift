@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-07-20 - Correlated deduction evaluation and ballot gate
+
+Before implementation:
+
+- Repair the synthetic generator so one actor's chat and ballot can express the
+  same persistent belief, and several actors can share a correlated false
+  belief. Re-run 1,000 games before trusting cheap solver screens.
+- Let ballots update the joint posterior, but do not let a ballot pile alone
+  authorize an eject without an accusation, direct pin, or structurally forced
+  assignment.
+- Turn repeated warehouse and synthetic analysis into documented scripts, then
+  test narrower ballot weights and correlation discounts on identical histories.
+
+After implementation:
+
+- Synthetic actors now retain beliefs across meetings, usually vote from those
+  beliefs, and sometimes adopt a shared crowd target. On seed 7, 1,000 final
+  histories now produce 84.6% vote precision at 64.2% coverage instead of the
+  implausibly easy 94.9% at 49.4% coverage.
+- The decision layer requires an active accusation for a nonstructural eject.
+  On 93 clean hosted candidate meetings this removes three vote-only errors and
+  no correct selection, moving 14/18 to 14/15 (93.3%).
+- Added a 3,000-meeting synthetic audit, generic inference-config overrides,
+  detailed old/new decision comparison, and a reproducible analysis guide.
+  Lower ballot weights and stronger repeat decay slightly improved synthetic
+  precision only by dropping many more correct votes; stronger decay also
+  regressed hosted-history replay from 14/15 to 8/9 and is rejected.
+- Preserved relational hidden-kill “anti-alibis”: an assignment is excluded
+  when none of its living members was outside the continuously co-present
+  group. Earlier ejections now correctly remove players from later possible-
+  killer sets. This constrains pairs, not individual roles; with two impostors,
+  staying with at least two other players is where it first excludes a pair.
+
 ## 2026-07-20 - Append-only deduction hosted result
 
 - Completed the same-image 100/arm forced-crew A/B: candidate wins were 37/100

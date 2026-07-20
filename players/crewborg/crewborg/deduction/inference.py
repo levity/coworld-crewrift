@@ -744,10 +744,13 @@ def _kill_constraints(
     worlds = [event for event in history.events if isinstance(event, WorldObserved)]
     constraints: list[DerivedKillConstraint] = []
     audit: list[EvidenceAudit] = []
+    all_deaths = [
+        event for event in history.events if isinstance(event, DeathObserved)
+    ]
     deaths = [
         event
-        for event in history.events
-        if isinstance(event, DeathObserved) and event.source in {"body", "census"}
+        for event in all_deaths
+        if event.source in {"body", "census"}
     ]
     for death in deaths:
         evidence_id = f"alibi:{death.event_id}"
@@ -827,10 +830,10 @@ def _kill_constraints(
                 )
             )
             continue
-        previously_murdered = {
-            other.color for other in deaths if other.tick < end_frame.tick
+        previously_dead = {
+            other.color for other in all_deaths if other.tick < end_frame.tick
         }
-        possible_killers = candidates - {death.color} - previously_murdered
+        possible_killers = candidates - {death.color} - previously_dead
         constraint = DerivedKillConstraint(
             evidence_id=evidence_id,
             event_id=death.event_id,
