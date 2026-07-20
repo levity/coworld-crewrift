@@ -152,6 +152,8 @@ class ResolvedScene(BaseModel):
 
     voting: VotingState = Field(default_factory=VotingState)
     phase_texts: frozenset[str] = frozenset()
+    # Live meeting length advertised by the pre-game GameInfo interstitial.
+    vote_timer_ticks: int | None = None
     # The MeetingCall interstitial (game 4b9297d): "<Color> reported|pressed|called"
     # text names the meeting caller in the player view. ``kind`` is "body" (a
     # report), "button" (the emergency button), or "unknown".

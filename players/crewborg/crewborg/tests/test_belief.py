@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from crewborg.perception.entities import ResolvedScene
-from crewborg.types import Belief, Percept, update_belief
+from crewborg.types import Belief, MeetingRecord, Percept, update_belief
 
 
 def _fold(belief: Belief, tick: int, **resolved_fields) -> None:
@@ -45,6 +45,18 @@ def test_phase_transitions_role_reveal_into_playing() -> None:
     _fold(belief, 2, crew_tasks_remaining=5)
     assert belief.phase == "Playing"
     assert belief.phase_start_tick == 2
+
+
+def test_game_info_vote_timer_is_latched() -> None:
+    belief = Belief()
+
+    _fold(
+        belief,
+        1,
+        vote_timer_ticks=1200,
+    )
+
+    assert belief.vote_timer_ticks == 1200
 
 
 def test_crew_role_is_latched_positively_from_the_crewmate_reveal() -> None:
@@ -301,10 +313,11 @@ def test_census_records_alive_and_dead_players_by_color() -> None:
 
 
 def test_ejection_marks_the_voted_out_player_dead() -> None:
-    belief = Belief()
+    belief = Belief(meeting_history=[MeetingRecord(meeting_id=3)])
     _fold(belief, 7, ejected_color="white")
     assert belief.roster["white"].life_status == "dead"
     assert belief.roster["white"].death_source == "ejection"
+    assert belief.meeting_history[-1].ejected_color == "white"
 
 
 def test_chat_log_accumulates_dedups_and_resets_each_meeting() -> None:

@@ -16,3 +16,37 @@ nudges once per session if substantive work ends with this buffer untouched.
 optional `Status:` note. Terse. One lesson per `###`.
 
 ---
+
+### Preserve relational evidence before reducing it to per-player counters
+Evidence: The fitted social counters persisted across meetings but discarded speaker-target
+edges, meeting identity, disjunctions, and source provenance, making joint constraints
+unrecoverable. A parallel structured ledger restored those capabilities without disturbing
+the fitted model.
+
+### Deadline deferral can suppress chat in homogeneous self-play
+Evidence: In the solver-enabled `scn_vote_basic` smoke, all crewborg seats waited until the
+same 48-tick backstop, so their accusations were simultaneous and unavailable to that
+meeting's own solve. Mixed-field evaluation is required to measure the intended benefit from
+other policies' earlier utterances.
+
+### Vendored pickle assets need narrow module-path compatibility
+Evidence: The committed navbake remained structurally valid but referenced two pre-package-move
+`crewrift.crewborg.*` modules. An exact unpickler alias restored it; broad import aliases or
+rebaking unrelated data were unnecessary.
+
+### Closed-vocabulary NLP still needs grammatical roles
+Evidence: Treating every color near an accusation cue as a target made `Yellow saw cyan vent`
+accuse both players. Predicate-aware source/target extraction halved false targets in 125 hosted
+replays and reduced social-only false solver picks from 10 to 5 on solver-arm history.
+
+### Relayed evidence has two trust surfaces
+Evidence: A relay can be false because the attributed source lied or because the current speaker
+fabricated the attribution. Conditioning likelihood on both actors prevents a suspected impostor
+from laundering a claim through a named trusted player; original-source dedup prevents repeated
+relays from amplifying it.
+
+### Public-history replay is a useful solver gate, not an outcome estimate
+Evidence: Reconstructing 243 meetings through the real parser/solver exposed pick precision and
+coverage before another hosted run, but the warehouse cannot reproduce private witness pins,
+task clears, or fitted suspicion priors. Use it to reject parser/inference regressions, then use a
+matched hosted A/B for crew-win judgment.

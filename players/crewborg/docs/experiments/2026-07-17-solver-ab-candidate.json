@@ -1,0 +1,30 @@
+{
+  "target": {
+    "division_id": "div_acbde92a-df21-4489-859c-4510bd4445f2"
+  },
+  "roster": [
+    {"player": {"policy_ref": "crewborg-solver-ab:v2"}, "slot": 0},
+    {"player": {"policy_ref": "crewborg-aaln:v25"}, "slot": 1},
+    {"player": {"policy_ref": "notsus:v130"}, "slot": 2},
+    {"player": {"policy_ref": "jordan-crewborg-aaln:v1"}, "slot": 3},
+    {"player": {"policy_ref": "crewrift-prime-notsus-richard:v4"}, "slot": 4},
+    {"player": {"policy_ref": "crewborg:v107"}, "slot": 5},
+    {"player": {"policy_ref": "daveey-prime-notsus:v2"}, "slot": 6},
+    {"player": {"policy_ref": "softmaxwell-crewborg:v34"}, "slot": 7}
+  ],
+  "game_config_overrides": {
+    "slots": [
+      {"role": "crew"},
+      {"role": "crew"},
+      {"role": "crew"},
+      {"role": "crew"},
+      {"role": "crew"},
+      {"role": "crew"},
+      {"role": "imposter"},
+      {"role": "imposter"}
+    ]
+  },
+  "num_episodes": 64,
+  "execution_backend": "k8s",
+  "notes": "Persistent joint-meeting solver A/B candidate: 434bcd2, solver=1, veto=0, fixed talkative Prime roster, subject crew slot 0."
+}

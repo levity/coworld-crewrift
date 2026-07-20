@@ -23,15 +23,28 @@ This is *not* a log or archive: finished work lives in git history / the
 - League telemetry: upload with `CREWBORG_METRICS=1 CREWBORG_TRACE_GROUPS=all` (see
   user_preferences.md); league artifacts are EPHEMERAL (~one round) — harvest promptly.
 
-## ▶ Open threads (2026-07-01)
+**Current experiment branch (2026-07-17):** `worktree-crewborg-solver-deferred` carries an
+opt-in persistent joint-hypothesis meeting solver. Its first matched hosted A/B regressed
+crew win 28.1% -> 20.3% and player-vote precision 95.2% -> 57.9% because the parser
+treated attributed witnesses as targets. The predicate-aware fix is implemented and has
+cleared the 125-replay offline gate: on solver-arm history, social-only counterfactual
+pick precision moved 73.0% -> 84.4%, false picks 10 -> 5, and yellow picks 5 -> 1.
+Full suite: 511 passed, 13 skipped. It is ready for a new matched hosted A/B, but remains
+opt-in and must not be submitted or enabled by default first. Results:
+`docs/experiments/2026-07-17-solver-ab-result.md` and
+`docs/experiments/2026-07-17-claim-parser-offline.md`.
+
+## ▶ Open threads (2026-07-17)
 
 1. **Crew vote rate is evidence-limited, not gate-limited.** Crew votes only at fitted P≥0.9
    (`CREWBORG_WEIGHTS_VOTE_P`, `strategy/suspicion.py`); live posteriors cross it in only ~23% of
    meetings (median max-posterior at meeting ≈ 0.67) since the game's 0.4.28/29 update. Precision is
    the best in the field (67% vote-hit-imposter) but volume is ~1/3 of top rivals. The lever is
    warming evidence accumulation, not lowering the threshold (0.8 is the only defensible sweep value).
-2. **`VOTE_TIMER_TICKS = 240` is stale** (`strategy/meeting/context.py`) — the live game uses 1200;
-   crewborg stops listening ~16% into the meeting. Align before meeting-coordination work.
+2. **Persistent solver needs a second matched hosted A/B.** Predicate/provenance parsing,
+   relay discounting, original-source deduplication, and the meeting-entry fallback snapshot
+   pass the offline gate. Reuse the original fixed roster and 64/arm design; require crew win
+   improvement and preserved vote precision before enabling or submitting.
 3. **Slot-4 role-limbo**: a crew seat at slot 4 can miss the CREWMATE reveal text entirely →
    `self_role=None` forever → frozen, 0 task attempts (~15% of crew games). Needs a bounded
    fallback-to-crew escape in `types.py` (keep the positive latch as primary).

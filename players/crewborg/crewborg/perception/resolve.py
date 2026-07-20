@@ -19,6 +19,7 @@ from crewborg.perception.constants import (
     CHAT_TEXT_OBJECT_LIMIT,
     ENTITY_COLLISION_DX,
     ENTITY_COLLISION_DY,
+    GAME_INFO_PREFIX_VOTE_TIMER,
     LABEL_GHOST_ICON,
     LABEL_IMPOSTER_ICON,
     LABEL_IMPOSTER_ICON_COOLDOWN,
@@ -28,6 +29,7 @@ from crewborg.perception.constants import (
     LABEL_VOTE_SKIP_CURSOR,
     LABEL_VOTE_TIMER,
     MAX_PLAYERS,
+    PHASE_TEXT_GAME_INFO,
     PHASE_TEXTS,
     PLAYER_OBJECT_BASE,
     VOTE_SKIP_DOT_OBJECT_BASE,
@@ -104,6 +106,8 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
     active_progress: int | None = None
     crew_remaining: int | None = None
     phase_texts: set[str] = set()
+    game_info_present = False
+    game_info_vote_timer_ticks: int | None = None
     meeting_caller_color: str | None = None
     meeting_call_kind: str | None = None
     cursor = skip_cursor = timer = False
@@ -179,6 +183,10 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
             active_progress = _parse_trailing_int(label[len(PREFIX_PROGRESS_BAR) :])
         elif label.startswith(PREFIX_TASK_COUNTER):
             crew_remaining = _parse_trailing_int(label[len(PREFIX_TASK_COUNTER) :])
+        elif label == PHASE_TEXT_GAME_INFO:
+            game_info_present = True
+        elif label.startswith(GAME_INFO_PREFIX_VOTE_TIMER):
+            game_info_vote_timer_ticks = _parse_trailing_int(label[len(GAME_INFO_PREFIX_VOTE_TIMER) :])
         elif label in PHASE_TEXTS:
             phase_texts.add(label)
         else:
@@ -251,6 +259,7 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
     census = tuple(CensusEntry(color=c, alive=alive) for _slot, c, alive, _x, _y in candidate_cells)
     candidates = tuple(VoteCandidate(slot=s, color=c, alive=alive) for s, c, alive, _x, _y in candidate_cells)
     cursor_slot = _cursor_slot(cursor_xy, candidate_cells) if cursor else None
+    game_info_active = game_info_present and not chat_icon_rows and not (cursor or skip_cursor or timer or dots)
 
     return ResolvedScene(
         tick=tick,
@@ -276,6 +285,7 @@ def resolve_scene(scene: SceneState, tick: int) -> ResolvedScene:
             cursor_slot=cursor_slot,
         ),
         phase_texts=frozenset(phase_texts),
+        vote_timer_ticks=game_info_vote_timer_ticks if game_info_active else None,
         meeting_caller_color=meeting_caller_color,
         meeting_call_kind=meeting_call_kind,
         reveal_player_colors=frozenset(reveal_colors),
