@@ -129,6 +129,29 @@ def test_tailing_self_accumulates_while_a_player_shadows_us() -> None:
     assert tail[0].duration_ticks == 3 and (tail[0].start_tick, tail[0].end_tick) == (1, 3)
 
 
+def test_tailing_self_is_disabled_when_stick_mode_is_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_STICK", "1")
+    belief = Belief(map=_map(), self_role="crewmate")
+    belief.self_world_x, belief.self_world_y = 300, 300
+
+    for tick in (1, 2, 3):
+        _see(belief, "red", (340, 300), tick)
+
+    assert not [
+        event for event in belief.roster["red"].events if event.kind == "tailing_self"
+    ]
+
+
+def test_stick_flag_does_not_disable_imposter_tail_evidence(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_STICK", "1")
+    belief = Belief(map=_map(), self_role="imposter")
+    belief.self_world_x, belief.self_world_y = 300, 300
+
+    _see(belief, "red", (340, 300), 1)
+
+    assert any(event.kind == "tailing_self" for event in belief.roster["red"].events)
+
+
 def test_tailing_self_is_not_logged_for_our_own_sprite() -> None:
     # Our own sprite sits at our position every tick; without excluding it we'd "tail"
     # ourselves and suspect/vote ourself.

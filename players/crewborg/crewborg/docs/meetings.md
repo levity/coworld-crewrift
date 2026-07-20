@@ -173,10 +173,18 @@ or alter the final ballot.
 
 When exactly one attributed accusation source supports a decisive candidate,
 the solver removes that actor's claims and ballots and solves again. The target
-must remain the leader, but its source-removed marginal must not exceed
-`CREWBORG_SOLVER_ROBUST_MAX_P` (default `0.39`). A higher counterfactual
-marginal means the named source is not driving the conclusion; a correlated
-public ballot pile is. Multi-source decisions do not use this cap.
+must remain the leader when independent structural facts and private evidence
+are preserved. Separately, the actor-removed **social-only** marginal must not
+exceed `CREWBORG_SOLVER_ROBUST_MAX_P` (default `0.39`). A higher social
+counterfactual means the named source is not driving the conclusion; a
+correlated public ballot pile is. Multi-source decisions do not use this cap.
+
+A witnessed pin, hard clear, watched-task clear, or per-kill alibi can also
+produce a decisive conclusion without a named accuser. This path fires only
+when removing all such structural constraints makes that same candidate cease
+to clear the normal probability and margin gates. Thus a logical constraint can
+complete a deduction, but the mere presence of a non-constraining fact cannot
+unlock a vote-only consensus.
 
 ### Imposter (`_decide_imposter`)
 

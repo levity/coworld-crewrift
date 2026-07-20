@@ -179,6 +179,12 @@ vent visits count per dwell interval.
 | `reported_bodies` | the suspect called a body-report meeting | − | reporters lean innocent |
 | `button_calls_made` | the suspect pressed the emergency button | − | callers lean innocent |
 
+When `CREWBORG_STICK=1`, a living crewmate deliberately approaches and remains
+with a group after finishing its own tasks. `event_log.update_event_log`
+therefore suppresses `tailing_self` collection for that role and mode: the
+resulting proximity is an intervention by crewborg, not evidence that another
+player chose to shadow it. Imposter evidence collection remains unchanged.
+
 The exact coefficients live in `data/suspicion_weights.json` and are refit
 periodically; the file is the source of truth for the current numbers. The signs
 and relative magnitudes above describe the production fit's shape, not fixed

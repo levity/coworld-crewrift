@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
+from crewborg.strategy.meeting import solver as solver_module
 from crewborg.strategy.meeting.solver import (
     SolverConfig,
     early_chat_pick,
@@ -478,6 +479,57 @@ def test_report_rejects_single_source_pick_sustained_by_a_ballot_pile(
     assert report["pick"] is None
 
 
+def test_report_fires_from_a_decisive_alibi_constraint_without_an_accuser(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=7,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink", "orange"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    monkeypatch.setattr(
+        solver_module,
+        "alibi_sets",
+        lambda belief: [frozenset({"blue", "green", "yellow", "pink", "orange"})],
+    )
+
+    report = solver_report(belief)
+
+    assert report["candidate_sources"] == []
+    assert report["constraint_decisive"] is True
+    assert report["constraint_channels"] == ["alibis"]
+    assert report["pick"] == "red"
+
+
+def test_source_removal_preserves_independent_alibi_constraints(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=7,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink", "orange"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.social_claims = [_claim(10, "green", ("red",), evidence="vent")]
+    monkeypatch.setattr(
+        solver_module,
+        "alibi_sets",
+        lambda belief: [frozenset({"blue", "green", "yellow", "pink", "orange"})],
+    )
+
+    report = solver_report(belief)
+
+    assert report["robust_required"] is True
+    assert report["robust_min_p"] == 1.0
+    assert report["robust_crowd_p"] < 0.39
+    assert report["pick"] == "red"
+
+
 def test_single_source_crowd_cap_can_be_disabled(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_SOLVER", "1")
     monkeypatch.setenv("CREWBORG_SOLVER_P", "0.4")
@@ -612,6 +664,40 @@ def test_report_does_not_fire_from_vote_only_consensus(monkeypatch) -> None:
 
     assert report["pre_robust_pick"] == "red"
     assert report["candidate_sources"] == []
+    assert report["pick"] is None
+
+
+def test_non_constraining_alibi_does_not_unlock_vote_only_consensus(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_SOLVER", "1")
+    monkeypatch.setenv("CREWBORG_SOLVER_P", "0.4")
+    monkeypatch.setenv("CREWBORG_SOLVER_MARGIN", "0")
+    belief = Belief(
+        self_role="crewmate",
+        self_color="white",
+        total_player_count=6,
+        imposter_count=2,
+    )
+    for color in ("white", "red", "blue", "green", "yellow", "pink"):
+        belief.roster[color] = PlayerRecord(color=color, life_status="alive")
+    belief.meeting_history = [
+        MeetingRecord(
+            meeting_id=meeting,
+            votes={"green": "red", "yellow": "red", "pink": "red"},
+        )
+        for meeting in (10, 20, 30)
+    ]
+    monkeypatch.setattr(
+        solver_module,
+        "alibi_sets",
+        lambda belief: [frozenset({"blue"})],
+    )
+
+    report = solver_report(belief)
+
+    assert report["pre_robust_pick"] == "red"
+    assert report["constraint_decisive"] is False
     assert report["pick"] is None
 
 

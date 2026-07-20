@@ -22,8 +22,9 @@ batch overview — that's the fast `crewrift-survey`.
 
 ## Build it
 
-`build_warehouse.py` is the one-shot: episodes → `report_request.json` → built warehouse, with the
-version-skew check baked in.
+`build_warehouse.py` is the one-shot: episodes → `report_request.json` → built warehouse. Its
+preflight detects whether each misleadingly named `replay.json.z` is actually raw or zlib-compressed
+and smoke-tests the selected expander on one replay per Coworld version before starting the batch.
 
 ```bash
 B=players/crewborg/skills/crewrift-event-warehouse/scripts/build_warehouse.py
@@ -36,7 +37,8 @@ uv run python "$B" --episode <uuid> --episode ereq_xyz --out /tmp/wh --expand-re
 uv run python "$B" --policy crewborg -n 200 --out /tmp/wh --expand-replay /tmp/expand-<commit>
 ```
 
-It prints the manifest summary and **flags `trace_warning` episodes** (the #1 failure, below).
+It prints the manifest summary and exits nonzero for extraction failures or **`trace_warning`
+episodes** (the #1 failure, below).
 
 **Streaming (the default for fresh experience requests):** don't wait for the
 xreq to finish — `stream_eval.py` overlaps fetch + build, so the warehouse is
@@ -65,13 +67,14 @@ it recorded the replays** — not `master` (which drifts ahead and hash-fails).
 Vendoring here is what makes this tractable: **the expander source is in this same repo**
 (`tools/expand_replay.nim`). To get the right binary:
 
-1. Find the arena's deployed version: `coworld episodes --round <id> --json` → each episode's
-   `coworld_version` (e.g. `crewrift:0.1.54`).
-2. Build `expand_replay` from `tools/expand_replay.nim` at that commit (e.g. `0.1.54 ⇒ 42fed21`):
-   `nim c -d:release -d:useMalloc --opt:speed --out:/tmp/expand-42fed21 tools/expand_replay.nim`
+1. Find the arena's deployed version in each downloaded `episode.json` (`coworld_version`, e.g.
+   `0.1.59`) or via `coworld episodes --round <id> --json`.
+2. Build `expand_replay` from `tools/expand_replay.nim` at that tag/commit (e.g.
+   `0.1.59 ⇒ 1cbd4de4`):
+   `players/crewborg/tools/build_expand_replay.sh --ref 0.1.59 --out /tmp/expand-0.1.59`
    (after `nimby --global sync nimby.lock`).
 3. Verify: it should exit 0 with `trace_complete:true` on a real replay from that round.
-4. Pass it as `--expand-replay /tmp/expand-42fed21`.
+4. Pass it as `--expand-replay /tmp/expand-0.1.59`.
 
 **Always check the `trace_warning` count first** — if it's more than a trickle, fix the binary before
 trusting any query. See the README's "version coupling" section for the full recipe.

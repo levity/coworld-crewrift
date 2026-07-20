@@ -52,3 +52,9 @@ them here as they come up._
   CREWBORG_TRACE_GROUPS=all`. Massive logs when needed beat re-uploading the same policy
   and re-running XP requests. NB league artifacts are ephemeral (~one round's retention) —
   harvest them promptly each round.
+
+- **Inspect VM resources and use moderate processing concurrency** (James, 2026-07-19).
+  Check available RAM and CPU first, set worker counts appropriate to the machine, and do
+  not run multiple memory-heavy analysis jobs concurrently. On the current 2-vCPU,
+  7.2-GiB VM, default to two workers and allow up to four for I/O-bound stages; avoid both
+  the previous 16-worker overload and an unnecessarily serial one-worker pipeline.

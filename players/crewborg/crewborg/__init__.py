@@ -24,6 +24,7 @@ from crewborg.modes import (
     ReconMode,
     ReportBodyMode,
     SearchMode,
+    StickMode,
 )
 from crewborg.strategy import (
     RuleBasedStrategy,
@@ -31,6 +32,7 @@ from crewborg.strategy import (
     update_social_evidence,
     update_suspicion,
 )
+from crewborg.strategy.alibi import update_alibi
 from crewborg.strategy.commander.llm import build_commander_client_from_env, commander_feature_enabled
 from crewborg.strategy.commander.strategy import CommanderStrategy, apply_commander_inferences
 from crewborg.strategy.commander.trace import CommanderTrace
@@ -116,6 +118,7 @@ def build_runtime(
     registry.register(HuntMode)
     registry.register(ReconMode)
     registry.register(SearchMode)
+    registry.register(StickMode)
 
     if map_data is None:
         map_data = load_croatoan_map()
@@ -126,6 +129,7 @@ def build_runtime(
         update_belief(belief, percept)
         update_agent_tracking(belief)
         update_event_log(belief)
+        update_alibi(belief)  # opt-in co-presence alibis (CREWBORG_ALIBI); no-op otherwise
         update_social_evidence(belief)
         update_suspicion(belief)
 

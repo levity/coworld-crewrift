@@ -22,10 +22,11 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations
 from typing import Any, Iterable
 
+from crewborg.strategy.alibi import alibi_sets
 from crewborg.strategy.suspicion import witnessed_imposters
 from crewborg.types import MeetingRecord, SocialClaim
 
@@ -70,6 +71,19 @@ class WeightedVote:
     voter: str
     target: str
     weight: float
+
+
+@dataclass(frozen=True)
+class SolverEvidence:
+    """All evidence channels supplied to one joint solve."""
+
+    claims: tuple[SocialClaim, ...] = ()
+    meetings: tuple[MeetingRecord, ...] = ()
+    pins: frozenset[str] = frozenset()
+    hard_clears: frozenset[str] = frozenset()
+    clears: frozenset[str] = frozenset()
+    alibi_groups: tuple[frozenset[str], ...] = ()
+    priors: tuple[tuple[str, float], ...] = ()
 
 
 def enabled() -> bool:
@@ -373,10 +387,16 @@ def solve_hypotheses(
     pins: frozenset[str] | set[str] = frozenset(),
     hard_clears: frozenset[str] | set[str] = frozenset(),
     clears: frozenset[str] | set[str] = frozenset(),
+    alibi_groups: Iterable[frozenset[str] | set[str]] = (),
     priors: dict[str, float] | None = None,
     config: SolverConfig | None = None,
 ) -> dict[str, Any]:
-    """Return normalized joint hypotheses, marginals, and evidence counts."""
+    """Return normalized joint hypotheses, marginals, and evidence counts.
+
+    ``alibi_groups`` are per-kill co-present sets (see ``strategy/alibi.py``): a hypothesis
+    is impossible if every impostor in it was alibied for the *same* kill, so such
+    hypotheses are dropped. This is a pair/joint exclusion, never a per-player clear.
+    """
 
     config = config or _config()
     players = list(dict.fromkeys(players))
@@ -384,11 +404,25 @@ def solve_hypotheses(
     if imposter_count <= 0 or imposter_count > len(players):
         return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
 
+    # A pinned impostor can still be alibied for a particular kill: that proves
+    # their partner was outside the same co-present group. Keep pins in the group
+    # so an all-alibied assignment is correctly excluded.
+    alibi_excl = [set(group) for group in alibi_groups]
+    pinned = set(pins)
+
+    def _alibied_out(combo: frozenset[str]) -> bool:
+        return any(combo <= excl for excl in alibi_excl if len(excl) >= imposter_count)
+
     hypotheses = [
         frozenset(combo)
         for combo in combinations(players, imposter_count)
-        if set(pins) <= set(combo) and not set(combo) & set(hard_clears)
+        if pinned <= set(combo) and not set(combo) & set(hard_clears)
     ]
+    # Apply alibi exclusions, but never wipe out the whole hypothesis space (a sound alibi
+    # cannot exclude every pair; if it appears to, distrust it rather than abstain).
+    surviving = [h for h in hypotheses if not _alibied_out(h)]
+    if surviving:
+        hypotheses = surviving
     if not hypotheses:
         return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
 
@@ -454,6 +488,26 @@ def solve_hypotheses(
     }
 
 
+def _solve_evidence(
+    players: list[str],
+    imposter_count: int,
+    evidence: SolverEvidence,
+) -> dict[str, Any]:
+    """Solve one immutable evidence bundle without dropping a channel at call sites."""
+
+    return solve_hypotheses(
+        players,
+        imposter_count,
+        evidence.claims,
+        evidence.meetings,
+        pins=evidence.pins,
+        hard_clears=evidence.hard_clears,
+        clears=evidence.clears,
+        alibi_groups=evidence.alibi_groups,
+        priors=dict(evidence.priors),
+    )
+
+
 def solve_marginals(
     votable: list[str],
     claims: list[tuple[str, str]],
@@ -511,18 +565,13 @@ def _without_actor(
     players: list[str],
     live: list[str],
     imposter_count: int,
-    claims: list[SocialClaim],
-    meetings: list[MeetingRecord],
-    pins: set[str],
-    hard_clears: set[str],
-    clears: set[str],
-    priors: dict[str, float],
+    evidence: SolverEvidence,
 ) -> dict[str, Any]:
     """Measure how much of a single-source pick survives source removal."""
 
     filtered_claims = [
         claim
-        for claim in claims
+        for claim in evidence.claims
         if actor
         not in {
             claim.source_color or claim.speaker_color,
@@ -539,18 +588,14 @@ def _without_actor(
                 }
             }
         )
-        for meeting in meetings
+        for meeting in evidence.meetings
     ]
-    result = solve_hypotheses(
-        players,
-        imposter_count,
-        filtered_claims,
-        filtered_meetings,
-        pins=pins,
-        hard_clears=hard_clears,
-        clears=clears,
-        priors=priors,
+    filtered = replace(
+        evidence,
+        claims=tuple(filtered_claims),
+        meetings=tuple(filtered_meetings),
     )
+    result = _solve_evidence(players, imposter_count, filtered)
     marginals = result["marginals"]
     ranked = sorted(
         ((color, marginals[color]) for color in live if color in marginals),
@@ -560,18 +605,92 @@ def _without_actor(
     top = ranked[0][0] if ranked else None
     competitor = ranked[imposter_count][1] if len(ranked) > imposter_count else 0.0
     margin = candidate_p - competitor
+
+    # The upper cap protects against correlated social consensus, not independent
+    # physical facts. Measure it with the actor removed and structural/private
+    # channels absent, while the survival check above preserves every other fact.
+    crowd_only = replace(
+        filtered,
+        pins=frozenset(),
+        hard_clears=frozenset(),
+        clears=frozenset(),
+        alibi_groups=(),
+        priors=(),
+    )
+    crowd_result = _solve_evidence(players, imposter_count, crowd_only)
+    crowd_p = crowd_result["marginals"].get(candidate, 0.0)
     min_threshold = _robust_threshold()
     max_threshold = _robust_max_threshold()
-    survives_removal = (
-        min_threshold < 0
-        or (top == candidate and candidate_p >= min_threshold and margin >= 0.0)
+    survives_removal = min_threshold < 0 or (
+        top == candidate and candidate_p >= min_threshold and margin >= 0.0
     )
-    crowd_is_bounded = max_threshold < 0 or candidate_p <= max_threshold
+    crowd_is_bounded = max_threshold < 0 or crowd_p <= max_threshold
     return {
         "passed": survives_removal and crowd_is_bounded,
         "min_p": candidate_p,
         "min_margin": margin,
+        "crowd_p": crowd_p,
         "weakest_actor": actor,
+    }
+
+
+def _constraint_decisive(
+    *,
+    candidate: str,
+    players: list[str],
+    live: list[str],
+    imposter_count: int,
+    evidence: SolverEvidence,
+) -> dict[str, Any]:
+    """Whether structural facts are necessary for this candidate to be decisive."""
+
+    structural_channels = [
+        name
+        for name, present in (
+            ("pins", bool(evidence.pins)),
+            ("hard_clears", bool(evidence.hard_clears)),
+            ("clears", bool(evidence.clears)),
+            ("alibis", bool(evidence.alibi_groups)),
+        )
+        if present
+    ]
+    if not structural_channels:
+        return {
+            "passed": False,
+            "channels": [],
+            "without_p": None,
+            "without_margin": None,
+            "without_top": None,
+        }
+
+    without_constraints = replace(
+        evidence,
+        pins=frozenset(),
+        hard_clears=frozenset(),
+        clears=frozenset(),
+        alibi_groups=(),
+    )
+    result = _solve_evidence(players, imposter_count, without_constraints)
+    marginals = result["marginals"]
+    ranked = sorted(
+        ((color, marginals[color]) for color in live if color in marginals),
+        key=lambda item: (-item[1], item[0]),
+    )
+    without_top = ranked[0][0] if ranked else None
+    without_p = marginals.get(candidate, 0.0)
+    competitor = ranked[imposter_count][1] if len(ranked) > imposter_count else 0.0
+    without_margin = without_p - competitor
+    still_decisive = (
+        without_top == candidate
+        and without_p >= _threshold()
+        and without_margin >= _margin()
+    )
+    return {
+        "passed": not still_decisive,
+        "channels": structural_channels,
+        "without_p": without_p,
+        "without_margin": without_margin,
+        "without_top": without_top,
     }
 
 
@@ -592,6 +711,7 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
         "pins": [],
         "hard_clears": [],
         "clears": [],
+        "alibi_groups": [],
         "marginals": None,
         "hypotheses": [],
         "top_candidate": None,
@@ -600,7 +720,13 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
         "robust_required": False,
         "robust_min_p": None,
         "robust_min_margin": None,
+        "robust_crowd_p": None,
         "robust_weakest_actor": None,
+        "constraint_decisive": False,
+        "constraint_channels": [],
+        "without_constraints_p": None,
+        "without_constraints_margin": None,
+        "without_constraints_top": None,
         "vetoed": None,
         "error": None,
     }
@@ -626,6 +752,13 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                 and color not in pins
                 and getattr(record, "tasks_completed_watched", 0) > 0
             }
+        )
+        # Co-presence alibis (opt-in CREWBORG_ALIBI; empty otherwise). NOT a per-player
+        # clear — with two impostors a single alibi proves only "not this killer". Passed
+        # to the solver as per-kill sets so it can drop any hypothesis whose whole impostor
+        # set was alibied for one kill (that kill would have had no perpetrator).
+        alibis = (
+            [] if public_only else [group & player_set for group in alibi_sets(belief)]
         )
         raw_claims = list(getattr(belief, "social_claims", ()) or ())
         # Our own prior solver/chat output is derived from evidence already in this
@@ -656,16 +789,16 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                 if color in player_set
             }
         )
-        result = solve_hypotheses(
-            players,
-            imposter_count,
-            claims,
-            meetings,
-            pins=pins,
-            hard_clears=hard_clears,
-            clears=clears,
-            priors=priors,
+        evidence = SolverEvidence(
+            claims=tuple(claims),
+            meetings=tuple(meetings),
+            pins=frozenset(pins),
+            hard_clears=frozenset(hard_clears),
+            clears=frozenset(clears),
+            alibi_groups=tuple(frozenset(group) for group in alibis),
+            priors=tuple(sorted(priors.items())),
         )
+        result = _solve_evidence(players, imposter_count, evidence)
         marginals = result["marginals"]
         if not marginals:
             return out
@@ -686,6 +819,7 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
             pins=sorted(pins),
             hard_clears=sorted(hard_clears),
             clears=sorted(clears),
+            alibi_groups=[sorted(group) for group in alibis],
             marginals={
                 color: round(probability, 3) for color, probability in marginals.items()
             },
@@ -708,10 +842,17 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
 
         threshold = _threshold()
         competitor = ranked[imposter_count][1] if len(ranked) > imposter_count else 0.0
-        has_relational_evidence = bool(result["n_claims"] or result["n_votes"] or pins)
+        has_decision_evidence = bool(
+            result["n_claims"]
+            or result["n_votes"]
+            or pins
+            or hard_clears
+            or clears
+            or alibis
+        )
         if (
             enabled()
-            and has_relational_evidence
+            and has_decision_evidence
             and ranked[0][1] >= threshold
             and ranked[0][1] - competitor >= _margin()
         ):
@@ -725,6 +866,26 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                 and (claim.source_color or claim.speaker_color) in player_set
             }
             out["candidate_sources"] = sorted(candidate_sources)
+            constraint_support = _constraint_decisive(
+                candidate=candidate,
+                players=players,
+                live=live,
+                imposter_count=imposter_count,
+                evidence=evidence,
+            )
+            out.update(
+                constraint_decisive=constraint_support["passed"],
+                constraint_channels=constraint_support["channels"],
+                without_constraints_p=round(constraint_support["without_p"], 3)
+                if constraint_support["without_p"] is not None
+                else None,
+                without_constraints_margin=round(
+                    constraint_support["without_margin"], 3
+                )
+                if constraint_support["without_margin"] is not None
+                else None,
+                without_constraints_top=constraint_support["without_top"],
+            )
             robustness_required = len(candidate_sources) == 1
             out["robust_required"] = robustness_required
             robustness: dict[str, Any] | None = None
@@ -735,25 +896,22 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                     players=players,
                     live=live,
                     imposter_count=imposter_count,
-                    claims=claims,
-                    meetings=meetings,
-                    pins=set(pins),
-                    hard_clears=set(hard_clears),
-                    clears=set(clears),
-                    priors=priors,
+                    evidence=evidence,
                 )
                 out.update(
                     robust_min_p=round(robustness["min_p"], 3),
                     robust_min_margin=round(robustness["min_margin"], 3),
+                    robust_crowd_p=round(robustness["crowd_p"], 3),
                     robust_weakest_actor=robustness["weakest_actor"],
                 )
-            if candidate in pins or (
-                candidate_sources
-                and (
-                    not robustness_required
-                    or (robustness is not None and robustness["passed"])
-                )
-            ):
+            source_supported = bool(candidate_sources) and (
+                not robustness_required
+                or (robustness is not None and robustness["passed"])
+            )
+            constraint_only_supported = (
+                not candidate_sources and constraint_support["passed"]
+            )
+            if candidate in pins or source_supported or constraint_only_supported:
                 out["fired"] = True
                 out["pick"] = candidate
     except Exception as exc:

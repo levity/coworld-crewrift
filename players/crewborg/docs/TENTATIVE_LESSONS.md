@@ -95,3 +95,39 @@ self-ejections, and total team crew ejections measure distinct failure mechanism
 Evidence: A hosted early accusation is auditable from public replay only if its live solve omits
 private suspicion priors, witnessed-impostor pins, and watched-task clears. The public-only helper
 kept the exact implemented tick-240 gate at 29/29 on selection and 29/29 on held-out histories.
+
+### Hard facts should update both assignments and source reliability
+Evidence: Hidden-kill victims now leave every joint impostor hypothesis, which also makes their
+episode-persistent claims come from known crew under the role-conditioned likelihood. Five hosted
+tick-241 conclusions all targeted real impostors; four reconstructed lines used deaths and evidence
+from multiple meetings, including two with no current-meeting ballot support.
+
+### A sound relational constraint can be too sparse to optimize
+Evidence: Co-presence during one kill soundly excludes an impostor pair, not either player alone.
+After strict continuity, witnessed-kill, and victim-absence guards, replay reconstruction found only
+one usable two-player alibi group in 100 candidate games. Keep the sound hook, but do not tune it
+from outcome noise.
+
+### Size replay expansion to the VM before launching it
+Evidence: This VM has 2 vCPUs and 7.2 GiB RAM. Two simultaneous 16-worker warehouse builds exhausted
+the machine and forced a reboot. Inspect CPU and available memory first; on this VM run one warehouse
+at a time with two workers by default (up to four for I/O-bound stages), not an unbounded fan-out.
+
+### A counterfactual should remove exactly the evidence channel it tests
+Evidence: The sole-source robustness solve removed an actor but accidentally omitted per-kill
+alibis, making independent physical constraints disappear with social evidence. Passing one
+immutable evidence bundle through every solve preserves unrelated facts; the correlated-crowd cap
+then needs its own explicitly social-only counterfactual rather than overloading source removal.
+
+### Compare old and new policy logic on each hosted history before attributing an A/B
+Evidence: Constraint-aware v3 won 48/100 versus v2 32/100, but the new public solver found 22/22
+decisive picks in candidate history and only 10/12 in control history. Replaying v2 on those same
+histories showed 12/12 and 10/11: v3 genuinely added 10/10 correct candidate opportunities, while
+the candidate batch also contained much cleaner evidence. The fixed-history counterfactual
+separates mechanism activation from random between-arm opportunity.
+
+### Artifact encoding is a property of bytes, not a filename
+Evidence: The hosted replay route returned raw `CREWRIFT` bytes under `replay.json.z`, and the
+warehouse wrapper declared zlib from the suffix, failing all 100 episodes. This condition was
+already recorded in an earlier experiment. Inspect magic bytes, validate decoded replay magic,
+smoke-test the expander, and make failed/hash-incomplete manifests fail the wrapper before querying.

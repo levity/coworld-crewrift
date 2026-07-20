@@ -424,6 +424,9 @@ class Belief(BaseModel):
     social_claims: list[SocialClaim] = Field(default_factory=list)
     meeting_history: list[MeetingRecord] = Field(default_factory=list)
     solver_counted_chats: set[tuple[int, str | None, str]] = Field(default_factory=set)
+    # Opt-in co-presence alibi bookkeeping, owned entirely by strategy/alibi.py
+    # (default OFF; an empty dict until that module populates it).
+    alibi_state: dict = Field(default_factory=dict)
 
     # Bookkeeping for ``strategy.social_evidence`` (cumulative public-evidence
     # counters on PlayerRecord): chat lines already counted (keys survive the
