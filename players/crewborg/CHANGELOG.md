@@ -1,5 +1,118 @@
 # Changelog
 
+## 2026-07-19 - Constraint-aware solver composition
+
+- Disabled `tailing_self` collection for living crewmates while
+  `CREWBORG_STICK=1`. Deliberately following a group is then policy-induced
+  proximity, not evidence that the group is following crewborg. Imposter
+  collection is unchanged.
+- Bundled every solver input into immutable `SolverEvidence`, so counterfactual
+  solves cannot silently omit independent channels such as per-kill alibis.
+- Source-removal robustness now preserves structural facts and private
+  evidence. Its crowd-pile cap is computed separately from public social
+  evidence alone.
+- Allowed a solver conclusion without a named accuser when a witnessed pin,
+  hard clear, watched-task clear, or per-kill alibi is demonstrably necessary
+  for that conclusion to clear the probability and margin gates. The solver
+  still rejects vote-only consensus and does not let a non-constraining fact
+  unlock it.
+- Added diagnostics for the social-only crowd posterior and the
+  without-constraints counterfactual, plus regression tests for stick-role
+  isolation, alibi preservation, decisive constraints, and the vote-only
+  guard.
+- Production validation passed with 548 tests and 13 skips; changed-file Ruff
+  and `git diff --check` passed.
+- Deferred splitting the fitted suspicion prior by evidence channel. Chat and
+  vote observations currently enter both the scalar fitted posterior and the
+  solver's structured likelihoods; fixing that requires a non-overlapping
+  residual solver prior with replay validation, not another local gate in this
+  patch.
+- Built and Gate-1 validated source `de63cbd`, then uploaded it inertly as
+  `crewborg-solver-stick-alibi:v3`
+  (`aa0415e5-a4ba-4bcd-a673-2212a0866eb5`) with stick, alibi, death-aware early
+  solver, metrics, and all trace groups enabled.
+- A fresh exact-roster 100/arm hosted A/B completed without failures. Crew
+  wins moved 32 -> 48 (Fisher `p=0.030`, Newcombe 95% interval +2.4 to
+  +28.8pp); mean loss score stayed flat at 6.09 -> 5.92.
+- Subject votes moved from 24 impostors / 3 crew to 52 / 8 at unchanged
+  conditional precision. Team impostor / crew ballots moved 196 / 139 to
+  230 / 92, and impostor / crew ejections moved 6 / 21 to 15 / 12.
+- Holding each public history fixed, v2 -> v3 solver replay added 10/10 correct
+  picks in candidate histories: four constraint-only killed-player deductions
+  and six single-source deductions rescued by the social-only crowd cap. It
+  added one wrong, uncast opportunity in control history. This verifies both
+  solver paths but also shows favorable candidate evidence, so the full
+  outcome delta is not attributable to the bundled treatment.
+- Hardened `skills/crewrift-event-warehouse/scripts/build_warehouse.py` after
+  two avoidable workflow failures. It now detects raw versus zlib replay bytes,
+  preflights one replay per Coworld version through the supplied expander,
+  surfaces extraction messages, and exits nonzero on failures or hash
+  warnings. Updated the default replay ref to verified 0.1.59 (`1cbd4de4`);
+  four focused tests and Ruff pass.
+
+## 2026-07-19 - Stick-with-group plus per-kill alibis
+
+Before integration:
+
+- Review the opt-in `crew-stick-alibi` branch as a modular layer on top of the
+  death-aware early solver. Keep both tactics default-off and enable them
+  together only in the combined hosted candidate.
+- Preserve own-task completion as the movement priority. After own tasks are
+  done, seek a real group rather than returning to spawn so crewborg can deny
+  isolated kill windows and maintain useful co-presence evidence.
+- Represent an alibi per kill, never as a permanent per-player clear. With two
+  impostors, seeing one player during a kill proves only that they were not
+  that killer; a joint assignment is impossible only when every impostor in it
+  was co-present during the same kill.
+- Review phase transitions, stale position handling, known-impostor pins, and
+  idle escapes before hosting.
+
+After integration and review:
+
+- Kept the branch's modular structure: `modes/stick.py` owns group positioning,
+  `strategy/alibi.py` owns co-presence state, and the solver consumes only
+  per-kill sets. `CREWBORG_STICK` and `CREWBORG_ALIBI` independently disable
+  their modules.
+- Fixed the pinned-impostor exclusion. A known impostor who was co-present for
+  a kill stays in that kill's alibi group; this correctly forces their partner
+  outside the group instead of preserving an impossible pair.
+- Fixed census reachability. Meeting frames have no live-world sprites, so
+  census-discovered deaths now close their visibility interval at the last
+  camera-ready Playing tick.
+- Limited alibi tracking to living known crewmates and exposed the per-kill
+  groups in solver diagnostics.
+- Fixed stick liveness and targeting: require a recent cluster of at least two
+  other living players, expire 96-tick-old fixes, and idle only while two
+  cluster members are currently visible. A dispersed, stale, or departed group
+  immediately falls back to Normal movement.
+- Uploaded and hosted the combined v1 candidate in a fresh 100/arm comparison.
+  Crew wins moved 41 -> 47 (`p=0.476`), post-task ticks with two or more visible
+  players moved 31.8% -> 39.7%, impostor ejections moved 11 -> 19, and crew
+  ejections stayed at 14. Tasks, standing-still penalties, and subject survival
+  did not regress.
+- Exact kill-tick replay exposed a remaining soundness bug: the visibility
+  grace could bridge the killer's brief departure, and a kill rendered in view
+  could label the killer co-present. V1 is therefore superseded and must not be
+  submitted.
+- Made alibi visibility strictly consecutive, reject witnessed kills, and
+  require the victim to be absent beyond the three-tick ambiguity window.
+  Corrected replay reachability is sparse: one usable two-player group in 100
+  candidate games.
+- Full corrected production validation passed with 543 tests and 13 skips;
+  changed-file Ruff and `git diff --check` passed.
+- Built and Gate-1 validated corrected source `38771ef`, then uploaded it
+  inertly as `crewborg-solver-stick-alibi:v2`
+  (`13bfb03f-d0ea-435c-b772-865db0e9a6d6`) with both tactics and full
+  telemetry enabled.
+- The fresh corrected replication completed 37/94 ops-filtered crew wins
+  control versus 41/100 candidate (`p=0.884`). Pooled with the first batch,
+  the combined tactic is 78/194 control versus 88/200 candidate, a
+  directionally consistent but unresolved +3.8 points (`p=0.476`).
+- Candidate non-win score improved from 4.63 to 6.47 in the replication.
+  Together with the first batch's exact grouping, task, penalty, and death
+  analysis, this supports retaining stick without claiming a proven outcome
+  lift. Sound alibi constraints remain too sparse for data-backed tuning.
+
 ## 2026-07-19 - Death-aware persistent early solve
 
 Before implementation:
@@ -47,6 +160,11 @@ After implementation:
   source gate.
 - Focused solver/meeting validation passed (`55 passed`), changed-file Ruff and
   `git diff --check` passed. Full image validation and hosted evaluation follow.
+- The fresh 100/arm hosted test finished 42 -> 43 crew wins (`p=1.0`). The
+  mechanism was precise and more active: candidate tick-241 lines fired five
+  times, all at real impostors; team impostor-target ballots moved 189 -> 222,
+  crew-target ballots 127 -> 102, impostor ejections 9 -> 15, and crew
+  ejections 17 -> 14.
 
 ## 2026-07-19 - Early public-solver coordination
 

@@ -32,7 +32,17 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## Open
 
-_None yet — add deferred tasks here as they come up._
+### Give the solver a prior that excludes evidence it scores structurally (2026-07-19)
+
+`belief.suspicion` is a useful legacy posterior for field behavior and meeting
+fallbacks, but its fitted features include chat accusations and attributed
+votes. The joint solver then uses that scalar as a prior while also scoring the
+same observations as structured claims and meeting records. Expose a residual
+prior that excludes every channel modeled explicitly by the solver, including
+claims, ballots, witnessed pins, task clears, death clears, and alibis; physical
+features such as witnessed kills are not automatically non-overlapping. Leave
+the full posterior intact for existing consumers. Audit pick changes against
+retained or newly generated replay history before enabling it.
 
 ## Done
 

@@ -29,6 +29,9 @@ import argparse
 import json
 import os
 import subprocess
+import tempfile
+import zlib
+from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
@@ -56,7 +59,85 @@ def find_episode_dirs(root: Path) -> list[Path]:
             and (d / "replay.json.z").exists()]
 
 
-def build_request(dirs: list[Path], out_dir: Path) -> Path:
+def replay_encoding(path: Path) -> str:
+    """Return the reporter encoding for a downloaded replay, based on its bytes.
+
+    The Observatory replay route sometimes returns an already-decompressed
+    ``CREWRIFT`` bitreplay while the artifact downloader retains the historical
+    ``replay.json.z`` filename. The filename therefore cannot define the wire
+    encoding.
+    """
+    header = path.read_bytes()[:8]
+    if header == b"CREWRIFT":
+        return "identity"
+    if len(header) >= 2 and header[0] & 0x0F == 8 and (header[0] << 8 | header[1]) % 31 == 0:
+        return "zlib"
+    raise ValueError(
+        f"{path}: replay is neither raw CREWRIFT data nor a recognizable zlib stream "
+        f"(first bytes: {header.hex()})"
+    )
+
+
+def raw_replay_bytes(path: Path, encoding: str) -> bytes:
+    payload = path.read_bytes()
+    if encoding == "zlib":
+        payload = zlib.decompress(payload)
+    if not payload.startswith(b"CREWRIFT"):
+        raise ValueError(f"{path}: decoded replay does not start with CREWRIFT")
+    return payload
+
+
+def preflight(dirs: list[Path], expand_replay: Path | None) -> dict[Path, str]:
+    """Validate local artifacts and smoke-test the expander before a batch build."""
+    encodings: dict[Path, str] = {}
+    representatives: dict[str, tuple[Path, str]] = {}
+    for ep in dirs:
+        json.loads((ep / "episode.json").read_text())
+        json.loads((ep / "results.json").read_text())
+        replay = ep / "replay.json.z"
+        encoding = replay_encoding(replay)
+        raw_replay_bytes(replay, encoding)
+        encodings[ep] = encoding
+
+        meta = json.loads((ep / "episode.json").read_text())
+        version = str(meta.get("coworld_version") or "unknown")
+        representatives.setdefault(version, (replay, encoding))
+
+    counts = Counter(encodings.values())
+    versions = ", ".join(sorted(representatives))
+    print(f"  preflight: replay encodings {dict(sorted(counts.items()))}; coworld versions: {versions}")
+
+    if expand_replay is None:
+        print("  preflight: expander smoke test skipped (using CREWRIFT_EXPAND_REPLAY/PATH)")
+        return encodings
+    if not expand_replay.is_file():
+        raise ValueError(f"--expand-replay is not a file: {expand_replay}")
+
+    for version, (replay, encoding) in sorted(representatives.items()):
+        raw = raw_replay_bytes(replay, encoding)
+        with tempfile.NamedTemporaryFile(suffix=".bitreplay") as tmp:
+            tmp.write(raw)
+            tmp.flush()
+            proc = subprocess.run(
+                [str(expand_replay), "--format", "jsonl", "--snapshot-every", "120", tmp.name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        if proc.returncode:
+            detail = proc.stderr.strip().splitlines()
+            suffix = f": {detail[-1]}" if detail else ""
+            raise RuntimeError(
+                f"expand_replay preflight failed for coworld {version} "
+                f"(exit {proc.returncode}){suffix}"
+            )
+        print(f"  preflight: expander completed a coworld {version} replay")
+    return encodings
+
+
+def build_request(dirs: list[Path], out_dir: Path, encodings: dict[Path, str]) -> Path:
     episodes, seen = [], set()
     for ep in dirs:
         meta = json.loads((ep / "episode.json").read_text())
@@ -71,7 +152,7 @@ def build_request(dirs: list[Path], out_dir: Path) -> Path:
             "artifacts": {
                 "results": {"uri": (ep / "results.json").as_uri(), "media_type": "application/json"},
                 "replay": {"uri": (ep / "replay.json.z").as_uri(),
-                           "media_type": "application/octet-stream", "encoding": "zlib"},
+                           "media_type": "application/octet-stream", "encoding": encodings[ep]},
             },
             "players": players_of(meta),
         })
@@ -116,18 +197,23 @@ def fetch_sources(args: argparse.Namespace, dest: Path) -> Path:
 def summarize(out: Path) -> int:
     manifest = json.loads((out / "manifest.json").read_text())
     warned = sum(1 for e in manifest.get("episodes", []) if e.get("trace_warning"))
+    failed = [e for e in manifest.get("episodes", []) if e.get("status") == "failed"]
     print("\n=== warehouse manifest ===")
     for k in ("episodes_total", "episodes_ok", "episodes_cached", "episodes_skipped",
               "episodes_failed", "events_written", "distinct_policies"):
         print(f"  {k}: {manifest.get(k)}")
     print(f"  event_keys: {', '.join(manifest.get('event_keys', []))}")
+    if failed:
+        print(f"\n  ERROR: {len(failed)} episodes failed extraction. First failures:")
+        for episode in failed[:5]:
+            print(f"    {episode.get('episode_id')}: {episode.get('message')}")
     if warned:
         print(f"\n  ⚠️  {warned}/{manifest.get('episodes_total')} episodes have trace_warning "
               f"(replay/sim VERSION SKEW). Output is sparse for these — rebuild --expand-replay from "
               f"the arena's deployed crewrift commit. See the SKILL.md.")
-    else:
+    elif not failed:
         print("\n  ✓ no trace_warning episodes — the expand_replay binary matches the replays.")
-    return warned
+    return 1 if failed or warned else 0
 
 
 def main() -> int:
@@ -159,7 +245,8 @@ def main() -> int:
         raise SystemExit(f"No complete episode dirs (episode.json+results.json+replay.json.z) under {ep_root}. "
                          f"Did you fetch WITH replays (omit --no-replay)?")
     print(f"build_warehouse: {len(dirs)} episodes -> {args.out}")
-    req = build_request(dirs, args.out.parent / (args.out.name + "_input"))
+    encodings = preflight(dirs, args.expand_replay)
+    req = build_request(dirs, args.out.parent / (args.out.name + "_input"), encodings)
 
     env = dict(os.environ)
     if args.expand_replay:

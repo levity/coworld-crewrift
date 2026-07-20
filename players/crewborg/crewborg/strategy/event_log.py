@@ -23,6 +23,7 @@ Design choices:
 from __future__ import annotations
 
 import math
+import os
 
 from crewborg.action import KILL_RANGE_SQ
 from crewborg.types import Belief, PlayerEvent, PlayerEventKind, PlayerRecord
@@ -39,6 +40,16 @@ TAIL_SELF_RADIUS_SQ = 64**2
 # frames of occlusion / out-of-view). A longer gap, or any tick where we saw the
 # player but the predicate was false, starts a fresh interval instead.
 EVENT_MERGE_GRACE_TICKS = 3
+
+
+def _stick_active(belief: Belief) -> bool:
+    enabled = os.environ.get("CREWBORG_STICK", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    return enabled and belief.self_role == "crewmate" and belief.self_alive
 
 
 def update_event_log(belief: Belief) -> None:
@@ -88,7 +99,11 @@ def update_event_log(belief: Belief) -> None:
         # evidence — and it's a signal we read best, since we always know our own spot.
         # Never log it for our *own* sprite: we are trivially always at our own spot, so
         # this would make us "tail" ourselves and suspect/vote ourself.
-        if self_xy is not None and record.color != belief.self_color:
+        if (
+            not _stick_active(belief)
+            and self_xy is not None
+            and record.color != belief.self_color
+        ):
             d2 = _dist2(here, self_xy)
             if d2 <= TAIL_SELF_RADIUS_SQ:
                 _mark(record, tick, prev, "tailing_self", dist2=d2)

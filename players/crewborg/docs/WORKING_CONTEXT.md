@@ -9,6 +9,60 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
+## Current update (2026-07-19)
+
+The current best combined artifact is inert
+`crewborg-solver-stick-alibi:v3`
+(`aa0415e5-a4ba-4bcd-a673-2212a0866eb5`) at source `de63cbd`. Living crew no
+longer collect self-tail suspicion while deliberately using stick mode.
+Solver counterfactuals carry one immutable evidence bundle; the
+correlated-crowd cap is a separate social-only solve; and a structural
+constraint may support a no-accuser conclusion only when it is demonstrably
+necessary. Vote-only consensus remains rejected. Production validation is
+548 passed / 13 skipped and local Gate 1 is clean.
+
+The fresh exact-roster 100/arm v2-v3 A/B completed without failures: crew wins
+were 48/100 v3 versus 32/100 v2 (Fisher `p=0.030`, Newcombe interval +2.4 to
++28.8pp). Subject impostor / crew votes moved 24 / 3 -> 52 / 8, team ballots
+196 / 139 -> 230 / 92, and impostor / crew ejections 6 / 21 -> 15 / 12. Mean
+loss score stayed flat. On fixed public histories, v3 adds 10/10 correct
+candidate-arm picks over v2, comprising four constraint-only hard-clear
+deductions and six source-supported deductions rescued by the social-only cap.
+It adds one wrong but uncast control opportunity. Candidate histories were
+also more favorable, so do not assign the full win delta to the bundled
+treatment. Details:
+`docs/experiments/2026-07-19-solver-constraints-hosted-ab.md`.
+
+The next active iteration is crew collaboration / speaking clears from the
+`crew-stick-alibi` worktree document
+`docs/experiments/2026-07-19-crew-collaboration-speak-clears.md`. Review and
+port it modularly on top of v3, validate locally, then run a fresh hosted XP
+comparison. Do not submit without explicit approval.
+
+The persistent correlation-aware solver now hard-clears hidden-kill victims,
+reinterprets episode-persistent claims under that posterior, excludes self-chat
+echoes, and may publish a fresh public solve at tick 240 when `P>=0.76` and two
+external sources support it across meetings. Its fresh 100/arm test was 43
+crew wins versus 42 control; all five candidate early lines targeted real
+impostors, while team impostor ballots/ejections increased and crew
+ballots/ejections decreased. The outcome lift is unresolved, but the mechanism
+is active and precise.
+
+The prior combined candidate is inert upload
+`crewborg-solver-stick-alibi:v2`
+(`13bfb03f-d0ea-435c-b772-865db0e9a6d6`) at source `38771ef`. Stick mode acts
+only after own tasks and increased post-task 2+ player visibility from 31.8%
+to 39.7% without task, idle-penalty, or survival regression. Alibi constraints
+are per kill and sound after strict-visibility, witnessed-kill, and victim-
+absence guards, but are very sparse.
+
+Two combined hosted batches are directionally positive but unresolved:
+ops-filtered wins total 88/200 candidate versus 78/194 control (+3.8pp,
+`p=0.476`). The corrected replication alone was 41/100 versus 37/94
+(`p=0.884`) and improved mean non-win score 4.63 -> 6.47. Retain v2 for
+further evaluation; do not submit without explicit approval, and do not tune
+the sparse alibi path without a discriminating mechanism test.
+
 ## 🎯 Current state (seeded at the 2026-07-01 sync — the v82 code line)
 
 **This package now carries the code that is Crewrift Prime CHAMPION as `crewborg:v82`** (2026-07-01):

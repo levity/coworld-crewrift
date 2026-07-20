@@ -61,3 +61,29 @@ this candidate with the same pinned roster and forced crew seat:
 
 - Control: `xreq_a18d790d-a260-4125-90a6-cc791d51fb45`
 - Candidate: `xreq_1ce942aa-8b2f-4a02-b04a-d79406b9db3b`
+
+## Hosted result
+
+Both requests completed 100/100 episodes with no failures. Crew wins were
+42/100 control and 43/100 candidate (`p=1.0`), so this batch does not establish
+an outcome lift.
+
+The intended mechanism did activate. Actual tick-241 coordination lines rose
+from 2 in control to 5 in the candidate; all five candidate targets were real
+impostors, and crewborg's eventual ballot stayed on that target in all five
+meetings. Four replay-reconstructed candidate lines used two or three killed
+players as hard clears and evidence from two or three meetings; two had no
+current-meeting ballot support at the early decision.
+
+Team behavior moved in the intended direction:
+
+| Metric | Control | Candidate |
+| --- | ---: | ---: |
+| Crew ballots targeting impostors | 189 | 222 |
+| Crew ballots targeting crew | 127 | 102 |
+| Impostor ejections | 9 | 15 |
+| Crew ejections | 17 | 14 |
+
+These are episode-clustered, unmatched behavioral counts rather than
+independent trials. The defensible conclusion is that death-aware persistent
+chat is reachable and precise; the 1-point win difference remains unresolved.
