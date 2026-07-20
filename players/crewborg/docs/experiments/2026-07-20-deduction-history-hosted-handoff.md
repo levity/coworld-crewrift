@@ -31,10 +31,10 @@ Before upload:
 git status --short
 git rev-parse HEAD
 
-PYTHONPATH=players/crewborg:players/crewborg-aaln:. \
+PYTHONPATH=players/crewborg:. \
   python -m pytest players/crewborg/crewborg/tests
 
-PYTHONPATH=players/crewborg:players/crewborg-aaln:. \
+PYTHONPATH=players/crewborg:. \
   python players/crewborg/tools/evaluate_deduction.py --games 1000 --seed 7
 ```
 
@@ -231,3 +231,87 @@ all precommitted measures, point-in-time disagreements, and the verdict back
 into this document. Update `WORKING_CONTEXT.md`, `TENTATIVE_LESSONS.md`,
 `CHANGELOG.md`, and `crewborg/version_log.md`, then commit before proposing the
 next gameplay change.
+
+## Hosted result
+
+Both arms completed 100/100 forced-crew episodes on Crewrift 0.1.59 with the
+exact pinned roster and no XP request failures:
+
+| Arm | Policy UUID | Request |
+| --- | --- | --- |
+| candidate | `0d337bd5-0586-45b5-a574-61bff862eae9` | `xreq_79223776-244a-48bf-a97e-714890b03ba4` |
+| control | `7a700652-3279-42a0-a619-098c94fad5cc` | `xreq_0de29f24-339b-41d5-a759-8a7af7181d65` |
+
+The arms used the same image, `sha256:61011068b0e358fbfe5b27d087f2313210bbf98b5ba65a6c8717b36d89173def`,
+built from `7295db0` with behavior frozen at `9c80b98`. Hosted policy logs and
+separate result artifacts were unavailable. Public replay establishes chat,
+ballot, timing, death, task, score, and outcome behavior, but cannot reconcile
+the private factor table or measure solve latency. One candidate replay,
+`ereq_ae5b86aa-75fd-4614-a218-1d10f97ac4b3`, stopped expansion on a tick-5060
+hash failure. Its authoritative win remains in outcome counts; its episode is
+excluded from event-derived behavior.
+
+### Outcomes and observed behavior
+
+Candidate crew wins were 37/100 versus 42/100 control (difference -5 points,
+two-sided Fisher `p=0.563`). Mean subject score was 43.78 versus 48.63 and mean
+tasks were 7.65 versus 7.68. Candidate/control subject outcomes were 51/56
+killed, 5/3 ejected, and 44/41 surviving.
+
+On clean public traces, subject ballots were:
+
+| Arm | impostor | crew | skip | non-skip precision | coverage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| candidate | 21 | 3 | 69 | 87.5% | 25.8% |
+| control | 25 | 0 | 44 | 100% | 36.2% |
+
+Candidate coverage retained 71.2% of control, below the precommitted 75% floor,
+and candidate crew ballots increased from zero to three. Team crew ballots were
+229 impostor / 109 crew / 270 skip in the clean candidate traces and 182 / 94 /
+252 in control. Candidate games ejected 16 impostors and 23 crew; control
+ejected 10 and 15. The higher ejection volume did not improve team ejection
+precision (41.0% versus 40.0%).
+
+The candidate emitted 18 subject lines at exactly the intended offsets. At
+tick 241 it made ten witnessed-action accusations, three public accusations,
+and one clear; all 14 statements were correct. At tick 1153 it made four public
+accusations, two correct and two wrong. Every ballot arrived at the deadline,
+with median non-skip offsets 1160.5 ticks candidate and 1163 control. Public
+replay therefore confirms activation and timing, but not the unavailable
+private factor telemetry.
+
+### Same-history solver comparison
+
+After excluding the hash-failed episode, both analyzers covered the same 93
+candidate meetings. The legacy public solver selected 17 targets and got 16
+correct (94.1%); the new public-only policy selected 18 and got 14 correct
+(77.8%). They shared 13 selections (12 correct, one wrong). The new path dropped
+four correct legacy selections and added five selections, only two correct. On
+the 69 control-history meetings, legacy selected 1/1 correctly and the new path
+selected 3/4 correctly.
+
+Three of the four candidate-history new-solver errors had no accusation against
+the selected target: two public ballots alone satisfied the generic
+"independent sources" gate. Requiring at least one active accusation in addition
+to posterior support removes those three errors and no correct selection on
+these histories, moving 14/18 to 14/15. The remaining wrong Green pick had two
+explicit crew accusations and a five-source ballot pile; it is not removable
+by that narrow gate. Raising posterior thresholds is counterproductive here:
+the candidate default is 14/18, while 0.70/0.85 is 9/13 and 0.75/0.90 is 7/11.
+
+The cheap synthetic distribution was also too favorable: its pre-upload result
+was 94.9% precision at 49.4% coverage, versus 77.8% and 19.4% on fresh public
+history. Synthetic speakers choose chat and ballot targets independently and
+do not form persistent or shared false beliefs, so it omits exactly the
+correlated pile-ons that produced hosted errors.
+
+## Verdict and next step
+
+Do not promote or submit this candidate. The win-rate difference is unresolved,
+but the treatment independently fails the precommitted ballot-precision,
+crew-ballot, and coverage gates. Preserve the successful early/direct path.
+Before another hosted run, require explicit accusation or structural/direct
+support for a public eject while still allowing ballots to adjust the joint
+posterior. Validate that gate on every retained warehouse and add correlated,
+persistent latent beliefs to the synthetic generator so future cheap screens
+stress the observed failure mode.

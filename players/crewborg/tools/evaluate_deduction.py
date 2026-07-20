@@ -66,6 +66,11 @@ def main() -> None:
         default=0,
         help="Include up to N diverse meeting narratives in warehouse output",
     )
+    parser.add_argument(
+        "--details",
+        action="store_true",
+        help="Include one compact decision row per eligible meeting",
+    )
     args = parser.parse_args()
     if args.history_jsonl is not None and args.warehouse is not None:
         parser.error("choose only one of --history-jsonl and --warehouse")
@@ -76,6 +81,7 @@ def main() -> None:
                     args.warehouse,
                     decision_offset=args.decision_offset,
                     sample_count=max(0, args.samples),
+                    include_details=args.details,
                 ),
                 indent=2,
                 sort_keys=True,
@@ -152,6 +158,7 @@ def _evaluate_warehouse(
     *,
     decision_offset: int,
     sample_count: int,
+    include_details: bool = False,
 ) -> dict[str, Any]:
     try:
         import duckdb
@@ -200,8 +207,12 @@ def _evaluate_warehouse(
     threshold_results: dict[str, dict[str, int]] = defaultdict(
         lambda: defaultdict(int)
     )
+    decisions: list[dict[str, Any]] = []
+    excluded_trace_episodes = _trace_warning_episodes(con, warehouse)
 
     for episode_id, slot_colors in colors.items():
+        if episode_id in excluded_trace_episodes:
+            continue
         subject = identities.get((episode_id, 0))
         if subject is None or subject["role"] not in {"crew", "crewmate"}:
             continue
@@ -354,6 +365,18 @@ def _evaluate_warehouse(
             totals["correct_votes"] += (
                 decision.action == "eject" and decision.target in truth
             )
+            if include_details:
+                decisions.append(
+                    _decision_detail(
+                        episode_id=episode_id,
+                        meeting_id=meeting_id,
+                        truth=truth,
+                        live=live,
+                        ranked=ranked,
+                        result=result,
+                        decision=decision,
+                    )
+                )
             if decision.action == "eject":
                 _add_calibration(
                     vote_calibration,
@@ -450,6 +473,7 @@ def _evaluate_warehouse(
             for label, values in threshold_results.items()
         },
         "errors": {error: count for error, count in errors.items() if count},
+        "excluded_trace_episodes": sorted(excluded_trace_episodes),
     }
     if sample_count:
         preferred = (
@@ -463,7 +487,72 @@ def _evaluate_warehouse(
             for category in preferred
             if category in samples_by_category
         ][:sample_count]
+    if include_details:
+        output["decisions"] = decisions
     return output
+
+
+def _trace_warning_episodes(con: Any, warehouse: Path) -> set[str]:
+    warning_dir = warehouse / "events" / "key=trace_warning"
+    if not any(warning_dir.glob("*.parquet")):
+        return set()
+    return {
+        episode_id
+        for (episode_id,) in con.execute(
+            "SELECT DISTINCT episode_id "
+            f"FROM read_parquet('{_event_glob(warehouse, 'trace_warning')}')"
+        ).fetchall()
+    }
+
+
+def _decision_detail(
+    *,
+    episode_id: str,
+    meeting_id: int,
+    truth: set[str],
+    live: tuple[str, ...],
+    ranked: list[tuple[str, float]],
+    result: Any,
+    decision: Any,
+) -> dict[str, Any]:
+    top_target, top_probability = ranked[0] if ranked else (None, 0.0)
+    return {
+        "episode_id": episode_id,
+        "meeting_id": meeting_id,
+        "imposters": sorted(truth),
+        "live_targets": list(live),
+        "top_target": top_target,
+        "top_probability": round(top_probability, 6),
+        "top_correct": top_target in truth,
+        "marginals": {
+            color: round(probability, 6) for color, probability in result.marginals
+        },
+        "true_pair_top": bool(
+            result.hypotheses and set(result.hypotheses[0].imposters) == truth
+        ),
+        "action": decision.action,
+        "target": decision.target,
+        "correct": (
+            decision.target in truth if decision.action == "eject" else None
+        ),
+        "probability": round(decision.probability, 6),
+        "required_probability": round(decision.required_probability, 6),
+        "margin": round(decision.margin, 6),
+        "sources": list(decision.sources),
+        "structural": decision.structural,
+        "reason": decision.reason,
+        "active_evidence": [
+            {
+                "channel": evidence.channel,
+                "source": evidence.source,
+                "targets": list(evidence.targets),
+                "stance": evidence.stance,
+                "weight": round(evidence.weight, 6),
+            }
+            for evidence in result.evidence
+            if evidence.status == "active"
+        ],
+    }
 
 
 def _sample_snapshot(
