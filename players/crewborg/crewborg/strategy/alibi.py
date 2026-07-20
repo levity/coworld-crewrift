@@ -1,23 +1,22 @@
-"""Co-presence alibis (opt-in, default OFF).
+"""Append-only co-presence evidence for hidden kills (opt-in, default OFF).
 
 The mirror of witnessing a kill. When a crewmate is *killed* somewhere we could not see,
 the killer is an impostor who was **not** in our view at the time — so the killer lies in
 the set of players we could *not* continuously see across the victim's death window.
 
-Crucially, with two impostors this does **not** clear any individual player: someone we had
-in sight during a kill only proves they were not *that* killer; they could still be the
-second, non-killing impostor. The one sound player-level consequence is a **pair
-exclusion** — an impostor hypothesis is impossible iff *every* impostor in it was in our
-continuous sight during the *same* kill (then that kill had no possible perpetrator). So we
-publish, per kill, the set of co-present (alibied-for-that-kill) players and let the joint
-solver drop any hypothesis fully contained in one of those sets. A lone alibi excludes
-nothing.
+Crucially, with two impostors this does **not** clear any individual player:
+someone we had in sight during a kill only proves they were not *that* killer;
+they could still be the second, non-killing impostor. We retain the complete
+observation per kill and let the joint solver score it against every assignment.
+The solver retains partial observations for audit, but uses only their
+assumption-free consequence: an assignment is impossible if it has no member
+who was both eligible to kill and not continuously co-present.
 
 Modular + default OFF (``CREWBORG_ALIBI``): all logic and state live here (one
-``belief.alibi_state`` dict this module owns); :func:`alibi_sets` returns ``[]`` when off,
-so the solver's behaviour is byte-identical. Sound-over-complete: a player is counted as
-alibied for a kill only across an *unbroken* line of sight spanning the victim's
-``[last-seen-alive, death-learned]`` window, so the exclusions never fire wrongly.
+``belief.alibi_state`` dict this module owns); :func:`alibi_events` returns
+``[]`` when off, so the solver's behaviour is byte-identical. Sound-over-complete:
+a player is counted as alibied for a kill only across an *unbroken* line of
+sight spanning the victim's ``[last-seen-alive, death-learned]`` window.
 """
 
 from __future__ import annotations
@@ -25,9 +24,17 @@ from __future__ import annotations
 import os
 from typing import Any
 
-# Logical exclusions require stricter evidence than movement tracking: any unseen
-# frame breaks co-presence. Consecutive sightings differ by one tick, so a larger
-# delta restarts the run.
+from crewborg.types import KillAlibi
+
+# "Rendered on the same screen" is not co-presence: retained replays contain
+# killers visible 61-68 px away while killing a victim behind the observer's
+# line-of-sight boundary. Require the fitted model's kill-range-plus-8 close
+# bound on every frame.
+COPRESENCE_DIST_SQ = 28**2
+
+# Logical exclusions require strict continuity: any non-close frame breaks
+# co-presence. Consecutive close sightings differ by one tick, so a larger delta
+# restarts the run.
 MAX_UNSEEN_TICKS = 0
 
 # A body/census learned immediately after the victim leaves view may be an observed
@@ -49,17 +56,38 @@ def enabled() -> bool:
     }
 
 
+def _copresence_dist_sq() -> int | None:
+    """Configured close bound; non-positive preserves the legacy visibility control."""
+
+    try:
+        distance = float(os.environ.get("CREWBORG_ALIBI_MAX_DIST", "28"))
+    except ValueError:
+        distance = 28.0
+    if distance <= 0:
+        return None
+    if distance == 28:
+        return COPRESENCE_DIST_SQ
+    return round(distance * distance)
+
+
 def _state(belief: Any) -> dict[str, Any]:
     st = getattr(belief, "alibi_state", None)
     if not st:
         st = {
-            "visible_since": {},        # color -> first tick of the current unbroken visible run
-            "last_seen": {},            # color -> last tick we saw them (for gap detection)
+            "close_since": {},          # color -> first tick of the current close run
+            "last_close": {},           # color -> last close tick (for gap detection)
             "last_playing_tick": None,  # last tick on which a hidden kill was possible
-            "processed_deaths": set(),  # victim colors already turned into an alibi set
-            "sets": [],                 # list[list[str]]: per-kill co-present (alibied) players
+            "processed_deaths": set(),  # victim colors already considered
+            "events": [],               # append-only list[KillAlibi]
         }
         belief.alibi_state = st
+    else:
+        # State can survive a hot reload during local development. Add new keys
+        # without rewriting or discarding any records owned by an earlier build.
+        st.setdefault("processed_deaths", set())
+        st.setdefault("events", [])
+        st.setdefault("close_since", {})
+        st.setdefault("last_close", {})
     return st
 
 
@@ -80,13 +108,20 @@ def update_alibi(belief: Any) -> None:
     if tick is None:
         return
     self_color = getattr(belief, "self_color", None)
+    if (
+        self_color is None
+        or getattr(belief, "self_world_x", None) is None
+        or getattr(belief, "self_world_y", None) is None
+    ):
+        return
     roster = getattr(belief, "roster", {}) or {}
     st = _state(belief)
-    visible_since = st["visible_since"]
-    last_seen = st["last_seen"]
+    close_since = st["close_since"]
+    last_close = st["last_close"]
+    distance_limit_sq = _copresence_dist_sq()
 
-    # 1) Maintain each other player's current unbroken line-of-sight run.
-    visible_now: set[str] = set()
+    # 1) Maintain each other player's current unbroken close-presence run.
+    close_now: set[str] = set()
     if (
         getattr(belief, "phase", None) == "Playing"
         and getattr(belief, "camera_ready", False)
@@ -99,27 +134,38 @@ def update_alibi(belief: Any) -> None:
                 getattr(record, "last_seen_tick", None) == tick
                 and getattr(record, "life_status", None) != "dead"
             ):
-                visible_now.add(color)
-                prev = last_seen.get(color)
-                if prev is None or tick - prev > MAX_UNSEEN_TICKS + 1:
-                    visible_since[color] = tick  # (re)start the run
-                last_seen[color] = tick
+                dx = record.world_x - belief.self_world_x
+                dy = record.world_y - belief.self_world_y
+                if (
+                    distance_limit_sq is None
+                    or dx * dx + dy * dy <= distance_limit_sq
+                ):
+                    close_now.add(color)
+                    prev = last_close.get(color)
+                    if prev is None or tick - prev > MAX_UNSEEN_TICKS + 1:
+                        close_since[color] = tick
+                    last_close[color] = tick
 
     # A census is rendered after play has stopped. Close its possible kill window
     # at the last Playing tick, not at the sprite-less meeting frame.
     window_end = st.get("last_playing_tick")
-    visible_at_window_end = {
+    close_at_window_end = {
         color
-        for color, seen_tick in last_seen.items()
+        for color, seen_tick in last_close.items()
         if window_end is not None
         and window_end - seen_tick <= MAX_UNSEEN_TICKS
         and getattr(roster.get(color), "life_status", None) != "dead"
     }
-    if visible_now:
-        visible_at_window_end = visible_now
+    if close_now:
+        close_at_window_end = close_now
 
     # 2) On a newly-learned KILL, record who we held in continuous sight across the whole
     #    death window: they are alibied for *this* kill (they were with us, not killing).
+    # Multiple deaths may be learned in one census with no public ordering. A
+    # newly discovered victim could have made an earlier kill before dying, so
+    # only colors known dead before this observation are ineligible for every
+    # fresh event.
+    previously_dead = set(st["processed_deaths"])
     for color, record in roster.items():
         if getattr(record, "life_status", None) != "dead":
             continue
@@ -145,24 +191,52 @@ def update_alibi(belief: Any) -> None:
             continue
         alibied = [
             other
-            for other in visible_at_window_end
-            if other != color and visible_since.get(other, tick) <= window_start
+            for other in close_at_window_end
+            if other != color and close_since.get(other, tick) <= window_start
         ]
         if alibied:
-            st["sets"].append(alibied)
+            possible_killers = sorted(
+                other
+                for other, other_record in roster.items()
+                if other not in {self_color, color}
+                and (
+                    getattr(other_record, "life_status", "unknown") != "dead"
+                    or other not in previously_dead
+                )
+            )
+            st["events"].append(
+                KillAlibi(
+                    observer_color=self_color,
+                    victim_color=color,
+                    death_source=record.death_source,
+                    death_seen_tick=getattr(record, "death_seen_tick", None) or tick,
+                    window_start_tick=window_start,
+                    window_end_tick=window_end,
+                    alibied_colors=tuple(sorted(alibied)),
+                    possible_killers=tuple(possible_killers),
+                )
+            )
 
 
-def alibi_sets(belief: Any) -> list[frozenset[str]]:
-    """Per-kill co-present sets (empty unless enabled).
-
-    Each set is the players who were provably not the killer of one specific victim. The
-    solver excludes any impostor hypothesis contained in one of these sets (all its
-    impostors alibied for the same kill ⇒ that kill had no perpetrator).
-    """
+def alibi_events(belief: Any) -> list[KillAlibi]:
+    """Return the complete immutable per-kill ledger (empty unless enabled)."""
 
     if not enabled():
         return []
     st = getattr(belief, "alibi_state", None)
     if not st:
         return []
-    return [frozenset(group) for group in st.get("sets", ()) if group]
+    return [
+        event if isinstance(event, KillAlibi) else KillAlibi.model_validate(event)
+        for event in st.get("events", ())
+    ]
+
+
+def alibi_sets(belief: Any) -> list[frozenset[str]]:
+    """Compatibility view of per-kill co-present colors (empty unless enabled).
+
+    New inference must use :func:`alibi_events`; this view intentionally omits
+    victim, timing, and alive-candidate context.
+    """
+
+    return [frozenset(event.alibied_colors) for event in alibi_events(belief)]

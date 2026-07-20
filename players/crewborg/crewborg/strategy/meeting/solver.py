@@ -26,9 +26,9 @@ from dataclasses import dataclass, replace
 from itertools import combinations
 from typing import Any, Iterable
 
-from crewborg.strategy.alibi import alibi_sets
+from crewborg.strategy.alibi import alibi_events, alibi_sets
 from crewborg.strategy.suspicion import witnessed_imposters
-from crewborg.types import MeetingRecord, SocialClaim
+from crewborg.types import KillAlibi, MeetingRecord, SocialClaim
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,10 @@ class SolverConfig:
     sighting_weight: float = 0.85
     claimed_vote_weight: float = 0.50
     relay_weight: float = 0.45
+    # Retained histories show strong killer specialization: the non-killing
+    # impostor often stays with crew. Keep soft "not this killer" evidence inert
+    # unless a future calibrated model explicitly opts in.
+    alibi_weight: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,7 @@ class WeightedClaim:
 
 @dataclass(frozen=True)
 class WeightedVote:
+    meeting_id: int
     voter: str
     target: str
     weight: float
@@ -82,6 +87,9 @@ class SolverEvidence:
     pins: frozenset[str] = frozenset()
     hard_clears: frozenset[str] = frozenset()
     clears: frozenset[str] = frozenset()
+    alibis: tuple[KillAlibi, ...] = ()
+    # Compatibility for callers/tests that predate the complete KillAlibi
+    # ledger. Runtime inference supplies ``alibis`` instead.
     alibi_groups: tuple[frozenset[str], ...] = ()
     priors: tuple[tuple[str, float], ...] = ()
 
@@ -171,6 +179,10 @@ def early_chat_offset_ticks() -> int:
     return max(0, _env_int("CREWBORG_SOLVER_EARLY_CHAT_TICKS", 240))
 
 
+def early_vote_offset_ticks() -> int:
+    return max(0, _env_int("CREWBORG_SOLVER_EARLY_VOTE_TICKS", 360))
+
+
 def early_chat_pick(
     report: dict[str, Any],
     *,
@@ -182,7 +194,7 @@ def early_chat_pick(
     if target is None:
         return None
     if (report.get("top_p") or 0.0) < _env_float(
-        "CREWBORG_SOLVER_EARLY_CHAT_P", 0.76
+        "CREWBORG_SOLVER_EARLY_CHAT_P", 0.65
     ):
         return None
     min_sources = max(
@@ -190,6 +202,15 @@ def early_chat_pick(
         _env_int("CREWBORG_SOLVER_EARLY_CHAT_MIN_SOURCES", 2),
     )
     if len(supporting_sources) < min_sources:
+        return None
+    return target
+
+
+def public_source_backed_pick(report: dict[str, Any]) -> str | None:
+    """Return a decisive public target that has an attributed accusation source."""
+
+    target = report.get("pick")
+    if target is None or not report.get("candidate_sources"):
         return None
     return target
 
@@ -365,6 +386,7 @@ def _weighted_votes(
                 continue
             weighted_votes.append(
                 WeightedVote(
+                    meeting_id=meeting.meeting_id,
                     voter=voter,
                     target=target,
                     weight=weight,
@@ -387,44 +409,125 @@ def solve_hypotheses(
     pins: frozenset[str] | set[str] = frozenset(),
     hard_clears: frozenset[str] | set[str] = frozenset(),
     clears: frozenset[str] | set[str] = frozenset(),
+    alibis: Iterable[KillAlibi] = (),
     alibi_groups: Iterable[frozenset[str] | set[str]] = (),
     priors: dict[str, float] | None = None,
     config: SolverConfig | None = None,
 ) -> dict[str, Any]:
-    """Return normalized joint hypotheses, marginals, and evidence counts.
+    """Return normalized joint hypotheses and an auditable contribution table.
 
-    ``alibi_groups`` are per-kill co-present sets (see ``strategy/alibi.py``): a hypothesis
-    is impossible if every impostor in it was alibied for the *same* kill, so such
-    hypotheses are dropped. This is a pair/joint exclusion, never a per-player clear.
+    Each ``KillAlibi`` is evaluated against assignment members who were alive
+    and able to perform that kill. Production uses only the hard consequence:
+    an assignment with no possible perpetrator is excluded. The optional soft
+    weight remains zero by default because "not this killer" did not calibrate
+    as evidence of crew. ``alibi_groups`` is a compatibility input lacking
+    timing/alive context and assumes every player was eligible for its synthetic
+    kill.
     """
 
     config = config or _config()
     players = list(dict.fromkeys(players))
     player_set = set(players)
+
+    def _empty(pair_audit: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        return {
+            "marginals": {},
+            "hypotheses": [],
+            "n_claims": 0,
+            "n_votes": 0,
+            "n_alibis": 0,
+            "pair_audit": pair_audit or [],
+            "distrusted_alibis": [],
+        }
+
     if imposter_count <= 0 or imposter_count > len(players):
-        return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
+        return _empty()
 
-    # A pinned impostor can still be alibied for a particular kill: that proves
-    # their partner was outside the same co-present group. Keep pins in the group
-    # so an all-alibied assignment is correctly excluded.
-    alibi_excl = [set(group) for group in alibi_groups]
+    alibi_list = list(alibis)
+    for index, group in enumerate(alibi_groups):
+        colors = tuple(sorted(set(group) & player_set))
+        if not colors:
+            continue
+        alibi_list.append(
+            KillAlibi(
+                observer_color="legacy",
+                victim_color=f"legacy-{index}",
+                death_source="census",
+                death_seen_tick=-(index + 1),
+                window_start_tick=-(index + 1),
+                window_end_tick=-(index + 1),
+                alibied_colors=colors,
+                possible_killers=tuple(players),
+            )
+        )
+
+    def _alibi_id(event: KillAlibi) -> str:
+        return (
+            f"alibi:{event.observer_color}:{event.victim_color}:"
+            f"{event.death_seen_tick}:{event.window_start_tick}:{event.window_end_tick}"
+        )
+
     pinned = set(pins)
-
-    def _alibied_out(combo: frozenset[str]) -> bool:
-        return any(combo <= excl for excl in alibi_excl if len(excl) >= imposter_count)
-
-    hypotheses = [
-        frozenset(combo)
-        for combo in combinations(players, imposter_count)
-        if pinned <= set(combo) and not set(combo) & set(hard_clears)
+    cleared = set(hard_clears)
+    all_hypotheses = [
+        frozenset(combo) for combo in combinations(players, imposter_count)
     ]
-    # Apply alibi exclusions, but never wipe out the whole hypothesis space (a sound alibi
-    # cannot exclude every pair; if it appears to, distrust it rather than abstain).
-    surviving = [h for h in hypotheses if not _alibied_out(h)]
+    exclusion_reasons: dict[frozenset[str], list[str]] = {
+        hypothesis: [] for hypothesis in all_hypotheses
+    }
+    hypotheses: list[frozenset[str]] = []
+    for hypothesis in all_hypotheses:
+        if not pinned <= hypothesis:
+            exclusion_reasons[hypothesis].append("missing_pin")
+        if hypothesis & cleared:
+            exclusion_reasons[hypothesis].append("hard_clear")
+        if not exclusion_reasons[hypothesis]:
+            hypotheses.append(hypothesis)
+    if not hypotheses:
+        return _empty(
+            [
+                {
+                    "imposters": sorted(hypothesis),
+                    "eligible": False,
+                    "exclusion_reasons": exclusion_reasons[hypothesis],
+                    "log_weight": None,
+                    "contributions": [],
+                }
+                for hypothesis in all_hypotheses
+            ]
+        )
+
+    impossible_by_alibi: dict[frozenset[str], list[str]] = {}
+    for hypothesis in hypotheses:
+        reasons = []
+        for event in alibi_list:
+            eligible_impostors = hypothesis & set(event.possible_killers)
+            possible_perpetrators = eligible_impostors - set(event.alibied_colors)
+            # The only assumption-free consequence is relational: an assignment
+            # is impossible when none of its eligible members could have made
+            # this kill. A singleton alibi alone is not a player clear, but it
+            # can combine with an independent ineligibility constraint.
+            if not possible_perpetrators:
+                reasons.append(_alibi_id(event))
+        if reasons:
+            impossible_by_alibi[hypothesis] = reasons
+
+    # A sound kill observation cannot disprove every structurally possible
+    # assignment. If the ledger appears to do so, retain it for diagnostics but
+    # ignore the entire alibi channel for this solve.
+    surviving = [
+        hypothesis
+        for hypothesis in hypotheses
+        if hypothesis not in impossible_by_alibi
+    ]
+    distrusted_alibis: list[str] = []
     if surviving:
         hypotheses = surviving
-    if not hypotheses:
-        return {"marginals": {}, "hypotheses": [], "n_claims": 0, "n_votes": 0}
+        for hypothesis, reasons in impossible_by_alibi.items():
+            exclusion_reasons[hypothesis].extend(reasons)
+    elif alibi_list:
+        distrusted_alibis = [_alibi_id(event) for event in alibi_list]
+        alibi_list = []
 
     meeting_list = list(meetings)
     weighted_claims = _weighted_claims(claims, meeting_list, player_set, config)
@@ -435,20 +538,70 @@ def solve_hypotheses(
     )
     base_probability = imposter_count / len(players)
     log_weights: dict[frozenset[str], float] = {}
+    contributions: dict[frozenset[str], list[dict[str, Any]]] = {}
     for hypothesis in hypotheses:
-        log_weight = sum(
-            math.log(max(config.clear_lr, 1e-6))
-            for color in clears
-            if color in hypothesis
-        )
+        log_weight = 0.0
+        hypothesis_contributions: list[dict[str, Any]] = []
+
+        def _record(
+            evidence_id: str,
+            channel: str,
+            delta: float,
+            *,
+            likelihood: float | None = None,
+            weight: float | None = None,
+        ) -> None:
+            nonlocal log_weight
+            log_weight += delta
+            item: dict[str, Any] = {
+                "evidence_id": evidence_id,
+                "channel": channel,
+                "delta": delta,
+            }
+            if likelihood is not None:
+                item["likelihood"] = likelihood
+            if weight is not None:
+                item["weight"] = weight
+            hypothesis_contributions.append(item)
+
+        for color in sorted(clears):
+            if color in hypothesis:
+                likelihood = max(config.clear_lr, 1e-6)
+                _record(
+                    f"clear:{color}",
+                    "clear",
+                    math.log(likelihood),
+                    likelihood=likelihood,
+                    weight=1.0,
+                )
         for color, probability in (priors or {}).items():
             if color in hypothesis and color in player_set:
-                log_weight += config.prior_strength * (
+                delta = config.prior_strength * (
                     _logit(probability) - _logit(base_probability)
+                )
+                _record(
+                    f"prior:{color}",
+                    "prior",
+                    delta,
+                    likelihood=probability,
+                    weight=config.prior_strength,
                 )
         for weighted in weighted_claims:
             probability = _claim_probability(hypothesis, weighted.claim, config)
-            log_weight += weighted.weight * math.log(max(probability, 1e-6))
+            delta = weighted.weight * math.log(max(probability, 1e-6))
+            claim = weighted.claim
+            source = claim.source_color or claim.speaker_color or "unknown"
+            targets = ",".join(claim.targets)
+            _record(
+                (
+                    f"claim:{claim.meeting_id}:{claim.tick}:{source}:"
+                    f"{claim.stance}:{targets}"
+                ),
+                "claim",
+                delta,
+                likelihood=probability,
+                weight=weighted.weight,
+            )
         for weighted in weighted_votes:
             probability = _vote_probability(
                 hypothesis,
@@ -456,8 +609,39 @@ def solve_hypotheses(
                 weighted.target,
                 config,
             )
-            log_weight += weighted.weight * math.log(max(probability, 1e-6))
+            delta = weighted.weight * math.log(max(probability, 1e-6))
+            _record(
+                (
+                    f"vote:{weighted.meeting_id}:{weighted.voter}:"
+                    f"{weighted.target}"
+                ),
+                "vote",
+                delta,
+                likelihood=probability,
+                weight=weighted.weight,
+            )
+        for event in alibi_list:
+            eligible_impostors = hypothesis & set(event.possible_killers)
+            possible_perpetrators = eligible_impostors - set(event.alibied_colors)
+            likelihood = (
+                len(possible_perpetrators) / len(eligible_impostors)
+                if eligible_impostors
+                else 0.0
+            )
+            delta = (
+                config.alibi_weight * math.log(likelihood)
+                if config.alibi_weight > 0.0 and likelihood > 0.0
+                else 0.0
+            )
+            _record(
+                _alibi_id(event),
+                "alibi",
+                delta,
+                likelihood=likelihood,
+                weight=config.alibi_weight,
+            )
         log_weights[hypothesis] = log_weight
+        contributions[hypothesis] = hypothesis_contributions
 
     maximum = max(log_weights.values())
     unnormalized = {
@@ -477,6 +661,18 @@ def solve_hypotheses(
         for player in players
     }
     ranked_hypotheses = sorted(probabilities.items(), key=lambda item: -item[1])
+    pair_audit = []
+    for hypothesis in all_hypotheses:
+        eligible = hypothesis in log_weights
+        pair_audit.append(
+            {
+                "imposters": sorted(hypothesis),
+                "eligible": eligible,
+                "exclusion_reasons": exclusion_reasons[hypothesis],
+                "log_weight": log_weights.get(hypothesis),
+                "contributions": contributions.get(hypothesis, []),
+            }
+        )
     return {
         "marginals": marginals,
         "hypotheses": [
@@ -485,6 +681,9 @@ def solve_hypotheses(
         ],
         "n_claims": len(weighted_claims),
         "n_votes": len(weighted_votes),
+        "n_alibis": len(alibi_list),
+        "pair_audit": pair_audit,
+        "distrusted_alibis": distrusted_alibis,
     }
 
 
@@ -503,6 +702,7 @@ def _solve_evidence(
         pins=evidence.pins,
         hard_clears=evidence.hard_clears,
         clears=evidence.clears,
+        alibis=evidence.alibis,
         alibi_groups=evidence.alibi_groups,
         priors=dict(evidence.priors),
     )
@@ -614,6 +814,7 @@ def _without_actor(
         pins=frozenset(),
         hard_clears=frozenset(),
         clears=frozenset(),
+        alibis=(),
         alibi_groups=(),
         priors=(),
     )
@@ -650,7 +851,7 @@ def _constraint_decisive(
             ("pins", bool(evidence.pins)),
             ("hard_clears", bool(evidence.hard_clears)),
             ("clears", bool(evidence.clears)),
-            ("alibis", bool(evidence.alibi_groups)),
+            ("alibis", bool(evidence.alibis or evidence.alibi_groups)),
         )
         if present
     ]
@@ -668,6 +869,7 @@ def _constraint_decisive(
         pins=frozenset(),
         hard_clears=frozenset(),
         clears=frozenset(),
+        alibis=(),
         alibi_groups=(),
     )
     result = _solve_evidence(players, imposter_count, without_constraints)
@@ -694,6 +896,32 @@ def _constraint_decisive(
     }
 
 
+def _constraint_forces_candidate(
+    *,
+    candidate: str,
+    players: list[str],
+    imposter_count: int,
+    evidence: SolverEvidence,
+) -> dict[str, Any]:
+    """Whether hard structural facts put the candidate in every surviving assignment."""
+
+    structural_only = replace(
+        evidence,
+        claims=(),
+        meetings=(),
+        # ``clears`` are weighted evidence, not logical exclusions.
+        clears=frozenset(),
+        priors=(),
+    )
+    result = _solve_evidence(players, imposter_count, structural_only)
+    hypotheses = result["hypotheses"]
+    return {
+        "passed": bool(hypotheses)
+        and all(candidate in hypothesis["imposters"] for hypothesis in hypotheses),
+        "n_hypotheses": len(hypotheses),
+    }
+
+
 def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
     """Build serializable diagnostics and, when decisive, a live vote target."""
 
@@ -707,11 +935,16 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
         "n_self_claims_ignored": 0,
         "n_accusers": 0,
         "n_votes": 0,
+        "n_alibis": 0,
         "n_meetings": 0,
         "pins": [],
         "hard_clears": [],
         "clears": [],
         "alibi_groups": [],
+        "alibi_events": [],
+        "distrusted_alibis": [],
+        "hypothesis_audit": [],
+        "excluded_hypotheses": [],
         "marginals": None,
         "hypotheses": [],
         "top_candidate": None,
@@ -723,6 +956,8 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
         "robust_crowd_p": None,
         "robust_weakest_actor": None,
         "constraint_decisive": False,
+        "constraint_forced": False,
+        "structural_hypotheses": None,
         "constraint_channels": [],
         "without_constraints_p": None,
         "without_constraints_margin": None,
@@ -742,23 +977,33 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
 
         player_set = set(players)
         pins = set() if public_only else witnessed_imposters(belief) & player_set
-        clears = (
-            set()
+        clears: set[str] = set()
+        # Co-presence observations are per kill, never player clears. The solver
+        # retains partial events for audit and excludes only an assignment whose
+        # entire impostor set was close for the same hidden kill.
+        complete_alibis = (
+            []
             if public_only
-            else {
-                color
-                for color, record in roster.items()
-                if color in player_set
-                and color not in pins
-                and getattr(record, "tasks_completed_watched", 0) > 0
-            }
+            else [
+                event.model_copy(
+                    update={
+                        "alibied_colors": tuple(
+                            sorted(set(event.alibied_colors) & player_set)
+                        ),
+                        "possible_killers": tuple(
+                            sorted(set(event.possible_killers) & player_set)
+                        ),
+                    }
+                )
+                for event in alibi_events(belief)
+            ]
         )
-        # Co-presence alibis (opt-in CREWBORG_ALIBI; empty otherwise). NOT a per-player
-        # clear — with two impostors a single alibi proves only "not this killer". Passed
-        # to the solver as per-kill sets so it can drop any hypothesis whose whole impostor
-        # set was alibied for one kill (that kill would have had no perpetrator).
-        alibis = (
-            [] if public_only else [group & player_set for group in alibi_sets(belief)]
+        # Compatibility for tests and hot-reloaded state from the set-only
+        # implementation. Fresh runtime state always uses complete events.
+        legacy_alibis = (
+            []
+            if public_only or complete_alibis
+            else [group & player_set for group in alibi_sets(belief)]
         )
         raw_claims = list(getattr(belief, "social_claims", ()) or ())
         # Our own prior solver/chat output is derived from evidence already in this
@@ -795,13 +1040,21 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
             pins=frozenset(pins),
             hard_clears=frozenset(hard_clears),
             clears=frozenset(clears),
-            alibi_groups=tuple(frozenset(group) for group in alibis),
+            alibis=tuple(complete_alibis),
+            alibi_groups=tuple(frozenset(group) for group in legacy_alibis),
             priors=tuple(sorted(priors.items())),
         )
         result = _solve_evidence(players, imposter_count, evidence)
         marginals = result["marginals"]
         if not marginals:
             return out
+        pair_audit = {
+            tuple(item["imposters"]): item for item in result["pair_audit"]
+        }
+        top_pair_audit = [
+            pair_audit[tuple(hypothesis["imposters"])]
+            for hypothesis in result["hypotheses"][:5]
+        ]
 
         out.update(
             n_claims=result["n_claims"],
@@ -815,17 +1068,49 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                 }
             ),
             n_votes=result["n_votes"],
+            n_alibis=result["n_alibis"],
             n_meetings=len(meetings),
             pins=sorted(pins),
             hard_clears=sorted(hard_clears),
             clears=sorted(clears),
-            alibi_groups=[sorted(group) for group in alibis],
+            alibi_groups=[
+                sorted(event.alibied_colors) for event in complete_alibis
+            ]
+            or [sorted(group) for group in legacy_alibis],
+            alibi_events=[
+                event.model_dump(mode="json") for event in complete_alibis
+            ],
+            distrusted_alibis=result["distrusted_alibis"],
             marginals={
                 color: round(probability, 3) for color, probability in marginals.items()
             },
             hypotheses=[
                 {"imposters": item["imposters"], "p": round(item["p"], 4)}
                 for item in result["hypotheses"][:5]
+            ],
+            hypothesis_audit=[
+                {
+                    **item,
+                    "log_weight": round(item["log_weight"], 6)
+                    if item["log_weight"] is not None
+                    else None,
+                    "contributions": [
+                        {
+                            **contribution,
+                            "delta": round(contribution["delta"], 6),
+                        }
+                        for contribution in item["contributions"]
+                    ],
+                }
+                for item in top_pair_audit
+            ],
+            excluded_hypotheses=[
+                {
+                    "imposters": item["imposters"],
+                    "reasons": item["exclusion_reasons"],
+                }
+                for item in result["pair_audit"]
+                if not item["eligible"]
             ],
         )
 
@@ -848,7 +1133,8 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
             or pins
             or hard_clears
             or clears
-            or alibis
+            or complete_alibis
+            or legacy_alibis
         )
         if (
             enabled()
@@ -873,8 +1159,16 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                 imposter_count=imposter_count,
                 evidence=evidence,
             )
+            forced_support = _constraint_forces_candidate(
+                candidate=candidate,
+                players=players,
+                imposter_count=imposter_count,
+                evidence=evidence,
+            )
             out.update(
                 constraint_decisive=constraint_support["passed"],
+                constraint_forced=forced_support["passed"],
+                structural_hypotheses=forced_support["n_hypotheses"],
                 constraint_channels=constraint_support["channels"],
                 without_constraints_p=round(constraint_support["without_p"], 3)
                 if constraint_support["without_p"] is not None
@@ -909,7 +1203,7 @@ def _solver_report(belief: Any, *, public_only: bool) -> dict[str, Any]:
                 or (robustness is not None and robustness["passed"])
             )
             constraint_only_supported = (
-                not candidate_sources and constraint_support["passed"]
+                not candidate_sources and forced_support["passed"]
             )
             if candidate in pins or source_supported or constraint_only_supported:
                 out["fired"] = True

@@ -56,5 +56,9 @@ them here as they come up._
 - **Inspect VM resources and use moderate processing concurrency** (James, 2026-07-19).
   Check available RAM and CPU first, set worker counts appropriate to the machine, and do
   not run multiple memory-heavy analysis jobs concurrently. On the current 2-vCPU,
-  7.2-GiB VM, default to two workers and allow up to four for I/O-bound stages; avoid both
-  the previous 16-worker overload and an unnecessarily serial one-worker pipeline.
+  7.2-GiB VM, start at two workers, increment to three and then four while watching load,
+  RAM, swap, and throughput, and retain the highest setting that improves throughput
+  without sustained resource pressure. The 2026-07-20 measurement found three workers
+  useful for download-heavy streaming, while sustained full-tick replay expansion
+  saturated both CPUs and exceeded load 3 with three workers; use two for that stage.
+  Avoid both the previous 16-worker overload and an unnecessarily serial pipeline.

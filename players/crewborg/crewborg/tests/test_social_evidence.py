@@ -1,4 +1,4 @@
-"""Social-evidence counters: chat stances, attributed votes, watched completions.
+"""Social-evidence counters: chat stances and attributed votes.
 
 These feed the fitted suspicion model's public features (strategy/social_evidence.py;
 offline mirror: suspicion_lab/tools/features.py).
@@ -9,10 +9,9 @@ from __future__ import annotations
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
 from crewborg.strategy.social_evidence import (
     SKIP_VOTE_TARGET,
-    WATCHED_DWELL_MIN_TICKS,
     update_social_evidence,
 )
-from crewborg.types import Belief, ChatEvent, PlayerEvent, PlayerRecord
+from crewborg.types import Belief, ChatEvent, PlayerRecord
 
 
 def _belief(**kwargs) -> Belief:
@@ -111,55 +110,10 @@ def test_two_meetings_accumulate() -> None:
     assert belief.roster["blue"].votes_cast == 2
 
 
-# --- watched completion -------------------------------------------------------------
-
-
-def _full_dwell(end: int) -> PlayerEvent:
-    return PlayerEvent(
-        kind="task", start_tick=end - WATCHED_DWELL_MIN_TICKS - 4, end_tick=end, region_index=0
-    )
-
-
-def test_counter_decrement_with_one_full_dwell_credits_the_watcher() -> None:
+def test_global_task_decrement_does_not_identify_another_player() -> None:
     belief = _belief(last_tick=1000)
-    belief.roster["green"].last_seen_tick = 1000
-    belief.roster["green"].events.append(_full_dwell(end=999))
-    belief.social_prev_tasks_remaining = 40
     belief.crew_tasks_remaining = 39
-    update_social_evidence(belief)
-    assert belief.roster["green"].tasks_completed_watched == 1
-
-
-def test_no_credit_without_a_decrement_fake_task_hold() -> None:
-    belief = _belief(last_tick=1000)
     belief.roster["green"].last_seen_tick = 1000
-    belief.roster["green"].events.append(_full_dwell(end=999))   # a Pretend-style hold
-    belief.social_prev_tasks_remaining = 40
-    belief.crew_tasks_remaining = 40                              # counter never moved
-    update_social_evidence(belief)
-    assert belief.roster["green"].tasks_completed_watched == 0
-
-
-def test_ambiguous_decrement_credits_no_one() -> None:
-    belief = _belief(last_tick=1000)
-    for color in ("green", "yellow"):
-        belief.roster[color].last_seen_tick = 1000
-        belief.roster[color].events.append(_full_dwell(end=999))
-    belief.social_prev_tasks_remaining = 40
-    belief.crew_tasks_remaining = 39
-    update_social_evidence(belief)
-    assert belief.roster["green"].tasks_completed_watched == 0
-    assert belief.roster["yellow"].tasks_completed_watched == 0
-
-
-def test_short_dwell_is_not_a_completion() -> None:
-    belief = _belief(last_tick=1000)
-    belief.roster["green"].last_seen_tick = 1000
-    belief.roster["green"].events.append(
-        PlayerEvent(kind="task", start_tick=980, end_tick=999, region_index=0)
-    )
-    belief.social_prev_tasks_remaining = 40
-    belief.crew_tasks_remaining = 39   # someone ELSE (unseen) completed
     update_social_evidence(belief)
     assert belief.roster["green"].tasks_completed_watched == 0
 

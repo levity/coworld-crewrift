@@ -1,4 +1,4 @@
-"""Social evidence: cumulative meeting-public + watched-completion counters.
+"""Social evidence: cumulative meeting-public counters.
 
 Maintains the per-player counters behind the fitted suspicion model's "public"
 features (design: ``suspicion_lab/README.md`` §5/§10; offline mirror:
@@ -12,14 +12,6 @@ features (design: ``suspicion_lab/README.md`` §5/§10; offline mirror:
 - **Vote tallies** — the voting UI's dots attribute every vote (voter slot →
   target slot); at meeting end they are committed once into ``votes_cast`` /
   ``votes_skipped`` / ``voted_against_me`` / ``vote_agreed_with_me``.
-- **Watched real-task completion** — the strongest exculpatory cue (imposters
-  cannot complete tasks). Detected when the global ``crew_tasks_remaining`` HUD
-  counter decrements by exactly one while exactly one visible, living player is
-  finishing a near-full task-site dwell. A fake task hold (Pretend) never
-  decrements the counter, so it can't trigger this. Stricter than the offline
-  truth (completion-while-visible): we must watch most of the dwell — the
-  undercount only pulls posteriors toward the prior, never past it.
-
 Counters are cumulative for the whole episode (evidence never resets at meetings)
 and live on ``PlayerRecord``; ``suspicion._fitted_features`` reads them.
 """
@@ -37,15 +29,6 @@ from crewborg.types import (
     SolverClaimStance,
     SolverEvidenceKind,
 )
-
-# A real task completion requires TaskCompleteTicks (72) of standing at the site.
-# We credit a watched completion only if we observed most of that dwell — slack
-# for sampling jitter and the event log's merge grace.
-TASK_COMPLETE_TICKS = 72
-WATCHED_DWELL_MIN_TICKS = 56
-# The dwell interval must still be "live" at the decrement tick (within the event
-# log's merge grace) to be the completing dwell.
-DWELL_END_GRACE_TICKS = 4
 
 # Offline-mirrored stance heuristics (features.py ACCUSE_HINT / DEFEND_HINT).
 ACCUSE_HINT = re.compile(r"\bsus\b|\bvote\b|\bsaw (?:them|him|her|it)\b", re.IGNORECASE)
@@ -95,7 +78,6 @@ def update_social_evidence(belief: Belief) -> None:
     _count_chat_stances(belief)
     _track_meeting_votes(belief)
     _bank_meeting_caller(belief)
-    _detect_watched_completions(belief)
 
 
 # --- chat stances -------------------------------------------------------------
@@ -580,32 +562,3 @@ def _bank_meeting_caller(belief: Belief) -> None:
     elif belief.meeting_call_kind == "button":
         record.button_calls_made += 1
     belief.social_caller_banked_tick = belief.meeting_call_seen_tick
-
-
-# --- watched real-task completion -------------------------------------------------
-
-
-def _detect_watched_completions(belief: Belief) -> None:
-    remaining = belief.crew_tasks_remaining
-    prev = belief.social_prev_tasks_remaining
-    belief.social_prev_tasks_remaining = remaining
-    if remaining is None or prev is None:
-        return
-    if remaining != prev - 1:
-        return  # no decrement, or an ambiguous multi-completion tick
-
-    tick = belief.last_tick
-    candidates = []
-    for color, record in belief.roster.items():
-        if color == belief.self_color or record.life_status == "dead":
-            continue
-        if record.last_seen_tick != tick:
-            continue  # must be watching them right now
-        for event in reversed(record.events):
-            if event.kind != "task":
-                continue
-            if tick - event.end_tick <= DWELL_END_GRACE_TICKS and event.duration_ticks >= WATCHED_DWELL_MIN_TICKS:
-                candidates.append(record)
-            break  # only the most recent task dwell can be the completing one
-    if len(candidates) == 1:
-        candidates[0].tasks_completed_watched += 1

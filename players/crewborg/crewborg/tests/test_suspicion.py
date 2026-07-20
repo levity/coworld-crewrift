@@ -493,10 +493,6 @@ def _p(belief: Belief, color: str) -> float:
     return belief.suspicion[color]
 
 
-def _task_dwell(duration: int, start: int = 10) -> PlayerEvent:
-    return PlayerEvent(kind="task", start_tick=start, end_tick=start + duration, region_index=0)
-
-
 def _near_body_event(body_color: str, start: int = 10) -> PlayerEvent:
     return PlayerEvent(kind="near_body", start_tick=start, end_tick=start + 4, target_color=body_color, min_dist=8)
 
@@ -519,18 +515,6 @@ class TestFittedModel:
         _add(belief, "blue")
         assert _p(belief, "red") > 0.99
         assert top_suspect(belief) == "red"
-
-    def test_watched_task_completion_is_exculpatory(self, _fitted_model) -> None:
-        # The stable exculpatory invariant: a WATCHED real-task completion (imposters
-        # cannot produce one). Bare long dwell is deliberately not asserted — once
-        # completions carry the exculpation, dwell-without-completion reads as a
-        # Pretend-style fake and may be ~neutral or worse.
-        belief = _crew_belief()
-        _add(belief, "red", [_task_dwell(duration=120)])
-        belief.roster["red"].tasks_completed_watched = 2
-        _add(belief, "blue")
-        update_suspicion(belief)
-        assert belief.suspicion["red"] < belief.suspicion["blue"]
 
     def test_evidence_instances_sum_monotonically(self, _fitted_model) -> None:
         one = _crew_belief()

@@ -96,6 +96,24 @@ Evidence: A hosted early accusation is auditable from public replay only if its 
 private suspicion priors, witnessed-impostor pins, and watched-task clears. The public-only helper
 kept the exact implemented tick-240 gate at 29/29 on selection and 29/29 on held-out histories.
 
+### Similar-looking offline and runtime features need an identity-level equivalence check
+Evidence: Offline `tasks_completed_watched` used the replay's true completer slot and had zero
+impostor examples, while runtime substituted the only visible long task-site dwell at a global
+task decrement. Exact hosted reconstruction found 392/550 attributions wrong and 258 credited to
+impostors. Visibility clipping did not make the target identity observable.
+
+### Optional artifact absence is not episode incompleteness
+Evidence: Current XP episodes had complete authoritative metadata and replays while separate
+results and policy-log routes were unavailable. Requiring optional artifacts caused three
+identical retries and silently excluded all episodes from the warehouse wrapper. Completeness must
+track the requested replay; optional route status should be recorded separately.
+
+### A reward threshold identifies the winning team, not each teammate
+Evidence: Crewrift pays `+100` to every member of the winning role, but per-player penalties can
+leave a winning teammate below 100. XP score fallback must infer one winning role from an
+unambiguous WinReward-sized score and apply that result team-wide, not use `score >= 100` as each
+player's win flag. If no role has that reward, preserve action scores but mark no winners.
+
 ### Hard facts should update both assignments and source reliability
 Evidence: Hidden-kill victims now leave every joint impostor hypothesis, which also makes their
 episode-persistent claims come from known crew under the role-conditioned likelihood. Five hosted
@@ -108,10 +126,28 @@ After strict continuity, witnessed-kill, and victim-absence guards, replay recon
 one usable two-player alibi group in 100 candidate games. Keep the sound hook, but do not tune it
 from outcome noise.
 
+### Screen visibility is not physical co-presence
+Evidence: Retained replay reconstruction found actual killers continuously rendered 61-68 pixels
+from crewborg while killing a victim behind the observer's sight boundary. A physical inference
+must use world distance and continuity, not merely membership in the rendered viewport.
+
+### "Not this killer" is not a probabilistic player clear
+Evidence: At a sound 28-pixel continuous-distance bound, two of three retained alibi members were
+the non-killing actual impostor. Impostor partners can divide labor, with one killing while the
+other stays conspicuously with crew. Preserve the per-kill relational fact, but give singleton
+observations zero crew likelihood unless a calibrated latent-killer model justifies otherwise.
+
+### A complete audit can be useful even when its new channel is inactive
+Evidence: The fresh 200-game alibi comparison produced no pair-sized event in either arm, so its
+five-point win difference was not a treatment effect. The append-only kill ledger, stable evidence
+IDs, complete pair table, and additive contribution trace remain useful because future facts can be
+rescored without reconstructing or destructively compressing old conclusions.
+
 ### Size replay expansion to the VM before launching it
 Evidence: This VM has 2 vCPUs and 7.2 GiB RAM. Two simultaneous 16-worker warehouse builds exhausted
 the machine and forced a reboot. Inspect CPU and available memory first; on this VM run one warehouse
-at a time with two workers by default (up to four for I/O-bound stages), not an unbounded fan-out.
+at a time. Measurement on 2026-07-20 found three workers useful for download-heavy streaming but
+sustained full-tick expansion saturated both CPUs and pushed load above 3; use two for expansion.
 
 ### A counterfactual should remove exactly the evidence channel it tests
 Evidence: The sole-source robustness solve removed an actor but accidentally omitted per-kill
@@ -131,3 +167,27 @@ Evidence: The hosted replay route returned raw `CREWRIFT` bytes under `replay.js
 warehouse wrapper declared zlib from the suffix, failing all 100 episodes. This condition was
 already recorded in an earlier experiment. Inspect magic bytes, validate decoded replay magic,
 smoke-test the expander, and make failed/hash-incomplete manifests fail the wrapper before querying.
+
+### Streaming orchestration must preserve its selected environment and dependency API
+Evidence: `stream_eval.py` discarded its working Python environment by hardcoding a nested
+`uv run`, then called `build_request` without the replay-encoding argument added by the wrapper.
+The failures occurred before data extraction and looked like warehouse unreliability. Child
+processes now reuse `sys.executable`, and each incremental build preflights and passes encodings.
+
+### Budget correlated aggression changes separately
+Evidence: Lowering the public threshold, committing earlier, adding a public deadline fallback, and
+tightening source-free deductions were individually defensible but bundled into one A/B. The arm
+lost 35/100 versus 45/100 while only early commitment clearly activated: five early ballots, all
+correct. The run could not estimate the inactive fallback or attribute the outcome among components.
+
+### Stability filters changing conclusions but does not prove a stable one
+Evidence: In the fresh commitment arm, all five tick-240 targets that remained selected at tick 360
+were correct, while two conclusions that first appeared by tick 360 were wrong and did not commit.
+The delay was useful here, but a correlated false consensus can also remain stable; retain source
+and crowd-robustness requirements and add a board-state risk budget before widening coverage.
+
+### Commit behavioral source before building a hosted artifact
+Evidence: `crewborg-solver-commit:v1` and its two predecessors were uploaded from dirty worktrees,
+so their version rows initially pointed only to a parent commit plus an image digest. A later commit
+can preserve identical behavior, but committing first makes the build input reviewable and directly
+reconstructible before hosted evidence depends on it.

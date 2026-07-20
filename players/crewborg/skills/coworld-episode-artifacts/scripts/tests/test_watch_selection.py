@@ -22,7 +22,7 @@ def _ref(ref_id: str, status: str) -> EpisodeRef:
 
 def _complete_dir(root: Path, ref: EpisodeRef) -> Path:
     d = root / episode_dirname(ref)
-    (d / "logs").mkdir(parents=True)
+    d.mkdir(parents=True)
     (d / "episode.json").write_text("{}")
     (d / "replay.json").write_bytes(b"")
     return d
@@ -75,3 +75,15 @@ def test_partial_dir_is_retried_not_done(tmp_path: Path) -> None:
     )
     assert [r.ref_id for r in to_fetch] == ["ereq_partial0000000"]
     assert done == []
+
+
+def test_missing_optional_logs_does_not_retry_complete_replay(tmp_path: Path) -> None:
+    ref = _ref("ereq_no_logs000000", "completed")
+    _complete_dir(tmp_path, ref)
+    to_fetch, _, exhausted, done = select_watch_fetches(
+        [ref], tmp_path, {},
+        want_replay=True, want_logs=True, max_attempts=3, xreq_drained=False,
+    )
+    assert to_fetch == []
+    assert exhausted == []
+    assert [item.ref_id for item in done] == ["ereq_no_logs000000"]

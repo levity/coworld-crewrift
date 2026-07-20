@@ -50,10 +50,9 @@ BIN_SPEC: dict[str, list[float]] = {
 }
 LINEAR_CLIP = 5
 
-# Features crewborg's CURRENT event log + meeting machinery can compute (no new
-# perception detectors): the existing durative cues, witnessed point events, and
-# chat-accusation counts. tasks_completed_watched / reported_bodies / vote-history
-# features wait on new runtime observers (design §7).
+# Features shipped in the fitted runtime schema. The event log and meeting
+# machinery compute these directly except for the explicitly zeroed
+# ``tasks_completed_watched`` compatibility field below.
 RUNTIME_FEATURES = [
     "witnessed_kills",
     "near_body_bodies",
@@ -64,13 +63,12 @@ RUNTIME_FEATURES = [
     "copresence_killrange_samples",
     "task_site_dwell_samples",
     "observed_samples",
-    # v2 runtime detectors (strategy/social_evidence.py): watched completions via
-    # the crew_tasks_remaining decrement + dwell gate; chat stances; attributed
-    # vote dots. Only reported_bodies / button_calls_made remain offline-only —
-    # observable in principle since game 4b9297d (the MeetingCall interstitial
-    # shows the caller's icon in the player view) but not yet parsed by
-    # crewborg's perception.
+    # Retained for schema compatibility, but held at zero at runtime. The
+    # offline extractor knows the ground-truth completer; the live client sees
+    # only a global task decrement, which cannot identify another player.
     "tasks_completed_watched",
+    # v2 runtime detectors (strategy/social_evidence.py): chat stances and
+    # attributed vote dots.
     "accusations_made",
     "times_accused",
     "times_defended",

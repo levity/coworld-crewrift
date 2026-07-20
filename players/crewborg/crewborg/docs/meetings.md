@@ -149,8 +149,8 @@ backstop and runs `strategy/meeting/solver.py` once. The solver:
   including dead players, and conditions direct assertions on their speaker and
   relays on both the attributed source and current speaker;
 - weights body, vent, sighting, bare, and vote evidence separately, boosts a
-  body reporter's evidence, applies witnessed-impostor pins and watched-task
-  clears, and uses the fitted suspicion posterior only as a tempered prior; and
+  body reporter's evidence, applies witnessed-impostor pins, and uses the fitted
+  suspicion posterior only as a tempered prior; and
 - votes only when the top live marginal clears `CREWBORG_SOLVER_P` and separates
   from the first player outside the available impostor slots by
   `CREWBORG_SOLVER_MARGIN`.
@@ -159,17 +159,27 @@ The report placed in the meeting trace contains global marginals and the five
 highest-probability joint assignments. `CREWBORG_SOLVER_VETO=1` can independently
 use those marginals to reject a base-policy vote.
 
-`CREWBORG_SOLVER_EARLY_CHAT=1` adds one independent coordination pass at
-meeting tick 240. This pass deliberately excludes private suspicion, witnessed
-pins, and watched-task clears so its input matches public replay analysis. It
-speaks only when the top marginal is at least `0.76` and at least two attributed
+`CREWBORG_SOLVER_EARLY_CHAT=1` adds an independent coordination pass at
+meeting tick 240. This pass deliberately excludes private suspicion and
+witnessed pins so its input matches public replay analysis. It
+speaks only when the top marginal is at least `0.65` and at least two attributed
 non-self sources accumulated across the episode support the target. Because the
 report is computed at tick 240, it includes the new meeting's kill census and
-early chat as well as retained meeting history. The line does not stage a vote;
-the ordinary solver still recomputes from all evidence at tick 1,152.
+early chat as well as retained meeting history. The target is provisional: at
+tick 360 the public solver recomputes from the full ledger and submits an early
+ballot only if the same target still clears the gate. A changed or weakened
+conclusion remains uncommitted, and the ordinary solver still recomputes from
+all evidence at tick 1,152. If the fused solver is silent at that deadline, a
+fresh source-backed public conclusion is used as a fallback; private/fused
+evidence retains precedence when it does produce a target.
 The same flag also reacts to any public ballot against crewborg while it is a
 known crewmate with a truthful self-defense line. This likewise does not stage
 or alter the final ballot.
+
+Per-kill co-presence is deliberately not published as a player clear. With two
+impostors, being continuously near someone for one kill rules out that
+player-killer assignment only; the same player may still be the other
+impostor. `CREWBORG_ALIBI` keeps that fact as a relational constraint.
 
 When exactly one attributed accusation source supports a decisive candidate,
 the solver removes that actor's claims and ballots and solves again. The target
@@ -179,12 +189,11 @@ exceed `CREWBORG_SOLVER_ROBUST_MAX_P` (default `0.39`). A higher social
 counterfactual means the named source is not driving the conclusion; a
 correlated public ballot pile is. Multi-source decisions do not use this cap.
 
-A witnessed pin, hard clear, watched-task clear, or per-kill alibi can also
-produce a decisive conclusion without a named accuser. This path fires only
-when removing all such structural constraints makes that same candidate cease
-to clear the normal probability and margin gates. Thus a logical constraint can
-complete a deduction, but the mere presence of a non-constraining fact cannot
-unlock a vote-only consensus.
+A witnessed pin or per-kill alibi can also produce a decisive conclusion
+without a named accuser, but only when the candidate appears in every impostor
+assignment that survives the hard structural facts alone. Weighted clears do
+not count as logical exclusions. This preserves useful constraint deductions
+without allowing a merely helpful fact to unlock a vote-only consensus.
 
 ### Imposter (`_decide_imposter`)
 

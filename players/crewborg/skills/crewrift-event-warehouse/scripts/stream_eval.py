@@ -37,7 +37,14 @@ import threading
 import time
 from pathlib import Path
 
-from build_warehouse import FETCH, WH_DIR, build_request, find_episode_dirs, summarize
+from build_warehouse import (
+    FETCH,
+    WH_DIR,
+    build_request,
+    find_episode_dirs,
+    preflight,
+    summarize,
+)
 
 
 def log(msg: str) -> None:
@@ -52,8 +59,17 @@ def _pump(prefix: str, stream) -> None:
 
 def spawn_watcher(xreq: str, ep_dir: Path, interval: float) -> subprocess.Popen:
     proc = subprocess.Popen(
-        ["uv", "run", "python", str(FETCH), "--xreq", xreq, "--watch",
-         "--interval", str(interval), "--out", str(ep_dir)],
+        [
+            sys.executable,
+            str(FETCH),
+            "--xreq",
+            xreq,
+            "--watch",
+            "--interval",
+            str(interval),
+            "--out",
+            str(ep_dir),
+        ],
         stderr=subprocess.PIPE,
         text=True,
     )
@@ -75,12 +91,27 @@ def warehouse_episode_ids(out: Path) -> set[str]:
     return {e["episode_id"] for e in manifest.get("episodes", []) if e.get("status") == "ok"}
 
 
-def run_build(ep_dirs: list[Path], out: Path, expand_replay: Path | None, workers: int | None) -> None:
-    req = build_request(ep_dirs, out.parent / (out.name + "_input"))
+def run_build(
+    ep_dirs: list[Path],
+    out: Path,
+    expand_replay: Path | None,
+    workers: int | None,
+) -> None:
+    encodings = preflight(ep_dirs, expand_replay)
+    req = build_request(ep_dirs, out.parent / (out.name + "_input"), encodings)
     env = dict(os.environ)
     if expand_replay:
         env["CREWRIFT_EXPAND_REPLAY"] = str(expand_replay)
-    cmd = ["uv", "run", "crewrift-event-warehouse", "build", "--input", str(req), "--out", str(out)]
+    cmd = [
+        "uv",
+        "run",
+        "crewrift-event-warehouse",
+        "build",
+        "--input",
+        str(req),
+        "--out",
+        str(out),
+    ]
     if workers:
         cmd += ["--workers", str(workers)]
     subprocess.run(cmd, cwd=WH_DIR, env=env, check=True)

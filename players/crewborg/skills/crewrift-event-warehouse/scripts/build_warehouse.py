@@ -54,9 +54,93 @@ def players_of(episode: dict) -> list[dict]:
 
 
 def find_episode_dirs(root: Path) -> list[Path]:
-    return [d for d in sorted(root.iterdir())
-            if d.is_dir() and (d / "episode.json").exists() and (d / "results.json").exists()
-            and (d / "replay.json.z").exists()]
+    return [
+        d
+        for d in sorted(root.iterdir())
+        if d.is_dir()
+        and (d / "episode.json").exists()
+        and (d / "replay.json.z").exists()
+    ]
+
+
+def synthesize_results(meta: dict) -> dict:
+    """Build the minimal Crewrift results dimension from an XP episode row.
+
+    Experience-request episodes expose authoritative per-policy scores in
+    ``episode.json`` even when the separate results artifact route is
+    unavailable. Require an unambiguous slot-for-slot match before using that
+    fallback; the replay remains authoritative for all behavioral events.
+    """
+
+    participants = sorted(meta.get("participants") or [], key=lambda item: item.get("position", -1))
+    scores = meta.get("scores") or []
+    slots = (meta.get("game_config") or {}).get("slots") or []
+    count = len(participants)
+    positions = [item.get("position") for item in participants]
+    if positions != list(range(count)):
+        raise ValueError(f"participant positions are not contiguous slots: {positions}")
+    if len(scores) != count or len(slots) != count:
+        raise ValueError(
+            "cannot synthesize results: participant, score, and role counts differ "
+            f"({count}, {len(scores)}, {len(slots)})"
+        )
+
+    score_ids = [item.get("policy_version_id") for item in scores]
+    participant_ids = [item.get("policy_version_id") for item in participants]
+    if score_ids != participant_ids:
+        raise ValueError(
+            "cannot synthesize results: score rows do not align slot-for-slot "
+            "with participant policy versions"
+        )
+
+    roles = [item.get("role") for item in slots]
+    if any(role not in {"crew", "imposter"} for role in roles):
+        raise ValueError(f"cannot synthesize results: invalid or missing slot roles {roles}")
+
+    values = [float(item["score"]) for item in scores]
+    winning_roles = {
+        role for role, value in zip(roles, values, strict=True) if value >= 100.0
+    }
+    if len(winning_roles) > 1:
+        raise ValueError(
+            "cannot synthesize results: both roles contain a WinReward-sized score"
+        )
+    if winning_roles:
+        winning_role = next(iter(winning_roles))
+    else:
+        # A max-tick/truncated episode may preserve action rewards without
+        # paying WinReward. No slot is marked as a winner in that case.
+        winning_role = None
+
+    return {
+        "names": [
+            item.get("player_name") or item.get("label") or item.get("policy_name") or f"slot {index}"
+            for index, item in enumerate(participants)
+        ],
+        "scores": values,
+        "win": [role == winning_role for role in roles]
+        if winning_role is not None
+        else [False] * count,
+        # The warehouse worker replaces these transport placeholders with
+        # counts from expanded replay events.
+        "tasks": [0] * count,
+        "kills": [0] * count,
+        "imposter": [int(role == "imposter") for role in roles],
+        "crew": [int(role == "crew") for role in roles],
+        "vote_players": [0] * count,
+        "vote_skip": [0] * count,
+        "vote_timeout": [0] * count,
+        "connect_timeout": [0] * count,
+        "disconnect_timeout": [0] * count,
+        "warehouse_synthesized": True,
+    }
+
+
+def result_payload(ep: Path, meta: dict) -> tuple[dict, bool]:
+    path = ep / "results.json"
+    if path.exists():
+        return json.loads(path.read_text()), False
+    return synthesize_results(meta), True
 
 
 def replay_encoding(path: Path) -> str:
@@ -92,14 +176,13 @@ def preflight(dirs: list[Path], expand_replay: Path | None) -> dict[Path, str]:
     encodings: dict[Path, str] = {}
     representatives: dict[str, tuple[Path, str]] = {}
     for ep in dirs:
-        json.loads((ep / "episode.json").read_text())
-        json.loads((ep / "results.json").read_text())
+        meta = json.loads((ep / "episode.json").read_text())
+        result_payload(ep, meta)
         replay = ep / "replay.json.z"
         encoding = replay_encoding(replay)
         raw_replay_bytes(replay, encoding)
         encodings[ep] = encoding
 
-        meta = json.loads((ep / "episode.json").read_text())
         version = str(meta.get("coworld_version") or "unknown")
         representatives.setdefault(version, (replay, encoding))
 
@@ -139,18 +222,28 @@ def preflight(dirs: list[Path], expand_replay: Path | None) -> dict[Path, str]:
 
 def build_request(dirs: list[Path], out_dir: Path, encodings: dict[Path, str]) -> Path:
     episodes, seen = [], set()
+    synthesized = 0
+    synthesized_dir = out_dir / "synthesized_results"
     for ep in dirs:
         meta = json.loads((ep / "episode.json").read_text())
         eid = meta.get("id") or ep.name
         if eid in seen:
             continue
         seen.add(eid)
+        results, was_synthesized = result_payload(ep, meta)
+        if was_synthesized:
+            synthesized += 1
+            synthesized_dir.mkdir(parents=True, exist_ok=True)
+            results_path = synthesized_dir / f"{eid}.json"
+            results_path.write_text(json.dumps(results, indent=2))
+        else:
+            results_path = ep / "results.json"
         episodes.append({
             "episode_request_id": eid, "status": "success",
             "manifest": {"ereq_id": eid, "status": "success", "include": ["results", "replay"],
                          "files": {"results": "results.json", "replay": "replay.json.z"}},
             "artifacts": {
-                "results": {"uri": (ep / "results.json").as_uri(), "media_type": "application/json"},
+                "results": {"uri": results_path.as_uri(), "media_type": "application/json"},
                 "replay": {"uri": (ep / "replay.json.z").as_uri(),
                            "media_type": "application/octet-stream", "encoding": encodings[ep]},
             },
@@ -161,7 +254,8 @@ def build_request(dirs: list[Path], out_dir: Path, encodings: dict[Path, str]) -
     req_path.write_text(json.dumps(
         {"type": "report_request", "request_id": "crewborg_warehouse",
          "report_uri": (out_dir / "REPORT_PLACEHOLDER.zip").as_uri(), "episodes": episodes}, indent=2))
-    print(f"  report_request.json: {len(episodes)} episodes")
+    suffix = f"; synthesized {synthesized} missing results artifacts" if synthesized else ""
+    print(f"  report_request.json: {len(episodes)} episodes{suffix}")
     return req_path
 
 
@@ -242,7 +336,7 @@ def main() -> int:
 
     dirs = find_episode_dirs(ep_root)
     if not dirs:
-        raise SystemExit(f"No complete episode dirs (episode.json+results.json+replay.json.z) under {ep_root}. "
+        raise SystemExit(f"No replay-complete episode dirs (episode.json+replay.json.z) under {ep_root}. "
                          f"Did you fetch WITH replays (omit --no-replay)?")
     print(f"build_warehouse: {len(dirs)} episodes -> {args.out}")
     encodings = preflight(dirs, args.expand_replay)

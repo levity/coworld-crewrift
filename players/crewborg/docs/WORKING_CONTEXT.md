@@ -9,6 +9,79 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
+## Current update (2026-07-20, source-backed commitment)
+
+Inert `crewborg-solver-commit:v1`
+(`c2fe8244-fb51-4ddb-912c-1a0b0155d457`) carries a four-change meeting bundle:
+P=0.65 two-source early speech, stable tick-360 commitment, source-backed
+deadline fallback, and logically forced source-free conclusions. Retained
+history was 22/22 at ticks 240/360 and 42/42 at the final public solve;
+production validation is 556 passed / 13 skipped and Gate 1 clean.
+
+The fresh exact-roster 100/arm hosted run completed without ops failures but
+was directionally adverse: 35 crew wins versus 45 control (`Fisher p=0.194`).
+Candidate/control subject ballots were 29/8 versus 25/3 impostor/crew;
+crew-voter ballots were 230/118 versus 264/90. Candidate histories had weaker
+raw public claim precision (65.7% versus 72.0%), fewer impostor ejections
+(23 versus 28), more crew ejections (15 versus 13), and more subject kills
+(58 versus 50 on 98 clean replays per arm).
+
+The only clearly activated new mechanism was precise: five tick-366-370
+ballots, all against impostors, with two target ejections. All eight candidate
+crew ballots occurred at the deadline. No source-free candidate fired and no
+deadline public-fallback line was confirmed. The bundle therefore cannot be
+promoted, but the ten-game deficit cannot be assigned to the five observed
+early commitments either.
+
+Next: split the aggression budget. Give early commitment its own default-off
+flag and test it against the same lower-threshold speech policy; test deadline
+public fallback separately with activation telemetry. Before adding a parity
+gate, validate Crewrift-specific survivor states: a generic skip-on-seven rule
+would have blocked one correct five-vote impostor ejection in this sample.
+Details:
+`docs/experiments/2026-07-20-source-backed-meeting-commitment.md`.
+
+## Current update (2026-07-20)
+
+The joint solver now has the durable representation requested for iterative
+evidence work: every usable hidden-kill observation is an immutable
+`KillAlibi`, raw ledgers remain append-only, every impostor pair is recomputed
+from those ledgers, and the result exposes stable evidence IDs plus
+contributions and exclusion reasons for audit. Production-image validation is
+551 passed / 13 skipped and Gate 1 is clean; latest source, including the
+post-run possible-killer combination fix, is 552 passed / 13 skipped.
+
+The planned soft alibi weight was rejected before enablement. Retained history
+showed screen-visible actual killers 61-68 pixels from crewborg, and at the
+sounder 28-pixel bound two of three observed players were the non-killing actual
+impostor. "Not this killer" is not evidence of crew when an impostor partner
+stays with the group. Production `alibi_weight` is therefore zero; only a pair
+with no eligible, non-co-present perpetrator is excluded. Current eligibility
+is broad, so this usually means every member was close for the same kill.
+
+Fresh fixed-roster hosted evaluation completed 200/200 clean:
+`crewborg-pair-audit-close:v1` won 47/100 crew games versus 42/100 for
+`crewborg-pair-audit-visible:v1` (`Fisher p=0.569`). Both arms were killed in
+52/100 games. Player-vote precision was 28/28 close and 27/28 visible. The
+10.48-million-event warehouse has zero extraction failures and zero trace
+warnings. Full-tick mechanism reconstruction found only singleton events and
+zero pair exclusions in both arms, so neither treatment changed a posterior;
+the five-point outcome difference is noise. Details:
+`docs/experiments/2026-07-20-solver-pair-audit-alibi.md`.
+
+Keep the ledger/audit infrastructure and 28-pixel physical definition. The next
+promising solver evidence channel is map-aware kill-window reachability: retain
+the victim's possible path and every player's reachable region, then exclude a
+pair only when neither member could have intersected the victim. This combines
+independent relational constraints without turning a non-killing impostor into
+a player clear.
+
+The same run repaired two warehouse streaming drift bugs: downloaders now reuse
+the selected Python environment and incremental builds pass preflighted replay
+encodings to the current `build_request` API. On this 2-vCPU VM, three workers
+are suitable for download-heavy streaming, but sustained full-tick replay
+expansion should use two.
+
 ## Current update (2026-07-19)
 
 The current best combined artifact is inert
@@ -33,11 +106,23 @@ also more favorable, so do not assign the full win delta to the bundled
 treatment. Details:
 `docs/experiments/2026-07-19-solver-constraints-hosted-ab.md`.
 
-The next active iteration is crew collaboration / speaking clears from the
-`crew-stick-alibi` worktree document
-`docs/experiments/2026-07-19-crew-collaboration-speak-clears.md`. Review and
-port it modularly on top of v3, validate locally, then run a fresh hosted XP
-comparison. Do not submit without explicit approval.
+The crew collaboration / speaking-clears iteration is rejected. Inert v4
+(`af8623ba-4233-4b8d-8802-7e7d0a21028c`) tied v3 at 47/100 wins in a fresh
+exact-roster A/B, but 47/88 public clear mentions named fixed impostors.
+Reconstructing the runtime detector found 392/550 inferred completers wrong,
+including 258 credits to impostors. Offline fitting used the replay's true
+completer identity; runtime saw only task-site dwell plus a global decrement.
+The emission path has been removed, the fitted compatibility field is now held
+at zero, and the joint solver no longer consumes it as a clear. Details:
+`docs/experiments/2026-07-19-speak-clears-hosted-ab.md`.
+
+The artifact downloader and warehouse wrapper were also corrected after this
+run exposed false completeness assumptions. Optional results/log routes no
+longer trigger repeated downloads; replay-complete XP episodes can stage a
+minimal dimension only after exact participant/score/role alignment. Team wins
+come from the WinReward role rather than a per-player score threshold; no
+WinReward means no winner. Synthesized task/kill dimension values come from
+objective replay events.
 
 The persistent correlation-aware solver now hard-clears hidden-kill victims,
 reinterprets episode-persistent claims under that posterior, excludes self-chat
