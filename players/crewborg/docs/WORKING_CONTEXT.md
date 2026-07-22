@@ -11,6 +11,33 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ## Current update (2026-07-22, self-preservation movement)
 
+The aggressive 12-tick isolation/pursuit experiment is complete and rejected.
+In the 200/arm rotated-seat A/B, subject-operational murders rose from 63/174
+(36.2%) to 88/153 (57.5%), a +21.3pp effect (95% CI +10.7 to +31.9,
+Fisher p=0.00015). All-task completion fell 60.3% -> 37.3% and crew wins fell
+31.0% -> 15.7%. The whole-roster-operational subset gives the same conclusion.
+
+XP telemetry was present; the artifact downloader had drifted to obsolete
+job-level routes and silently treated 403/404 as absence. Commit `7b29caa`
+switches XP to the owned episode-request routes. All 121 fully operational
+candidate games have traces: 717 escape sessions fired, 629 (87.7%) against
+actual crew and only 88 against impostors. Only 23/88 eventual killers ever
+triggered. Reaching one witness cleared escape, after which that lone witness
+became the next 12-tick threat, causing repeated flight and 240 abandoned task
+attempts versus 35 control. One-on-one time with an impostor increased rather
+than decreased.
+
+Do not promote or threshold-tune the generic proximity trigger. Disable it or
+return to suspect-gated escape while mining pre-murder trajectories for a
+genuinely discriminating chase feature. Full result:
+`docs/experiments/2026-07-22-isolation-pursuit-hosted-ab.md`.
+
+The correct operational filter is `connect_timeout == 0` and
+`disconnect_timeout == 0`, per slot or across the roster. Never use
+`score >= 0`: legitimate gameplay penalties produced clean negative scores.
+
+### Superseded setup and prior experiment
+
 The v2 300-game crew screen ended with crewborg murdered in 172/300 games. In
 112 of those deaths (65.1%), only the eventual killer was nearby. This is a
 fixed-seat observational mechanism, not proof that movement caused the death
