@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-07-22 - Self-preservation movement
+
+- Added a default-off `SelfPreservationMode` that consumes the append-only
+  joint posterior without writing derived movement choices back into deduction.
+  A living crew player leaves a fresh one-on-one encounter only when the sole
+  companion is pinned or has `P(imposter) >= 0.75`, and a fresh cluster of at
+  least two non-suspect living players provides a destination.
+- Added bounded group-aware task selection behind its own flag. It prefers a
+  task supported by a fresh two-player cluster only within 160 pixels of the
+  nearest task's direct travel cost, then preserves the existing task behavior.
+- Escape decisions hold for at most 72 ticks and end as soon as a witness
+  arrives, the threat leaves, or the destination becomes stale. Posterior
+  refresh is limited to one solve per 72 ticks while actually one-on-one.
+- Local validation: 66 focused tests and the full 595-test current-SDK suite
+  pass (13 skipped); touched-file Ruff and `git diff --check` are clean. The
+  amd64 image completed Gate 1 with both defenses and stick mode enabled,
+  without a freeze, inference error, or connection failure. Hosted effect is
+  intentionally not claimed until a rotated-seat comparison is run.
+
 ## 2026-07-20 - Correlated deduction evaluation and ballot gate
 
 Before implementation:

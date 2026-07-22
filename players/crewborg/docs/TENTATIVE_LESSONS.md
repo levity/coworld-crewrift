@@ -17,6 +17,15 @@ optional `Status:` note. Terse. One lesson per `###`.
 
 ---
 
+### Post-task grouping does not prevent active-task isolation
+Evidence: In the v2 300-game crew screen, crewborg was murdered in 172 games;
+112 deaths occurred with only the eventual killer nearby, and 70 were the
+first crew kill. A stick-after-tasks policy cannot address isolation while
+tasks remain, while a suspect-only escape cannot address unknown first-kill
+risk. Keep reactive high-confidence escape and bounded group-aware tasking as
+separately gated mechanisms, and use seat-rotated evaluation before attributing
+the fixed-slot death gap to either one.
+
 ### A joint posterior still needs semantically valid decision support
 Evidence: In the append-only hosted A/B, three of four fresh public-solver
 errors treated two ballots as independent support even though no utterance

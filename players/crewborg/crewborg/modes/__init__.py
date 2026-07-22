@@ -9,6 +9,7 @@ from crewborg.modes.normal import NormalMode
 from crewborg.modes.recon import ReconMode
 from crewborg.modes.report_body import ReportBodyMode
 from crewborg.modes.search import SearchMode
+from crewborg.modes.self_preservation import SelfPreservationMode
 from crewborg.modes.stick import StickMode
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "ReconMode",
     "ReportBodyMode",
     "SearchMode",
+    "SelfPreservationMode",
     "StickMode",
 ]
