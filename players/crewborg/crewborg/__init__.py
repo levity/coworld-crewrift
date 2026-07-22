@@ -26,6 +26,7 @@ from crewborg.modes import (
     ReconMode,
     ReportBodyMode,
     SearchMode,
+    SelfPreservationMode,
     StickMode,
 )
 from crewborg.strategy import (
@@ -120,6 +121,7 @@ def build_runtime(
     registry.register(HuntMode)
     registry.register(ReconMode)
     registry.register(SearchMode)
+    registry.register(SelfPreservationMode)
     registry.register(StickMode)
 
     if map_data is None:

@@ -245,6 +245,89 @@ def test_commander_posture_neutral_matches_default_task_tie() -> None:
     assert neutral_intent.task_index == default_intent.task_index
 
 
+def test_group_tasking_prefers_supported_task_within_detour(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_GROUP_TASKING", "1")
+    monkeypatch.setenv("CREWBORG_GROUP_TASK_MAX_DETOUR", "250")
+    belief = Belief(
+        map=_roomed_map(),
+        assigned_task_indices={0, 2},
+        visible_task_indices={0, 2},
+        self_world_x=44,
+        self_world_y=44,
+        self_color="red",
+        last_tick=10,
+    )
+    _crew(belief, "green", (240, 44))
+    _crew(belief, "blue", (250, 44))
+
+    intent = NormalMode().decide(belief, ActionState())
+
+    assert intent.kind == "complete_task" and intent.task_index == 2
+    assert intent.reason.startswith("group-aware tasking:")
+
+
+def test_group_tasking_respects_detour_bound(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_GROUP_TASKING", "1")
+    monkeypatch.setenv("CREWBORG_GROUP_TASK_MAX_DETOUR", "100")
+    belief = Belief(
+        map=_roomed_map(),
+        assigned_task_indices={0, 2},
+        visible_task_indices={0, 2},
+        self_world_x=44,
+        self_world_y=44,
+        self_color="red",
+        last_tick=10,
+    )
+    _crew(belief, "green", (240, 44))
+    _crew(belief, "blue", (250, 44))
+
+    intent = NormalMode().decide(belief, ActionState())
+
+    assert intent.kind == "complete_task" and intent.task_index == 0
+
+
+def test_group_tasking_ignores_stale_support(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_GROUP_TASKING", "1")
+    monkeypatch.setenv("CREWBORG_GROUP_TASK_MAX_DETOUR", "250")
+    belief = Belief(
+        map=_roomed_map(),
+        assigned_task_indices={0, 2},
+        visible_task_indices={0, 2},
+        self_world_x=44,
+        self_world_y=44,
+        self_color="red",
+        last_tick=100,
+    )
+    _crew(belief, "green", (240, 44))
+    _crew(belief, "blue", (250, 44))
+    belief.roster["green"].last_seen_tick = 10
+    belief.roster["blue"].last_seen_tick = 10
+
+    intent = NormalMode().decide(belief, ActionState())
+
+    assert intent.kind == "complete_task" and intent.task_index == 0
+
+
+def test_group_tasking_requires_supporters_to_form_a_cluster(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_GROUP_TASKING", "1")
+    monkeypatch.setenv("CREWBORG_GROUP_TASK_MAX_DETOUR", "250")
+    belief = Belief(
+        map=_roomed_map(),
+        assigned_task_indices={0, 2},
+        visible_task_indices={0, 2},
+        self_world_x=44,
+        self_world_y=44,
+        self_color="red",
+        last_tick=10,
+    )
+    _crew(belief, "green", (150, 44))
+    _crew(belief, "blue", (350, 44))
+
+    intent = NormalMode().decide(belief, ActionState())
+
+    assert intent.kind == "complete_task" and intent.task_index == 0
+
+
 def test_advances_to_next_task_after_completion() -> None:
     belief = Belief(
         map=_map_with_tasks(),

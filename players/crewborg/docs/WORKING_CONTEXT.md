@@ -9,6 +9,37 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
+## Current update (2026-07-22, self-preservation movement)
+
+The v2 300-game crew screen ended with crewborg murdered in 172/300 games. In
+112 of those deaths (65.1%), only the eventual killer was nearby. This is a
+fixed-seat observational mechanism, not proof that movement caused the death
+rate; `docs/self-preservation.md` defines the controlled follow-up.
+
+Two default-off defenses now implement that spec. With both
+`CREWBORG_DEDUCTION_HISTORY=1` and `CREWBORG_SELF_PRESERVATION=1`, a living crew
+player reacts only when exactly one current nearby player is pinned or has a
+joint marginal of at least 0.75. It routes to a fresh cluster of at least two
+living players after excluding all high-marginal or pinned destinations, holds
+the route for at most 72 ticks, and exits on a witness, lost threat, stale
+group, or timeout. It caches pure inference at a 72-tick cadence only while in
+the one-on-one condition and never appends a movement-derived fact.
+
+`CREWBORG_GROUP_TASKING=1` independently lets normal tasking prefer a task near
+a fresh, internally clustered pair of living players when its direct-distance
+detour is no more than 160 pixels (`CREWBORG_GROUP_TASK_MAX_DETOUR`). Explicit
+commander posture remains higher priority; otherwise the old nearest-task
+behavior is unchanged. Intent reasons distinguish both new mechanisms for
+hosted trace analysis.
+
+Validation is clean: 66 focused tests, 595 passed / 13 skipped across the full
+current-SDK suite, touched-file Ruff, and `git diff --check`. A fixed amd64
+image completed Gate 1 with deduction, escape, group tasking, stick, metrics,
+and group traces enabled; it connected, moved, and exited without inference or
+runtime errors. The certification fixture did not naturally create a
+high-confidence escape, so effectiveness and activation still require the
+rotated-seat hosted A/B specified in the design.
+
 ## Current update (2026-07-20, append-only deduction)
 
 Active branch/worktree: `crewborg-deduction-history` at

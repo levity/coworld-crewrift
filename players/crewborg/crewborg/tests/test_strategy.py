@@ -65,6 +65,22 @@ def test_playing_crewmate_selects_normal() -> None:
     assert _select(Belief(phase="Playing", self_role="crewmate", self_alive=False)) == "normal"
 
 
+def test_self_preservation_flag_selects_composed_crew_mode(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    belief = Belief(phase="Playing", self_role="crewmate", self_alive=True)
+
+    assert _select(belief) == "self_preservation"
+
+
+def test_self_preservation_never_selects_for_ghost(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    belief = Belief(phase="Playing", self_role="crewmate", self_alive=False)
+
+    assert _select(belief) == "normal"
+
+
 def test_voting_selects_attend_meeting() -> None:
     assert _select(Belief(phase="Voting")) == "attend_meeting"
 

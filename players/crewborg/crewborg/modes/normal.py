@@ -27,6 +27,9 @@ Two stall guards (design §5):
 
 from __future__ import annotations
 
+import math
+import os
+
 from crewborg.map.types import Room, TaskStation
 from crewborg.strategy.commander.bias import commander_of, room_crew_count
 from crewborg.types import ActionState, Belief, Intent
@@ -36,6 +39,9 @@ from players.player_sdk import EmptyModeParams, Mode
 # reached at least this — otherwise it's treated as a flicker/occlusion.
 COMPLETION_PROGRESS_PCT = 90
 SWEEP_ARRIVE_RADIUS = 24  # within this of a station center ⇒ count it as checked
+GROUP_TASK_RADIUS_SQ = 120**2
+GROUP_TASK_FIX_TICKS = 48
+DEFAULT_GROUP_TASK_MAX_DETOUR = 160
 
 
 class NormalMode(Mode[Belief, ActionState, Intent]):
@@ -45,6 +51,7 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
     def __init__(self, params=None) -> None:
         super().__init__(params)
         self._target: int | None = None
+        self._target_reason = "completing assigned task"
         self._max_progress: int = 0  # peak progress seen for the current target
         self._swept: set[int] = set()
 
@@ -54,7 +61,11 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
 
         self._update_target(belief, tasks)
         if self._target is not None:
-            return Intent(kind="complete_task", task_index=self._target, reason="completing assigned task")
+            return Intent(
+                kind="complete_task",
+                task_index=self._target,
+                reason=self._target_reason,
+            )
 
         hard_position = _hard_target_room_intent(belief)
         if hard_position is not None:
@@ -89,6 +100,7 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
     def _pick_target(self, belief: Belief, tasks: tuple[TaskStation, ...], signals: set[int]) -> int | None:
         # The live signal set is the authoritative list of remaining tasks; a task
         # still signalled is still to do (even if we earlier mis-concluded it done).
+        self._target_reason = "completing assigned task"
         candidates = [index for index in signals if index < len(tasks)]
         if not candidates:
             return None
@@ -116,6 +128,10 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
             return min(candidates)
         if cmd is not None and cmd.posture != "neutral":
             return min(candidates, key=lambda i: _posture_key(belief, tasks[i], cmd.posture, self_xy, i))
+        grouped = _group_task_candidate(belief, tasks, candidates, self_xy)
+        if grouped is not None:
+            self._target_reason = "group-aware tasking: completing supported assigned task"
+            return grouped
         return min(candidates, key=lambda i: _dist2(self_xy, _nav_point(belief, tasks[i], i)))
 
     def _sweep_intent(self, belief: Belief, tasks: tuple[TaskStation, ...]) -> Intent | None:
@@ -225,3 +241,66 @@ def _self_xy(belief: Belief) -> tuple[int, int] | None:
 
 def _dist2(a: tuple[int, int], b: tuple[int, int]) -> int:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def _group_task_candidate(
+    belief: Belief,
+    tasks: tuple[TaskStation, ...],
+    candidates: list[int],
+    self_xy: tuple[int, int],
+) -> int | None:
+    if not _truthy_env("CREWBORG_GROUP_TASKING"):
+        return None
+    nearest = min(
+        candidates,
+        key=lambda index: _dist2(self_xy, _nav_point(belief, tasks[index], index)),
+    )
+    nearest_distance = math.isqrt(
+        _dist2(self_xy, _nav_point(belief, tasks[nearest], nearest))
+    )
+    max_distance = nearest_distance + _group_task_max_detour()
+    supported = []
+    for index in candidates:
+        point = _nav_point(belief, tasks[index], index)
+        distance = math.isqrt(_dist2(self_xy, point))
+        supporters = [
+            record
+            for record in belief.roster.values()
+            if record.color != belief.self_color
+            and record.life_status == "alive"
+            and 0 <= belief.last_tick - record.last_seen_tick <= GROUP_TASK_FIX_TICKS
+            and _dist2(point, (record.world_x, record.world_y))
+            <= GROUP_TASK_RADIUS_SQ
+        ]
+        support = max(
+            (
+                sum(
+                    _dist2(
+                        (anchor.world_x, anchor.world_y),
+                        (other.world_x, other.world_y),
+                    )
+                    <= GROUP_TASK_RADIUS_SQ
+                    for other in supporters
+                )
+                for anchor in supporters
+            ),
+            default=0,
+        )
+        if support >= 2 and distance <= max_distance:
+            supported.append((index, support, distance))
+    if not supported:
+        return None
+    return min(supported, key=lambda item: (-item[1], item[2], item[0]))[0]
+
+
+def _group_task_max_detour() -> int:
+    raw = os.environ.get("CREWBORG_GROUP_TASK_MAX_DETOUR", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_GROUP_TASK_MAX_DETOUR
+    except ValueError:
+        return DEFAULT_GROUP_TASK_MAX_DETOUR
+    return max(0, value)
+
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}

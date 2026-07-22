@@ -11,8 +11,9 @@ Crewmate priority order (design §10):
 3. an active tail by a suspect over the "sketched out" bar → Accuse: stop and go
    slam the emergency button to call a meeting (one-shot — see below), then accuse
    them at the vote. This replaces the old Flee/keep-away behaviour entirely.
-4. ``phase == Playing`` → Normal (ghosts included — they finish their own tasks)
-5. otherwise → idle
+4. optional high-confidence one-on-one threat → Self Preservation
+5. ``phase == Playing`` → Normal (ghosts included — they finish their own tasks)
+6. otherwise → idle
 
 The Accuse trigger is ``active_tail_suspect`` (``strategy.suspicion``, design §10.1):
 the most-suspicious player currently shadowing us whose posterior is over
@@ -117,6 +118,16 @@ class RuleBasedStrategy:
                     self._button_call_spent = True  # the A-press at the button fires this tick
                 return ModeDirective(mode="accuse", source="strategy", reason="being tailed: call a meeting")
             self._accuse_target = None
+            from crewborg.modes.self_preservation import (
+                enabled as self_preservation_enabled,
+            )
+
+            if belief.self_role == "crewmate" and self_preservation_enabled():
+                return ModeDirective(
+                    mode="self_preservation",
+                    source="strategy",
+                    reason="playing: react to one-on-one threats, otherwise task",
+                )
             # Opt-in stay-with-group (CREWBORG_STICK): StickMode does our tasks first, then
             # loiters with the crew once they're done. Default OFF ⇒ plain Normal. Imported
             # lazily to avoid a strategy<->modes import cycle at module load.
