@@ -167,6 +167,39 @@ def test_task_started_on_new_target_and_resume_after_interruption() -> None:
     assert [e.data["task_index"] for e in started] == [4, 9, 9]
 
 
+def test_self_preservation_stage_transitions_are_counted() -> None:
+    h = _Harness()
+    h.step(
+        intent=Intent(
+            kind="navigate_to",
+            target_color="red",
+            reason="self preservation (isolation): leave one-on-one threat red",
+        )
+    )
+    h.step(
+        intent=Intent(
+            kind="navigate_to",
+            target_color="red",
+            reason="self preservation (isolation): leave one-on-one threat red",
+        )
+    )
+    h.step(
+        intent=Intent(
+            kind="navigate_to",
+            target_color="red",
+            reason="self preservation (pursuit): leave one-on-one threat red",
+        )
+    )
+    h.step(intent=Intent(kind="complete_task", task_index=1))
+
+    starts = h.events("domain.self_preservation_started")
+    assert [event.data["stage"] for event in starts] == ["isolation", "pursuit"]
+    assert all(event.data["threat"] == "red" for event in starts)
+    assert len(h.counters("domain.self_preservation_started")) == 2
+    [ended] = h.events("domain.self_preservation_ended")
+    assert ended.data == {"stage": "pursuit"}
+
+
 def test_kill_attempted_requires_the_a_edge_in_the_command() -> None:
     h = _Harness()
     # Navigating toward the target (d-pad held, no A) is not an attempt.

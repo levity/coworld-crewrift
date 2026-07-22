@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-22 - Isolation-triggered pursuit escape
+
+- Broadened self-preservation from solver-confirmed suspects to any continuous
+  12-tick one-on-one exposure within 64 pixels. The initial response is a soft
+  move toward a fresh witness.
+- Added a 96-pixel pursuit confirmation window. A companion that remains close
+  for another 12 ticks upgrades escape to a latch that ends only when a third
+  player is physically nearby.
+- A single fresh witness is now a valid destination; clustered witnesses remain
+  preferred. Solver probabilities only filter destinations and accelerate
+  response to known threats, and proximity never becomes deduction evidence.
+- Added explicit activation, pursuit-upgrade, and termination trace events and
+  metrics for hosted analysis.
+
 ## 2026-07-22 - Self-preservation movement
 
 - Added a default-off `SelfPreservationMode` that consumes the append-only

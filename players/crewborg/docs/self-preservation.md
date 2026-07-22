@@ -14,26 +14,28 @@ mechanism.
 
 ## Two Complementary Defenses
 
-### 1. Suspect escape
+### 1. Isolation and pursuit escape
 
 When all of the following hold, temporarily leave the one-on-one encounter:
 
 - the agent is a living crewmate and `CREWBORG_SELF_PRESERVATION=1`;
-- exactly one other living player is currently nearby, with no current witness;
-- that companion has a sufficiently high marginal in the current joint
-  posterior, or is structurally pinned; and
-- a recently observed destination contains at least two other living players.
+- exactly one other living player has remained within 64 pixels for 12 ticks,
+  with no current witness; and
+- at least one other living player has a recently observed location.
 
-The destination is that group, not an arbitrary direction away from the
-companion. The controller holds its choice briefly and exits when a witness is
-present, the threat is no longer nearby, the destination becomes stale, or the
-commitment expires. This prevents task/flee oscillation and avoids navigating
-toward old sightings.
+The destination is a recently observed witness, preferring a larger cluster,
+not an arbitrary direction away from the companion. If the companion falls
+outside a 96-pixel pursuit radius, soft avoidance ends. If the companion stays
+within that radius for another 12 ticks after avoidance starts, the encounter
+is classified as pursuit. Pursuit escape remains latched until a non-threat
+player is physically within the 64-pixel witness radius; temporary loss of the
+threat or a stale destination does not resume tasking.
 
-The posterior threshold must be conservative. A nearby player is not evidence
-of impostor status, and a single companion is not a safe witness. The movement
-controller must not use a legacy scalar suspicion when the deduction-history
-path is enabled.
+The joint posterior is used to avoid known threats as destinations and still
+permits immediate escape from a pinned or high-confidence suspect. Proximity is
+not solver evidence and never changes impostor probabilities. False alarms are
+acceptable here because the response is movement toward witnesses, not an
+accusation or ballot.
 
 ### 2. Group-aware tasking
 
@@ -51,8 +53,8 @@ suspect-only controller cannot address those cases.
 - The solver remains a pure function of `DeductionHistory`.
 - Derived movement state may cache a result or a short-lived route commitment,
   but is not solver evidence and is not lossily substituted for the history.
-- Do not flee from every nearby player, re-enable `tailing_self` under stick
-  mode, or treat a solo companion as an alibi.
+- Do not re-enable `tailing_self` under stick mode, feed escape behavior back
+  into deduction, or treat a solo companion as an alibi.
 - Preserve task completion as a hard objective; safety is a bounded bias, not
   permission to idle.
 - Keep each defense independently environment-gated and traceable.
