@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-22 - Memoryless one-on-one repulsion
+
+- Replaced the rejected named-threat/witness-destination controller with an
+  immediate geometry-only rule: while exactly one living player is currently
+  visible within 64 pixels, preempt tasking and move away from that player.
+- Recompute a reachable repulsion goal every tick. The controller no longer
+  latches onto a player or a destination and cannot remain stopped at a reached,
+  stale escape point.
+- End repulsion as soon as zero or at least two other players occupy the risk
+  radius. Twelve ticks of continuous exposure changes only the telemetry stage
+  to `pursuit`; it creates no suspicion or solver evidence.
+- Local validation: 54 focused tests and the full 599-test suite pass (13
+  skipped); touched-file Ruff and `git diff --check` are clean. The activated
+  amd64 image completed Gate 1 with all eight slots connected and no timeout.
+
 ## 2026-07-22 - Isolation-triggered pursuit escape
 
 - Broadened self-preservation from solver-confirmed suspects to any continuous

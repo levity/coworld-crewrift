@@ -173,14 +173,14 @@ def test_self_preservation_stage_transitions_are_counted() -> None:
         intent=Intent(
             kind="navigate_to",
             target_color="red",
-            reason="self preservation (isolation): leave one-on-one threat red",
+            reason="self preservation (repulsion): move away from sole nearby player red",
         )
     )
     h.step(
         intent=Intent(
             kind="navigate_to",
             target_color="red",
-            reason="self preservation (isolation): leave one-on-one threat red",
+            reason="self preservation (repulsion): move away from sole nearby player red",
         )
     )
     h.step(
@@ -193,7 +193,7 @@ def test_self_preservation_stage_transitions_are_counted() -> None:
     h.step(intent=Intent(kind="complete_task", task_index=1))
 
     starts = h.events("domain.self_preservation_started")
-    assert [event.data["stage"] for event in starts] == ["isolation", "pursuit"]
+    assert [event.data["stage"] for event in starts] == ["repulsion", "pursuit"]
     assert all(event.data["threat"] == "red" for event in starts)
     assert len(h.counters("domain.self_preservation_started")) == 2
     [ended] = h.events("domain.self_preservation_ended")
