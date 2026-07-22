@@ -36,9 +36,23 @@ Validation is clean: 66 focused tests, 595 passed / 13 skipped across the full
 current-SDK suite, touched-file Ruff, and `git diff --check`. A fixed amd64
 image completed Gate 1 with deduction, escape, group tasking, stick, metrics,
 and group traces enabled; it connected, moved, and exited without inference or
-runtime errors. The certification fixture did not naturally create a
-high-confidence escape, so effectiveness and activation still require the
-rotated-seat hosted A/B specified in the design.
+runtime errors.
+
+The rotated-crew-seat 100/arm hosted A/B is complete. Subject-clean murders
+moved 51/84 -> 49/89 (60.7% -> 55.1%, `p=0.45`) and full-task completion stayed
+flat at 90.5% -> 91.0%. Exact 44-pixel replay analysis shows the intended
+movement signature: time with one nearby player fell 28.37% -> 26.87%, time
+with a sole imposter fell 13.51% -> 12.43%, 2+ player time rose 16.51% ->
+19.04%, and killer-only murders fell 40/51 -> 35/49. Wins were 40/84 versus
+40/89.
+
+This is not robust enough to promote. A whole-roster-clean sensitivity filter
+leaves 61/65 games and reverses the murder delta (55.7% vs 56.9%). Hosted policy
+logs were unavailable, so exact escape and group-task activations are not
+observable. Group-supported task starts barely changed (42.1% -> 42.8%) and
+first-victim frequency was flat. Next isolate suspect escape with group tasking
+off, improve activation telemetry, and use a lower-failure roster or larger
+sample. Full result: `docs/experiments/2026-07-22-self-preservation-hosted-ab.md`.
 
 ## Current update (2026-07-20, append-only deduction)
 

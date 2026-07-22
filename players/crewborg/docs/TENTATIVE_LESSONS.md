@@ -274,3 +274,11 @@ Evidence: `crewborg-solver-commit:v1` and its two predecessors were uploaded fro
 so their version rows initially pointed only to a parent commit plus an image digest. A later commit
 can preserve identical behavior, but committing first makes the build input reviewable and directly
 reconstructible before hosted evidence depends on it.
+
+### Measure a movement intervention at its implemented geometry
+Evidence: The self-preservation controller uses a 44-pixel nearby radius, while the warehouse's
+standard proximity intervals use 32 pixels. Exact per-tick reconstruction found the candidate spent
+less time one-on-one and died with only the killer nearby 35/49 times versus 40/51 control. Reusing
+the narrower interval would test a different condition. The outcome improvement was nonsignificant
+and reversed under a strict whole-roster-clean filter, so mechanism movement is evidence of
+activation direction, not proof of survival benefit.
