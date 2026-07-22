@@ -27,11 +27,9 @@ They are **disjoint populations**: a league episode's `pool_id` returns **0** ro
 from `/v2/episode-requests?pool_id=`, and `coworld episodes --policy <league-player>`
 is empty. Don't try to cross them — discover each in its own world.
 
-## The universal artifact key: `job_id`
+## Artifact routes differ by episode population
 
-Every episode in **both** worlds carries a `job_id`, and the job is the universal
-artifact handle. All artifacts come from these job routes (verified live 2026-06-08,
-for both a Crewrift league episode and an amongthem experience-request episode):
+League episodes use these job routes:
 
 | Route | Returns |
 | --- | --- |
@@ -46,9 +44,20 @@ for both a Crewrift league episode and an amongthem experience-request episode):
 The replay decompresses (zlib) to the game's binary replay (e.g. magic
 `CREWRIFT...`) — the directly-loadable form. Keep the raw `.z` too.
 
+Experience-request episodes use these ownership-aware routes (verified live
+2026-07-22):
+
+| Route | Returns |
+| --- | --- |
+| `GET /v2/episode-requests/{ereq}/artifacts/{results,replay}` | game result or replay artifact |
+| `GET /v2/episode-requests/{ereq}/policy-artifacts` | owned slots with `policy_version_id`, `has_log`, and `has_artifact` |
+| `GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-logs/{agent_idx}` | one owned slot's stderr |
+| `GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-artifact/{agent_idx}` | one owned slot's telemetry ZIP |
+
+The older `/jobs/{job_id}/...` result/log routes return 403 to normal player
+authors, while the old `/jobs/{job_id}/policy-artifact` route is gone (404).
+
 ### Dead ends (do not use)
-- `GET /v2/episode-requests/{ereq}/artifacts/{type}` — `results`/`replay`/`game_logs`/`stats`
-  all return **400 "Unknown artifact type"**; only the `/jobs/{job_id}/...` routes serve these.
 - `GET /v2/experience-request-episodes...` — **gone** (renamed away ~2026-06; an
   older `fetch_episodes.py` keyed logs off this and now fails here).
 - `coworld_id` / `job_id` / `episode_id` as query params on `/v2/episode-requests`
@@ -76,8 +85,8 @@ GET /v2/experience-requests?mine&limit&offset              -> {entries, ...} (th
 
 ## Official `coworld` CLI equivalents (for interactive use)
 
-These work today against the live server (they hit `/v2/episode-requests` +
-`/jobs/{job_id}/...` under the hood) but only cover the experience-request world:
+These work today against the live server (they hit `/v2/episode-requests/...`)
+but only cover the experience-request world:
 
 ```bash
 uv run coworld episodes --pool pool_... --json       # list ereq episodes
@@ -92,6 +101,10 @@ pass, use this skill's `fetch_artifacts.py` instead.
 
 ## Drift log (why this file exists)
 
+- **2026-07-22**: XP consumption moved to ownership-scoped
+  `/v2/episode-requests/...` routes. Verified a current XP player-artifact ZIP
+  and policy log live; the former job-based downloader had silently treated
+  403/404 responses as missing optional telemetry.
 - **2026-06-27**: re-verified the discovery split live — `coworld episodes --policy crewborg`
   returns `[]` (champion league player), while `/stats/policy-versions` → `/episodes` lists its
   league games (the `fetch_artifacts.py --policy` path downloaded a current league episode). The
