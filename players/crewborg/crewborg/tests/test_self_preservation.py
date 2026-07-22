@@ -1,10 +1,13 @@
-"""Reactive self-preservation mode tests."""
+"""Role-agnostic self-preservation repulsion tests."""
 
 from __future__ import annotations
 
-from crewborg.deduction.inference import InferenceResult
+import numpy as np
+
+from crewborg.action import BTN_A, BTN_LEFT, resolve_action
 from crewborg.modes.self_preservation import SelfPreservationMode, enabled
-from crewborg.types import ActionState, Belief, PlayerRecord
+from crewborg.nav import NavGraph
+from crewborg.types import ActionState, Belief, Intent, PlayerRecord
 
 
 def _belief() -> Belief:
@@ -21,13 +24,7 @@ def _belief() -> Belief:
     )
 
 
-def _player(
-    belief: Belief,
-    color: str,
-    xy: tuple[int, int],
-    *,
-    tick: int | None = None,
-) -> None:
+def _player(belief: Belief, color: str, xy: tuple[int, int], *, tick: int | None = None) -> None:
     belief.roster[color] = PlayerRecord(
         color=color,
         world_x=xy[0],
@@ -37,253 +34,198 @@ def _player(
     )
 
 
-def _result(
-    marginals: dict[str, float],
-    *,
-    pins: tuple[str, ...] = (),
-) -> InferenceResult:
-    return InferenceResult(
-        marginals=tuple(marginals.items()),
-        hypotheses=(),
-        excluded=(),
-        evidence=(),
-        pins=pins,
-        murder_clears=(),
-    )
+def _enable(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
 
 
-def _risky_belief() -> Belief:
-    belief = _belief()
-    _player(belief, "red", (120, 100))
-    _player(belief, "blue", (500, 500))
-    _player(belief, "green", (520, 500))
-    return belief
-
-
-def test_enabled_reads_separate_flag(monkeypatch) -> None:
+def test_enabled_reads_separate_flag_and_requires_deduction_history(monkeypatch) -> None:
     monkeypatch.delenv("CREWBORG_SELF_PRESERVATION", raising=False)
     monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
     assert enabled() is False
+
     monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
     assert enabled() is True
 
-
-def test_enabled_requires_deduction_history(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
     monkeypatch.delenv("CREWBORG_DEDUCTION_HISTORY", raising=False)
-
     assert enabled() is False
 
 
-def test_high_posterior_one_on_one_routes_to_witness(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.82, "blue": 0.09, "green": 0.09}),
-    )
-    intent = SelfPreservationMode().decide(_risky_belief(), ActionState())
-
-    assert intent.kind == "navigate_to"
-    assert intent.point in {(500, 500), (520, 500)}
-    assert intent.target_color == "red"
-    assert "P(imposter)=0.820" in intent.reason
-
-
-def test_structural_pin_routes_even_below_probability_bar(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result(
-            {"red": 0.4, "blue": 0.3, "green": 0.3},
-            pins=("red",),
-        ),
-    )
-    intent = SelfPreservationMode().decide(_risky_belief(), ActionState())
-
-    assert intent.kind == "navigate_to"
-    assert intent.target_color == "red"
-
-
-def test_weak_one_on_one_suspicion_keeps_tasking(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.5, "blue": 0.25, "green": 0.25}),
-    )
-    intent = SelfPreservationMode().decide(_risky_belief(), ActionState())
-
-    assert "self preservation" not in intent.reason
-
-
-def test_weak_one_on_one_exposure_starts_avoidance_after_twelve_ticks(
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.5, "blue": 0.25, "green": 0.25}),
-    )
+def test_one_nearby_player_immediately_preempts_tasking(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
     mode = SelfPreservationMode()
-    belief = _risky_belief()
-    assert "self preservation" not in mode.decide(belief, ActionState()).reason
+    mode._normal.decide = lambda *_args: Intent(  # type: ignore[method-assign]
+        kind="complete_task", task_index=4, reason="task"
+    )
 
-    belief.last_tick = 21
-    belief.roster["red"].last_seen_tick = 21
-    assert "self preservation" not in mode.decide(belief, ActionState()).reason
-
-    belief.last_tick = 22
-    belief.roster["red"].last_seen_tick = 22
     intent = mode.decide(belief, ActionState())
 
-    assert "self preservation (isolation)" in intent.reason
+    assert intent.kind == "navigate_to"
+    assert intent.point == (4, 100)
+    assert intent.target_color == "red"
+    assert intent.reason.startswith("self preservation (repulsion)")
 
 
-def test_broken_one_on_one_exposure_resets_timer(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.5, "blue": 0.25, "green": 0.25}),
-    )
-    mode = SelfPreservationMode()
-    belief = _risky_belief()
-    mode.decide(belief, ActionState())
+def test_repulsion_cancels_an_in_progress_task(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
+    task_intent = Intent(kind="complete_task", task_index=4, reason="task")
+    action_state = ActionState(current_intent=task_intent, held_mask=BTN_A)
 
-    belief.last_tick = 18
-    belief.roster["red"].last_seen_tick = 17
-    mode.decide(belief, ActionState())
-    belief.last_tick = 22
-    belief.roster["red"].last_seen_tick = 22
+    intent = SelfPreservationMode().decide(belief, action_state)
+    command = resolve_action(intent, belief, action_state)
 
-    assert "self preservation" not in mode.decide(belief, ActionState()).reason
+    assert action_state.current_intent == intent
+    assert command.held_mask == BTN_LEFT
+    assert command.held_mask & BTN_A == 0
 
 
-def test_current_witness_prevents_escape(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.9, "blue": 0.05, "green": 0.05}),
-    )
-    belief = _risky_belief()
-    _player(belief, "blue", (125, 100))
+def test_repulsion_needs_no_witness_destination(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
+    _player(belief, "blue", (500, 500), tick=-100)
 
     intent = SelfPreservationMode().decide(belief, ActionState())
 
-    assert "self preservation" not in intent.reason
+    assert intent.kind == "navigate_to"
+    assert intent.target_color == "red"
 
 
-def test_no_fresh_two_player_destination_keeps_tasking(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.9, "blue": 0.05, "green": 0.05}),
-    )
-    belief = _risky_belief()
-    belief.roster["blue"].last_seen_tick = -100
-    belief.roster["green"].last_seen_tick = -100
-
-    intent = SelfPreservationMode().decide(belief, ActionState())
-
-    assert "self preservation" not in intent.reason
-
-
-def test_commitment_ends_when_a_witness_arrives(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.5, "blue": 0.25, "green": 0.25}),
-    )
+def test_goal_recomputes_as_both_players_move(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
     mode = SelfPreservationMode()
-    belief = _risky_belief()
-    mode.decide(belief, ActionState())
+    first = mode.decide(belief, ActionState())
 
-    belief.last_tick = 22
-    belief.roster["red"].last_seen_tick = 22
-    assert "self preservation" in mode.decide(belief, ActionState()).reason
+    belief.last_tick += 1
+    belief.self_world_x = 90
+    belief.roster["red"].world_x = 110
+    belief.roster["red"].last_seen_tick = belief.last_tick
+    second = mode.decide(belief, ActionState())
 
-    belief.last_tick = 23
-    belief.roster["red"].last_seen_tick = 23
-    belief.roster["red"].world_x = 121
-    assert "self preservation" in mode.decide(belief, ActionState()).reason
-
-    belief.last_tick = 24
-    belief.roster["red"].last_seen_tick = 24
-    _player(belief, "blue", (125, 100))
-    intent = mode.decide(belief, ActionState())
-
-    assert "self preservation" not in intent.reason
+    assert first.point == (4, 100)
+    assert second.point == (-6, 100)
+    assert first.point != second.point
 
 
-def test_soft_avoidance_ends_when_companion_does_not_pursue(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.5, "blue": 0.25, "green": 0.25}),
-    )
+def test_zero_nearby_players_ends_repulsion(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
     mode = SelfPreservationMode()
-    belief = _risky_belief()
-    mode.decide(belief, ActionState())
-
-    belief.last_tick = 22
-    belief.roster["red"].last_seen_tick = 22
     assert "self preservation" in mode.decide(belief, ActionState()).reason
 
-    belief.last_tick = 23
-    belief.roster["red"].last_seen_tick = 23
+    belief.last_tick += 1
+    belief.roster["red"].last_seen_tick = belief.last_tick
     belief.roster["red"].world_x = 300
     intent = mode.decide(belief, ActionState())
 
     assert "self preservation" not in intent.reason
 
 
-def test_continued_pursuit_latches_until_a_witness_arrives(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.5, "blue": 0.25, "green": 0.25}),
-    )
+def test_second_nearby_player_ends_repulsion(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
     mode = SelfPreservationMode()
-    belief = _risky_belief()
     mode.decide(belief, ActionState())
 
-    belief.last_tick = 22
-    belief.roster["red"].last_seen_tick = 22
-    assert "self preservation (isolation)" in mode.decide(belief, ActionState()).reason
-
-    belief.last_tick = 34
-    belief.roster["red"].last_seen_tick = 34
-    assert "self preservation (pursuit)" in mode.decide(belief, ActionState()).reason
-
-    belief.last_tick = 100
-    belief.roster["red"].last_seen_tick = 34
-    assert "self preservation (pursuit)" in mode.decide(belief, ActionState()).reason
-
-    belief.last_tick = 101
+    belief.last_tick += 1
+    belief.roster["red"].last_seen_tick = belief.last_tick
     _player(belief, "blue", (125, 100))
     intent = mode.decide(belief, ActionState())
 
     assert "self preservation" not in intent.reason
 
 
-def test_escape_can_target_one_fresh_witness(monkeypatch) -> None:
-    monkeypatch.setenv("CREWBORG_SELF_PRESERVATION", "1")
-    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
-    monkeypatch.setattr(
-        "crewborg.modes.self_preservation.infer",
-        lambda history: _result({"red": 0.9, "blue": 0.05, "green": 0.05}),
-    )
-    belief = _risky_belief()
-    belief.roster["green"].last_seen_tick = -100
+def test_only_currently_visible_players_count(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100), tick=9)
 
     intent = SelfPreservationMode().decide(belief, ActionState())
 
-    assert intent.point == (500, 500)
+    assert "self preservation" not in intent.reason
+
+
+def test_self_sprite_is_not_a_second_player(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "pink", (101, 100))
+    _player(belief, "red", (120, 100))
+
+    intent = SelfPreservationMode().decide(belief, ActionState())
+
+    assert intent.target_color == "red"
+
+
+def test_continuous_repulsion_becomes_pursuit_for_telemetry_only(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
+    mode = SelfPreservationMode()
+    first = mode.decide(belief, ActionState())
+
+    belief.last_tick = 22
+    belief.roster["red"].last_seen_tick = 22
+    later = mode.decide(belief, ActionState())
+
+    assert "(repulsion)" in first.reason
+    assert "(pursuit)" in later.reason
+    assert first.point == later.point
+
+
+def test_new_companion_resets_pursuit_duration(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
+    mode = SelfPreservationMode()
+    mode.decide(belief, ActionState())
+    belief.last_tick = 30
+    belief.roster["red"].last_seen_tick = 29
+    _player(belief, "blue", (120, 100))
+
+    intent = mode.decide(belief, ActionState())
+
+    assert intent.target_color == "blue"
+    assert "(repulsion)" in intent.reason
+    assert "continuous_ticks=0" in intent.reason
+
+
+def test_nav_goal_uses_reachable_cells_away_from_companion(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    belief.self_world_x = 55
+    belief.self_world_y = 55
+    _player(belief, "red", (75, 55))
+    start = (5, 5)
+    away = (5, 4)
+    toward = (5, 6)
+    belief.nav = NavGraph(
+        walkability=np.ones((100, 100), dtype=bool),
+        cell_size=10,
+        rows=10,
+        cols=10,
+        node_point={start: (55, 55), away: (45, 55), toward: (65, 55)},
+        adjacency={start: [(away, 10.0), (toward, 10.0)], away: [(start, 10.0)], toward: [(start, 10.0)]},
+        reachable={start, away, toward},
+    )
+
+    intent = SelfPreservationMode().decide(belief, ActionState())
+
+    assert intent.point == (45, 55)
+
+
+def test_overlapping_player_still_produces_nonzero_goal(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (100, 100))
+
+    intent = SelfPreservationMode().decide(belief, ActionState())
+
+    assert intent.point != (100, 100)

@@ -30,9 +30,17 @@ than decreased.
 Do not promote or threshold-tune the named-threat/destination controller. A
 follow-up death audit found that, before 71/88 murders, the killer was the sole
 player within 64 pixels, but crewborg was actually moving under escape in only
-8; it tasked in 46 and sat at a stale near-zero-length escape goal in 15. The
-separate memoryless rule "move away while exactly one player is nearby" remains
-untested and deserves an isolated A/B, although it will often repel crew.
+8; it tasked in 46 and sat at a stale near-zero-length escape goal in 15.
+
+The local follow-up replaces that controller with memoryless repulsion: exactly
+one current visible living player inside 64 pixels immediately preempts tasking;
+the reachable goal is recomputed away from current geometry each tick; zero or
+two nearby players ends it. It does not use or update suspicion. A continuous
+12-tick `pursuit` stage exists only for telemetry so later hosted evidence can
+test whether pursuit itself is discriminative. This remains untested in hosted
+play and must be evaluated in an isolated A/B; it will often repel crew. Local
+validation is 599 passed / 13 skipped plus an activated amd64 Gate 1 with zero
+connect or disconnect timeouts.
 Full result:
 `docs/experiments/2026-07-22-isolation-pursuit-hosted-ab.md`.
 

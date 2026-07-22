@@ -31,7 +31,9 @@ Evidence: Before 71/88 candidate murders the killer was the sole player within
 tasking in 46 and sat at a cached near-zero-length escape goal in 15. The tested
 destination/latch controller therefore did not test the simpler rule “move away
 while exactly one player is nearby.” Evaluate that separately as role-agnostic
-risk control, with no destination requirement or stale target.
+risk control, with no destination requirement or stale target. The local
+follow-up recomputes a reachable away goal from current geometry each tick and
+treats 12-tick pursuit as telemetry, not evidence.
 
 ### A nearby witness is not usually the double-kill failure here
 Evidence: Double kills occurred in 29/121 candidate games and included crewborg

@@ -32,6 +32,15 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## Open
 
+### Test sustained pursuit as solver evidence (2026-07-22)
+
+The memoryless repulsion controller records continuous one-on-one exposure and
+labels it `pursuit` after 12 ticks for telemetry only. Use hosted traces to test
+whether duration, closing velocity, distance band, and persistence after route
+changes distinguish impostors from crewmates. Only add an immutable pursuit
+event and solver weight if the signal generalizes out of sample. Ordinary
+proximity or the fact that crewborg fled must never create suspicion.
+
 ### Add map-aware possible-killer constraints to the pair ledger (2026-07-20)
 
 Per-kill close co-presence is sound but too sparse to exclude pairs by itself,
