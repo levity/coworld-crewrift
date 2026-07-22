@@ -25,6 +25,20 @@ then made that witness the next sole companion and restarted flight. Murders
 rose 36.2% -> 57.5%, one-on-one imposter exposure rose, and task attempts
 churned. Do not treat generic proximity stability as danger evidence.
 
+### Separate local repulsion from named-threat escape
+Evidence: Before 71/88 candidate murders the killer was the sole player within
+64 pixels, but crewborg was actually moving under escape in only 8. It kept
+tasking in 46 and sat at a cached near-zero-length escape goal in 15. The tested
+destination/latch controller therefore did not test the simpler rule “move away
+while exactly one player is nearby.” Evaluate that separately as role-agnostic
+risk control, with no destination requirement or stale target.
+
+### A nearby witness is not usually the double-kill failure here
+Evidence: Double kills occurred in 29/121 candidate games and included crewborg
+in 10/88 murders, but none killed another player within 64 pixels of crewborg on
+the same tick. In the sampled event the other kill was against a separate pair
+across the map. Do not infer local witness removal from same-tick global kills.
+
 ### Crewrift score sign is not an operational-health signal
 Evidence: A clean no-timeout candidate game completed two tasks but scored -17
 from gameplay penalties. Filtering `score >= 0` discarded valid bad games and

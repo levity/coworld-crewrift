@@ -115,6 +115,52 @@ ticks the policy labels the witness as the next threat and flees again. More
 fundamentally, sustained proximity preferentially selected crewmates, while
 missing most killers. It is not a usable broad danger signal in this field.
 
+### What happened immediately before candidate murders
+
+The failed controller is narrower than an immediate memoryless repulsion rule.
+On the tick before the 88 candidate murders, the killer was the sole other live
+player within 64 pixels in 71 cases. In those 71 cases crewborg was:
+
+- actually moving under self-preservation in only 8;
+- emitting self-preservation but stopped within 10 pixels of its cached
+  destination in 15;
+- completing a task in 46;
+- reporting in 1 and idle in 1.
+
+The stopped cases expose a concrete destination bug: hard escape retains the
+last destination when no fresh witness destination exists. After reaching that
+point, it can keep returning a zero-length navigation goal while the threat
+remains close. Conversely, an escape does not start at all when no player was
+seen recently enough to supply a destination. Across all deaths the killer was
+continuously rendered-visible for at least 12 ticks in 84/88 cases, so most of
+the 46 tasking cases were not surprise attacks; the missing destination blocked
+response. Only 40/88 killers spent fewer than 12 consecutive ticks inside the
+actual 20-pixel kill range, including 37 that entered kill range for at most
+three ticks before striking.
+
+An immediate rule that simply moves away while exactly one player is within 64
+pixels would therefore have recognized 71/88 lethal situations at the last
+pre-kill tick, compared with 17/88 where the implemented named-threat escape was
+aimed at the killer and only 8/88 where it was still producing movement. This
+counterfactual has materially better coverage, but replay cannot establish
+survival after changing the path; it needs its own isolated A/B.
+
+Distance alone remains a weak role classifier. In fully operational control
+games, the sole nearby player was an impostor on only 38.8% of sole-player ticks
+at the true 20-pixel kill range, 43.1% around 28--56 pixels, and 40.6% at 64
+pixels. For continuous 12-tick same-player bouts, the impostor share was 37--39%
+by bout and 40--44% weighted by duration. Crewmates commonly remain within
+literal kill range because they share tasks, corridors, and explicit group
+policies. Derived chase intervals were more discriminating (75% impostor in the
+control arm) but sparse: they covered only 22/88 candidate killers at death.
+
+Double kills are real but not the main explanation. Fully operational candidate
+games had simultaneous two-kill ticks in 29/121 games (24.0%), versus 19/127
+(15.0%) control games. The subject was one victim of a double kill in 10/88
+candidate murders and 10/63 control murders. None of the candidate subject's
+nearby 64-pixel witnesses was the other same-tick victim; the sampled double
+kill involved two separate pairs elsewhere on the map.
+
 Candidate and control used the same image, but candidate had more subject
 connect timeouts (47/200 vs 26/200). The feature does not execute before the
 initial connection, so this likely reflects hosted imbalance rather than the
@@ -123,8 +169,11 @@ timeout leaves the gameplay conclusion unchanged.
 
 ## Decision
 
-Do not promote or iterate thresholds on this generic trigger. Return to the
-suspect-gated controller or disable self-preservation while mining pre-murder
-trajectories for a real pursuit feature. Future movement must not abandon an
-active task merely because a companion remains nearby, and a reached witness
-must become a temporary safety anchor rather than the next inferred threat.
+Do not promote or iterate thresholds on this named-threat/destination
+controller. Return to the suspect-gated controller, or separately test a pure
+memoryless repulsion rule that needs no destination, never retains a stale
+target, and ends immediately at zero or two-plus nearby players. Treat that as
+risk control rather than impostor evidence: most activations will still be
+against crew and can interrupt tasks. In parallel, mine closing/chase features
+for a higher-precision escape accelerator. A reached witness must become a
+temporary safety anchor rather than the next inferred threat.

@@ -27,9 +27,13 @@ became the next 12-tick threat, causing repeated flight and 240 abandoned task
 attempts versus 35 control. One-on-one time with an impostor increased rather
 than decreased.
 
-Do not promote or threshold-tune the generic proximity trigger. Disable it or
-return to suspect-gated escape while mining pre-murder trajectories for a
-genuinely discriminating chase feature. Full result:
+Do not promote or threshold-tune the named-threat/destination controller. A
+follow-up death audit found that, before 71/88 murders, the killer was the sole
+player within 64 pixels, but crewborg was actually moving under escape in only
+8; it tasked in 46 and sat at a stale near-zero-length escape goal in 15. The
+separate memoryless rule "move away while exactly one player is nearby" remains
+untested and deserves an isolated A/B, although it will often repel crew.
+Full result:
 `docs/experiments/2026-07-22-isolation-pursuit-hosted-ab.md`.
 
 The correct operational filter is `connect_timeout == 0` and
