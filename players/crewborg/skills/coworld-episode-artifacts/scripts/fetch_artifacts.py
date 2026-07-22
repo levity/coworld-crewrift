@@ -16,10 +16,9 @@ client/server version skew that recurs here (the published `coworld` client
 regularly ships behind the server). It is **game-agnostic**: nothing about
 Crewrift, crewborg, or any specific game is baked in.
 
-THE KEY IDEA: every episode -- whether a league/tournament episode or an ad-hoc
-experience-request episode -- carries a `job_id`, and the job is the universal
-artifact handle. All artifacts come from three job routes (verified live
-2026-06-08):
+League episodes use their `job_id` as the artifact handle. Experience-request
+episodes use ownership-scoped `/v2/episode-requests/...` routes (verified live
+2026-07-22):
 
     GET /jobs/{job_id}/artifacts/results        -> results.json   (scores/metrics)
     GET /jobs/{job_id}/artifacts/replay          -> replay bytes   (game replay)
@@ -28,6 +27,11 @@ artifact handle. All artifacts come from three job routes (verified live
     GET /jobs/{job_id}/policy-artifact           -> [slot, ...] with uploaded artifacts
     GET /jobs/{job_id}/policy-artifact/{agent_idx} -> one slot's artifact zip
     GET /jobs/{job_id}/artifacts/error_info      -> error_info.json (only on failure)
+
+    GET /v2/episode-requests/{ereq}/artifacts/{results,replay}
+    GET /v2/episode-requests/{ereq}/policy-artifacts
+    GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-logs/{agent_idx}
+    GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-artifact/{agent_idx}
 
 Each artifact is best-effort: a missing replay or one missing log is logged and
 recorded in the per-episode summary, never aborts the episode or the run.
@@ -177,8 +181,9 @@ class EpisodeRef:
 
     `record` is the raw source row (a league episode record or an
     experience-request episode row); it is written verbatim as episode.json.
-    `job_id` is the universal artifact handle. `replay_url` is a fallback replay
-    source when the job replay artifact is unavailable.
+    `job_id` is the artifact handle for league episodes. XP episodes use their
+    `ereq_...` ID and ownership-scoped routes. `replay_url` is a fallback replay
+    source when the primary replay artifact is unavailable.
     """
 
     ref_id: str                    # episode uuid or ereq_... id
@@ -420,14 +425,18 @@ def fetch_episode(
     (out_dir / "episode.json").write_text(json.dumps(ref.record, indent=2))
 
     job = ref.job_id
-    if job is None:
+    is_xp = ref.ref_id.startswith("ereq_")
+    if job is None and not is_xp:
         summary["errors"].append("no job_id on episode -- artifacts unavailable")
         (out_dir / "artifact_status.json").write_text(json.dumps(summary, indent=2))
         return summary
 
     # 2. Results (scores / metrics).
     if want_results:
-        raw = client.get_text_or_none(f"/jobs/{job}/artifacts/results")
+        raw = client.get_text_or_none(
+            f"/v2/episode-requests/{ref.ref_id}/artifacts/results"
+            if is_xp else f"/jobs/{job}/artifacts/results"
+        )
         if raw is not None:
             (out_dir / "results.json").write_text(raw)
             summary["results"] = True
@@ -436,7 +445,10 @@ def fetch_episode(
 
     # 3. Replay (prefer the job artifact; fall back to the episode's replay_url).
     if want_replay:
-        content = client.get_bytes_or_none(f"/jobs/{job}/artifacts/replay")
+        content = client.get_bytes_or_none(
+            f"/v2/episode-requests/{ref.ref_id}/artifacts/replay"
+            if is_xp else f"/jobs/{job}/artifacts/replay"
+        )
         if content is None and ref.replay_url:
             try:
                 r = httpx.get(ref.replay_url, follow_redirects=True, timeout=120.0)
@@ -450,28 +462,47 @@ def fetch_episode(
         else:
             summary["errors"].append("replay unavailable (job artifact + replay_url both failed)")
 
-    # 4. Per-agent policy logs. The job lists its own log files; download each.
+    # 4. Per-agent policy logs.
     if want_logs:
-        names = client.get_text_or_none(f"/jobs/{job}/policy-logs")
-        log_names: list[str] = []
-        if names is not None:
-            try:
-                log_names = json.loads(names)
-            except json.JSONDecodeError:
-                log_names = []
-        if log_names:
+        if is_xp:
+            owned = client.get_json(f"/v2/episode-requests/{ref.ref_id}/policy-artifacts")
             logs_dir = out_dir / "logs"
             logs_dir.mkdir(exist_ok=True)
-            for idx, fname in enumerate(log_names):
-                text = client.get_text_or_none(f"/jobs/{job}/policy-logs/{idx}")
-                if text is None:
-                    summary["errors"].append(f"policy-log {idx} ({fname}): unavailable")
+            for entry in owned:
+                if not entry.get("has_log"):
                     continue
-                safe = Path(fname).name or f"policy_agent_{idx}.log"
+                idx = int(entry["position"])
+                policy_version_id = str(entry["policy_version_id"])
+                text = client.get_text_or_none(
+                    f"/v2/episode-requests/{ref.ref_id}/{policy_version_id}/policy-logs/{idx}"
+                )
+                if text is None:
+                    summary["errors"].append(f"policy-log {idx}: unavailable")
+                    continue
+                safe = f"policy_agent_{idx}.log"
                 (logs_dir / safe).write_text(text)
                 summary["logs"].append(safe)
         else:
-            summary["errors"].append("no policy logs listed for job")
+            names = client.get_text_or_none(f"/jobs/{job}/policy-logs")
+            log_names: list[str] = []
+            if names is not None:
+                try:
+                    log_names = json.loads(names)
+                except json.JSONDecodeError:
+                    pass
+            if log_names:
+                logs_dir = out_dir / "logs"
+                logs_dir.mkdir(exist_ok=True)
+                for idx, fname in enumerate(log_names):
+                    text = client.get_text_or_none(f"/jobs/{job}/policy-logs/{idx}")
+                    if text is None:
+                        summary["errors"].append(f"policy-log {idx} ({fname}): unavailable")
+                        continue
+                    safe = Path(fname).name or f"policy_agent_{idx}.log"
+                    (logs_dir / safe).write_text(text)
+                    summary["logs"].append(safe)
+            else:
+                summary["errors"].append("no policy logs listed for job")
 
     # 5. Per-player artifact zips (policy-scoped: only slots we own come back).
     # Players may upload one zip of structured telemetry/debug data per slot
@@ -479,22 +510,34 @@ def fetch_episode(
     # The listing is filenames (`["policy_artifact_0.zip", ...]`), not bare
     # slot ints; the download route is keyed by the slot index parsed from them.
     if want_logs:
-        listing = client.get_text_or_none(f"/jobs/{job}/policy-artifact")
-        slots: list[int] = []
-        if listing is not None:
-            try:
-                entries = json.loads(listing)
-            except json.JSONDecodeError:
-                entries = []
-                summary["errors"].append(f"unparseable policy-artifact listing: {listing[:80]}")
-            for entry in entries:
-                idx = _artifact_slot_index(entry)
-                if idx is None:
-                    summary["errors"].append(f"unrecognized policy-artifact entry: {entry!r}")
-                    continue
-                slots.append(idx)
-        for idx in slots:
-            content = client.get_bytes_or_none(f"/jobs/{job}/policy-artifact/{idx}")
+        if is_xp:
+            artifact_entries = [entry for entry in owned if entry.get("has_artifact")]
+        else:
+            listing = client.get_text_or_none(f"/jobs/{job}/policy-artifact")
+            artifact_entries = []
+            if listing is not None:
+                try:
+                    entries = json.loads(listing)
+                except json.JSONDecodeError:
+                    entries = []
+                    summary["errors"].append(f"unparseable policy-artifact listing: {listing[:80]}")
+                for entry in entries:
+                    idx = _artifact_slot_index(entry)
+                    if idx is None:
+                        summary["errors"].append(f"unrecognized policy-artifact entry: {entry!r}")
+                        continue
+                    artifact_entries.append({"position": idx})
+        for entry in artifact_entries:
+            idx = int(entry["position"])
+            if is_xp:
+                policy_version_id = str(entry["policy_version_id"])
+                path = (
+                    f"/v2/episode-requests/{ref.ref_id}/{policy_version_id}"
+                    f"/policy-artifact/{idx}"
+                )
+            else:
+                path = f"/jobs/{job}/policy-artifact/{idx}"
+            content = client.get_bytes_or_none(path)
             if content is None:
                 summary["errors"].append(f"policy-artifact {idx}: unavailable")
                 continue
@@ -504,7 +547,7 @@ def fetch_episode(
             summary["policy_artifacts"].append(idx)
 
     # 6. Error info (present only when the episode failed).
-    err = client.get_text_or_none(f"/jobs/{job}/artifacts/error_info")
+    err = None if is_xp else client.get_text_or_none(f"/jobs/{job}/artifacts/error_info")
     if err is not None:
         (out_dir / "error_info.json").write_text(err)
         summary["error_info"] = True
