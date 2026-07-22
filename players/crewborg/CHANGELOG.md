@@ -13,6 +13,15 @@
   response to known threats, and proximity never becomes deduction evidence.
 - Added explicit activation, pursuit-upgrade, and termination trace events and
   metrics for hosted analysis.
+- The 200/arm hosted test rejects this broad trigger. On per-slot operational
+  games, murders rose 36.2% -> 57.5%, all-task completion fell 60.3% -> 37.3%,
+  and crew wins fell 31.0% -> 15.7%. Full telemetry showed 629/717 escape
+  targets were crew; the controller repeatedly treated a reached witness as the
+  next threat and increased one-on-one time with impostors. Do not promote.
+- Repaired the XP artifact downloader after API drift hid policy telemetry.
+  XP results, owned logs, and owned player artifacts now use the current
+  ownership-scoped episode-request routes. Also established that negative score
+  is not an operational-failure test; use result timeout fields.
 
 ## 2026-07-22 - Self-preservation movement
 

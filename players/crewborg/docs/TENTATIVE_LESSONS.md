@@ -17,6 +17,26 @@ optional `Status:` note. Terse. One lesson per `###`.
 
 ---
 
+### Sustained proximity selected allies, not killers
+Evidence: In the 200/arm aggressive self-preservation A/B, full candidate
+telemetry recorded 717 escape sessions: 629 threats were crew and only 88 were
+impostors. Only 23/88 eventual killers ever triggered. Reaching one witness
+then made that witness the next sole companion and restarted flight. Murders
+rose 36.2% -> 57.5%, one-on-one imposter exposure rose, and task attempts
+churned. Do not treat generic proximity stability as danger evidence.
+
+### Crewrift score sign is not an operational-health signal
+Evidence: A clean no-timeout candidate game completed two tasks but scored -17
+from gameplay penalties. Filtering `score >= 0` discarded valid bad games and
+changed denominators. Use per-slot `connect_timeout` and `disconnect_timeout`
+from `results.json`; separately report a whole-roster-timeout sensitivity set.
+
+### Optional artifact absence can be a downloader regression
+Evidence: XP player telemetry was declared unavailable because the downloader
+used obsolete `/jobs/...` routes and swallowed their 403/404 responses. The
+current owned `/v2/episode-requests/{ereq}/{policy_version}/...` route returned
+the expected ZIP, including all self-preservation edge events.
+
 ### Post-task grouping does not prevent active-task isolation
 Evidence: In the v2 300-game crew screen, crewborg was murdered in 172 games;
 112 deaths occurred with only the eventual killer nearby, and 70 were the
