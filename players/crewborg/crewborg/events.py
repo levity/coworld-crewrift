@@ -105,6 +105,7 @@ class CrewborgEventTracer:
         self._last_kill_tick: int | None = None
         self._vote_confirmed: bool = False
         self._started_task_index: int | None = None
+        self._self_preservation_stage: str | None = None
 
         # Knowledge-layer delta state (per color where noted).
         self._event_counts: dict[str, int] = {}  # color → events logged so far (emit the new tail)
@@ -157,6 +158,7 @@ class CrewborgEventTracer:
         self._observe_kill_landed(belief, emit)
         self._observe_vote(context.action_state, emit)
         self._observe_action(context.intent, context.command, emit)
+        self._observe_self_preservation(context.intent, emit)
         self._observe_chat_received(belief, emit)
         if self._emit_decision_snapshot:
             self._observe_decision_snapshot(context)
@@ -296,6 +298,36 @@ class CrewborgEventTracer:
             # vent use just like the dedicated ``vent`` intent.
             emit.event("vent_attempted", {})
             emit.counter("vent_attempted")
+
+    def _observe_self_preservation(
+        self,
+        intent: Intent,
+        emit: EventEmitter,
+    ) -> None:
+        reason = intent.reason or ""
+        stage = None
+        if reason.startswith("self preservation (isolation)"):
+            stage = "isolation"
+        elif reason.startswith("self preservation (pursuit)"):
+            stage = "pursuit"
+        if stage == self._self_preservation_stage:
+            return
+        if stage is not None:
+            emit.event(
+                "self_preservation_started",
+                {"stage": stage, "threat": intent.target_color},
+            )
+            emit.counter("self_preservation_started", tags={"stage": stage})
+        elif self._self_preservation_stage is not None:
+            emit.event(
+                "self_preservation_ended",
+                {"stage": self._self_preservation_stage},
+            )
+            emit.counter(
+                "self_preservation_ended",
+                tags={"stage": self._self_preservation_stage},
+            )
+        self._self_preservation_stage = stage
 
     def _observe_chat_received(self, belief: Belief, emit: EventEmitter) -> None:
         """Emit each newly heard meeting chat line once per meeting."""
