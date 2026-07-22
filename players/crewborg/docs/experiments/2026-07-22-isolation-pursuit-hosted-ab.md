@@ -38,4 +38,16 @@ an effect size and interval/test, not direction alone.
 
 ## Requests and results
 
-Pending.
+Both arms use commit `2f37fa8` and image
+`sha256:e8a76b13d779e64a41dfe73a85c85b0c7ce898639de5c01cd8646085dda6db1f`.
+The API permits at most 100 episodes per request, so each 200-game arm is split
+into two same-window replicates:
+
+| Arm | Policy | Requests |
+| --- | --- | --- |
+| control | `crewborg-isolation-pursuit-control:v1` (`e3d77eda-72fb-4c3e-9159-44b1f6c57abe`) | `xreq_9d25c2a3-72d9-42de-917c-67520d0f8891`, `xreq_7fe3dc8a-6899-496b-8b94-2460f8aa3682` |
+| candidate | `crewborg-isolation-pursuit:v1` (`7263c864-742b-42a5-b84c-ac5e55176a12`) | `xreq_3ee34344-dabe-4efe-abee-4e44cbe59771`, `xreq_da3f3a14-e5d3-487f-af96-76f2c9faadff` |
+
+Live-schema validation passed. Readback confirmed Crewrift 0.1.59, the exact
+eight policy versions, six rotating crew seats, and the two intended pinned
+impostors. Results pending.
