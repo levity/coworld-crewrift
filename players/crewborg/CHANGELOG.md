@@ -16,8 +16,15 @@
 - Local validation: 66 focused tests and the full 595-test current-SDK suite
   pass (13 skipped); touched-file Ruff and `git diff --check` are clean. The
   amd64 image completed Gate 1 with both defenses and stick mode enabled,
-  without a freeze, inference error, or connection failure. Hosted effect is
-  intentionally not claimed until a rotated-seat comparison is run.
+  without a freeze, inference error, or connection failure.
+- Completed a same-image rotated-crew-seat 100/arm hosted A/B. Subject-clean
+  murders moved 60.7% -> 55.1% (`p=0.45`) with unchanged task completion, while
+  exact replay showed less one-on-one exposure and fewer killer-only murders.
+  The stricter whole-roster-clean subset reversed the murder delta, so the
+  candidate remains evaluation-only.
+- Group-supported task starts and first-victim frequency were effectively flat.
+  The next test should isolate suspect escape with group tasking disabled and
+  add observable activation telemetry before any threshold tuning.
 
 ## 2026-07-20 - Correlated deduction evaluation and ballot gate
 
