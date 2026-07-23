@@ -53,6 +53,7 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
         self._target: int | None = None
         self._target_reason = "completing assigned task"
         self._max_progress: int = 0  # peak progress seen for the current target
+        self._target_progress_started = False
         self._swept: set[int] = set()
 
     def decide(self, belief: Belief, action_state: ActionState) -> Intent:
@@ -84,6 +85,7 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
         if target is not None and target < len(tasks):
             on_station = _inside(tasks[target], belief.self_world_x, belief.self_world_y)
             if on_station and belief.active_task_progress_pct is not None:
+                self._target_progress_started = True
                 self._max_progress = max(self._max_progress, belief.active_task_progress_pct)
             if target not in signals:
                 # Bubble gone: a real completion only if progress reached ~done.
@@ -91,11 +93,40 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
                 if self._max_progress >= COMPLETION_PROGRESS_PCT:
                     belief.completed_task_indices.add(target)
                     self._target = None
+                    self._target_progress_started = False
             # if still signalled, keep the current target (avoids thrashing).
+
+        if (
+            self._target is not None
+            and self._target in signals
+            and not self._target_progress_started
+            and _truthy_env("CREWBORG_GROUP_TASKING")
+        ):
+            self._revalidate_group_target(belief, tasks, signals)
 
         if self._target is None:
             self._target = self._pick_target(belief, tasks, signals)
             self._max_progress = 0
+            self._target_progress_started = False
+
+    def _revalidate_group_target(
+        self,
+        belief: Belief,
+        tasks: tuple[TaskStation, ...],
+        signals: set[int],
+    ) -> None:
+        """Refresh a group-biased target while traveling, never during task progress."""
+
+        current_reason = self._target_reason
+        proposed = self._pick_target(belief, tasks, signals)
+        proposed_reason = self._target_reason
+        current_is_grouped = current_reason.startswith("group-aware tasking:")
+        proposed_is_grouped = proposed_reason.startswith("group-aware tasking:")
+        if current_is_grouped or proposed_is_grouped:
+            self._target = proposed
+            self._max_progress = 0
+            return
+        self._target_reason = current_reason
 
     def _pick_target(self, belief: Belief, tasks: tuple[TaskStation, ...], signals: set[int]) -> int | None:
         # The live signal set is the authoritative list of remaining tasks; a task

@@ -2,6 +2,17 @@
 
 ## 2026-07-23 - Isolated proactive group tasking
 
+- The 100/arm hosted result is neutral: subject-clean murders are 52/99 control
+  versus 53/99 candidate, with tasks, wins, and team kills flat. Do not promote.
+- Telemetry shows a stale-support bug in the strategy rather than an inactive
+  flag. A group was nearby at 82.4% of group-task session starts but only 21.4%
+  of active ticks; the initially selected station stayed cached after the group
+  dispersed. Candidate 2+ nearby time fell 30.0% -> 24.9%.
+- Revalidate group support while traveling. Switch to a newly supported task or
+  back to the ordinary nearest task when support expires, but latch the target
+  as soon as any task progress is observed so active work is never abandoned.
+- Local follow-up validation: 603 passed / 13 skipped; touched-file Ruff and
+  `git diff --check` are clean.
 - Pivot from reactive flight to proactive positioning. Stage a same-image
   100/arm hosted A/B that changes only `CREWBORG_GROUP_TASKING`; both arms keep
   self-preservation off.
