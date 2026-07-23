@@ -32,17 +32,26 @@ follow-up death audit found that, before 71/88 murders, the killer was the sole
 player within 64 pixels, but crewborg was actually moving under escape in only
 8; it tasked in 46 and sat at a stale near-zero-length escape goal in 15.
 
-The local follow-up replaces that controller with memoryless repulsion: exactly
-one current visible living player inside 64 pixels immediately preempts tasking;
-the reachable goal is recomputed away from current geometry each tick; zero or
-two nearby players ends it. It does not use or update suspicion. A continuous
-12-tick `pursuit` stage exists only for telemetry so later hosted evidence can
-test whether pursuit itself is discriminative. This remains untested in hosted
-play and must be evaluated in an isolated A/B; it will often repel crew. Local
-validation is 599 passed / 13 skipped plus an activated amd64 Gate 1 with zero
-connect or disconnect timeouts.
+The memoryless-repulsion follow-up is hosted-evaluated and rejected as built.
+In 200 games/arm, subject-clean murders rose 87/181 (48.1%) -> 112/187
+(59.9%, +11.8pp, Fisher p=0.028), full tasks fell 78.5% -> 34.8%, and wins
+fell 45.9% -> 23.0%. Do not promote `crewborg-memoryless-repulsion:v1`.
+
+The test is also pervasively contaminated by a self-identity bug. Hosted self
+records sit at the stable `(-2,-6)` offset from `self_world` (distance 6.32),
+outside `SELF_SPRITE_MATCH_SQ=4**2`. The controller's color-only self filter
+then targeted crewborg's own sprite in 2,123/5,549 traced stage starts/upgrades
+and 182/187 operational games. Before 41/112 murders, the visible killer was
+the sole true other player inside 64 but the extra self record prevented task
+preemption. Fix identity and add a hard geometric self-record exclusion before
+retesting the rule; do not threshold-tune this result.
+
+Even under contamination, geometry warns that separation is not safety: time
+with 2+ nearby fell 24.3% -> 11.7%, fully alone rose 46.3% -> 55.7%, and sole
+impostor exposure rose 13.6% -> 22.0%. The clean rerun should measure reaching
+a third player separately from merely moving beyond 64 pixels.
 Full result:
-`docs/experiments/2026-07-22-isolation-pursuit-hosted-ab.md`.
+`docs/experiments/2026-07-22-memoryless-repulsion-hosted-ab.md`.
 
 The correct operational filter is `connect_timeout == 0` and
 `disconnect_timeout == 0`, per slot or across the roster. Never use

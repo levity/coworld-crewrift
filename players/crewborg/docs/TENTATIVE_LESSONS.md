@@ -35,6 +35,14 @@ risk control, with no destination requirement or stale target. The local
 follow-up recomputes a reachable away goal from current geometry each tick and
 treats 12-tick pursuit as telemetry, not evidence.
 
+### Verify self identity in hosted geometry consumers
+Evidence: `SELF_SPRITE_MATCH_SQ=4**2` assumes the decoded self record equals
+`self_world`, but 20 sampled hosted games and murder-time traces show a stable
+record offset of `(-2,-6)` (distance 6.32). Memoryless repulsion therefore
+targeted the camera-locked self sprite in 2,123/5,549 stage starts/upgrades and
+182/187 operational games. Unit tests with a pre-filled correct `self_color`
+and Gate 1 did not exercise this integration failure.
+
 ### A nearby witness is not usually the double-kill failure here
 Evidence: Double kills occurred in 29/121 candidate games and included crewborg
 in 10/88 murders, but none killed another player within 64 pixels of crewborg on
