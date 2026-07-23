@@ -42,6 +42,15 @@ SWEEP_ARRIVE_RADIUS = 24  # within this of a station center ⇒ count it as chec
 GROUP_TASK_RADIUS_SQ = 120**2
 GROUP_TASK_FIX_TICKS = 48
 DEFAULT_GROUP_TASK_MAX_DETOUR = 160
+# Post-task loiter-with-group (CREWBORG_POST_TASK_LOITER): a crewmate that has
+# finished all its own tasks is worth more holding with the pack than wandering
+# home alone -- diagnostics show ~half of subject murders happen after the subject
+# finished its tasks, and ~3/4 of murders are isolated (no witness). Two live
+# crewmates within this radius count as a cluster; once this close to its anchor,
+# hold still to keep line of sight rather than re-approach.
+GROUP_LOITER_RADIUS_SQ = 120**2
+GROUP_LOITER_HOLD_SQ = 72**2
+GROUP_LOITER_FIX_TICKS = 96
 
 
 class NormalMode(Mode[Belief, ActionState, Intent]):
@@ -75,6 +84,9 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
         sweep = self._sweep_intent(belief, tasks)
         if sweep is not None:
             return sweep
+        loiter = _post_task_loiter(belief)
+        if loiter is not None:
+            return loiter
         return _return_to_start(belief)
 
     def _update_target(self, belief: Belief, tasks: tuple[TaskStation, ...]) -> None:
@@ -186,6 +198,60 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
             return None  # checked every station and found no assigned tasks
         nearest = min(remaining, key=lambda i: _dist2(self_xy, _nav_point(belief, tasks[i], i)))
         return Intent(kind="navigate_to", point=_nav_point(belief, tasks[nearest], nearest), reason="sweeping for tasks")
+
+
+def _post_task_loiter(belief: Belief) -> Intent | None:
+    """Opt-in: a finished crewmate holds with the pack instead of wandering home.
+
+    Gated by ``CREWBORG_POST_TASK_LOITER`` and reached only when Normal has no task
+    left to do. Biases toward the densest cluster of recently-seen live crewmates
+    (safety in numbers denies kill windows) and holds still once inside it. Off ⇒
+    behaviour is byte-identical to the old return-to-start path.
+    """
+
+    if (
+        not _truthy_env("CREWBORG_POST_TASK_LOITER")
+        or not belief.self_alive
+        or belief.self_role != "crewmate"
+    ):
+        return None
+    self_xy = _self_xy(belief)
+    if self_xy is None:
+        return None
+    tick = belief.last_tick
+    live = [
+        record
+        for record in belief.roster.values()
+        if record.color != belief.self_color
+        and record.life_status == "alive"
+        and 0 <= tick - record.last_seen_tick <= GROUP_LOITER_FIX_TICKS
+    ]
+    if len(live) < 2:
+        return None
+
+    def neighbours(record) -> list:
+        here = (record.world_x, record.world_y)
+        return [
+            other
+            for other in live
+            if other is not record
+            and _dist2(here, (other.world_x, other.world_y)) <= GROUP_LOITER_RADIUS_SQ
+        ]
+
+    # Densest cluster: keep the winner's neighbour list from the same pass rather
+    # than recomputing it for the anchor.
+    anchor, anchor_neighbours = max(
+        ((record, neighbours(record)) for record in live),
+        key=lambda pair: len(pair[1]),
+    )
+    cluster = [anchor, *anchor_neighbours]
+    if len(cluster) < 2:
+        return None
+    target = (anchor.world_x, anchor.world_y)
+    visible_now = sum(record.last_seen_tick == tick for record in cluster)
+    if _dist2(self_xy, target) <= GROUP_LOITER_HOLD_SQ and visible_now >= 2:
+        return Intent(kind="loiter", reason="post-task loiter: holding with the group")
+    return Intent(kind="navigate_to", point=target, reason="post-task loiter: regrouping with crew")
 
 
 def _return_to_start(belief: Belief) -> Intent:

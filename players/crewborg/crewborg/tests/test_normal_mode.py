@@ -476,6 +476,65 @@ def test_returns_to_the_start_room_when_all_tasks_are_done() -> None:
     assert intent.kind == "navigate_to" and intent.point == (0, 0)  # back to spawn, not idle
 
 
+def _done_belief(**kw) -> Belief:
+    """A crewmate with all tasks done (reaches the return-home / loiter path)."""
+    base = dict(
+        map=_map_with_tasks(),  # home = (0, 0)
+        assigned_task_indices={0, 1},
+        completed_task_indices={0, 1},
+        self_role="crewmate",
+        self_color="pink",
+        self_alive=True,
+    )
+    base.update(kw)
+    return Belief(**base)
+
+
+def test_post_task_loiter_off_by_default_returns_home(monkeypatch) -> None:
+    monkeypatch.delenv("CREWBORG_POST_TASK_LOITER", raising=False)
+    belief = _done_belief(self_world_x=500, self_world_y=500)
+    _crew(belief, "red", (100, 100))
+    _crew(belief, "blue", (130, 100))
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (0, 0)  # home, not the cluster
+
+
+def test_post_task_loiter_regroups_with_the_densest_cluster(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_POST_TASK_LOITER", "1")
+    belief = _done_belief(self_world_x=500, self_world_y=500)
+    _crew(belief, "red", (100, 100))
+    _crew(belief, "blue", (130, 100))  # 30px from red => a cluster of two
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (100, 100)
+    assert "regrouping" in intent.reason
+
+
+def test_post_task_loiter_holds_once_inside_the_cluster(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_POST_TASK_LOITER", "1")
+    belief = _done_belief(self_world_x=110, self_world_y=100)  # ~10px from the anchor
+    _crew(belief, "red", (100, 100))
+    _crew(belief, "blue", (130, 100))
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "loiter" and "holding" in intent.reason
+
+
+def test_post_task_loiter_needs_two_live_players(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_POST_TASK_LOITER", "1")
+    belief = _done_belief(self_world_x=500, self_world_y=500)
+    _crew(belief, "red", (100, 100))  # only one nearby => no cluster
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (0, 0)  # falls back to home
+
+
+def test_post_task_loiter_skips_ghosts(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_POST_TASK_LOITER", "1")
+    belief = _done_belief(self_world_x=500, self_world_y=500, self_alive=False)
+    _crew(belief, "red", (100, 100))
+    _crew(belief, "blue", (130, 100))
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (0, 0)  # ghost just goes home
+
+
 def test_sweeps_baked_tasks_when_no_signals_arrive() -> None:
     # showTaskArrows disabled: no task signals, so assigned stays empty. Rather
     # than idle forever, sweep toward the nearest baked station to discover tasks.
