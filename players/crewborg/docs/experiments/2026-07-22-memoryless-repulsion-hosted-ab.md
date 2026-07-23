@@ -129,3 +129,22 @@ geometric self-record exclusion to this safety-critical consumer. Re-run the
 same A/B before changing the 64-pixel rule. The corrected experiment should
 also distinguish mere separation from reaching a third player; this run shows
 that increasing fully-alone time is not a safety success.
+
+## Corrected v2 rerun (2026-07-23)
+
+Commit `61b1327` fixes self identity at the hosted `(-2,-6)` anchor and adds an
+independent geometric self-record exclusion. The full suite passes (601 passed,
+13 skipped), and the exact activated image passed local Gate 1 in all eight
+slots. Control and candidate v2 were uploaded from the same committed image;
+only the candidate enables self-preservation.
+
+The rerun repeats the pinned roster and 200 games per arm in four 100-game
+requests:
+
+| Arm | Policy | Requests |
+| --- | --- | --- |
+| control | `crewborg-memoryless-repulsion-control:v2` (`98d4b40f-97aa-42f5-99cc-14b9acc18dff`) | `xreq_a47eec45-f5ac-4aa3-815d-8ebf25f7f2aa`, `xreq_de16d4e1-a502-434e-8330-77f6308fcbed` |
+| candidate | `crewborg-memoryless-repulsion:v2` (`caf92954-bdc4-464f-bec7-a14443c5119f`) | `xreq_bac575e6-88bc-4714-8342-a6bd4336e9fa`, `xreq_8d38befc-5a31-4b10-bdbc-473f7d7bd912` |
+
+The first correctness gate remains zero repulsion or pursuit events targeting
+the subject's true self color. Outcome and mechanism results are pending.
