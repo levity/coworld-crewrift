@@ -126,15 +126,8 @@ class RuleBasedStrategy:
                 return ModeDirective(
                     mode="self_preservation",
                     source="strategy",
-                    reason="playing: react to one-on-one threats, otherwise task",
+                    reason="playing: keep safe distance from a lone follower, otherwise task",
                 )
-            # Opt-in stay-with-group (CREWBORG_STICK): StickMode does our tasks first, then
-            # loiters with the crew once they're done. Default OFF ⇒ plain Normal. Imported
-            # lazily to avoid a strategy<->modes import cycle at module load.
-            from crewborg.modes.stick import enabled as stick_enabled
-
-            if belief.self_role == "crewmate" and stick_enabled():
-                return ModeDirective(mode="stick", source="strategy", reason="playing: tasks then stick with crew")
             return ModeDirective(mode="normal", source="strategy", reason="playing: do tasks")
 
         # All other non-play phases (VoteResult / GameOver / unknown).
