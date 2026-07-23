@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-23 - Isolated proactive group tasking
+
+- Pivot from reactive flight to proactive positioning. Stage a same-image
+  100/arm hosted A/B that changes only `CREWBORG_GROUP_TASKING`; both arms keep
+  self-preservation off.
+- Precommit murder rate as primary, task completion as a guardrail, and group
+  task selections plus 0/1/2+ nearby-player time as mechanism checks. The exact
+  pinned-SDK candidate image passed local Gate 1 in all eight slots.
+
 ## 2026-07-23 - Delayed witness-seeking avoidance
 
 - Reject delayed witness-seeking after a clean 100/arm hosted A/B. Murders moved
