@@ -23,10 +23,22 @@ was the prior intent. Even a 300-tick recent-witness bound covers only 31.8% of
 those ticks. Do not continue tuning role-neutral reactive flight.
 
 The local follow-up removes blind fallback and excludes every record at the
-geometric self anchor, fixing two remaining exact-overlap self targets. The
-next useful isolated experiment is proactive group-supported task selection
-with self-preservation off. Full result:
+geometric self anchor, fixing two remaining exact-overlap self targets. Full
+result:
 `docs/experiments/2026-07-23-witness-seeking-hosted-ab.md`.
+
+Isolated proactive group tasking is safe but ineffective. In a clean 100/arm
+A/B, subject-clean murders were 52/99 control versus 53/99 candidate; wins,
+tasks, abandoned attempts, and team kills were flat. Candidate 2+ nearby time
+fell 30.0% -> 24.9%, while alone time rose 42.5% -> 52.5%.
+
+The flag did activate: 142 group-aware sessions in 94 games. Although 82.4% of
+sessions began with 2+ others nearby, only 21.4% of their 46,718 ticks retained
+that group. `NormalMode` chose a supported station once, then cached it until
+completion after the group dispersed. The local follow-up revalidates support
+while traveling, falls back to the ordinary nearest task when support expires,
+and latches the target after task progress starts. Full result:
+`docs/experiments/2026-07-23-group-tasking-hosted-ab.md`.
 
 ### Superseded immediate repulsion result
 

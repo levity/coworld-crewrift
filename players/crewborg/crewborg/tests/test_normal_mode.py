@@ -328,6 +328,69 @@ def test_group_tasking_requires_supporters_to_form_a_cluster(monkeypatch) -> Non
     assert intent.kind == "complete_task" and intent.task_index == 0
 
 
+def test_group_tasking_retargets_when_support_moves(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_GROUP_TASKING", "1")
+    monkeypatch.setenv("CREWBORG_GROUP_TASK_MAX_DETOUR", "250")
+    belief = Belief(
+        map=_roomed_map(),
+        assigned_task_indices={0, 2},
+        visible_task_indices={0, 2},
+        self_world_x=44,
+        self_world_y=44,
+        self_color="red",
+        last_tick=10,
+    )
+    _crew(belief, "green", (240, 44))
+    _crew(belief, "blue", (250, 44))
+    mode = NormalMode()
+
+    first = mode.decide(belief, ActionState())
+    belief.last_tick += 1
+    belief.self_world_x = 100
+    for record in belief.roster.values():
+        record.world_x = 44
+        record.last_seen_tick = belief.last_tick
+    second = mode.decide(belief, ActionState())
+
+    assert first.task_index == 2
+    assert second.task_index == 0
+    assert second.reason.startswith("group-aware tasking:")
+
+
+def test_group_tasking_does_not_retarget_after_progress_starts(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_GROUP_TASKING", "1")
+    monkeypatch.setenv("CREWBORG_GROUP_TASK_MAX_DETOUR", "250")
+    belief = Belief(
+        map=_roomed_map(),
+        assigned_task_indices={0, 2},
+        visible_task_indices={0, 2},
+        self_world_x=44,
+        self_world_y=44,
+        self_color="red",
+        last_tick=10,
+    )
+    _crew(belief, "green", (240, 44))
+    _crew(belief, "blue", (250, 44))
+    mode = NormalMode()
+    assert mode.decide(belief, ActionState()).task_index == 2
+
+    belief.last_tick += 1
+    belief.self_world_x = 244
+    belief.active_task_progress_pct = 0
+    for record in belief.roster.values():
+        record.last_seen_tick = belief.last_tick
+    assert mode.decide(belief, ActionState()).task_index == 2
+
+    belief.last_tick += 1
+    belief.active_task_progress_pct = None
+    for record in belief.roster.values():
+        record.world_x = 44
+        record.last_seen_tick = belief.last_tick
+    final = mode.decide(belief, ActionState())
+
+    assert final.task_index == 2
+
+
 def test_advances_to_next_task_after_completion() -> None:
     belief = Belief(
         map=_map_with_tasks(),
