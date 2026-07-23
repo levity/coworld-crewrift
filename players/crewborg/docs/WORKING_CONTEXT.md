@@ -9,7 +9,28 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
-## Current update (2026-07-22, self-preservation movement)
+## Current update (2026-07-23, self-preservation movement)
+
+The corrected immediate-repulsion v2 is also rejected. In a fresh 200/arm A/B,
+subject-clean murders rose 99/195 (50.8%) -> 105/169 (62.1%, `p=0.034`), wins
+fell 42.1% -> 23.1%, and full tasks fell 79.5% -> 45.6%. Roster-clean results
+agree. Candidate had 278 abandoned task attempts versus 39 control.
+
+The self-record fix worked except for two exact-anchor ties among 6,672 clean
+starts. More importantly, 74.2% of starts targeted crew, continued 12-tick
+contacts were no more impostor-selective, and 67/105 murders happened while
+actively fleeing. Candidate time with a sole nearby impostor rose 13.8% ->
+24.2%, while 2+ player time stayed flat. Direct equal-speed flight separated
+ordinary crew but did not escape killers already within kill distance.
+
+The local next iteration excludes both geometric and color self records, waits
+for 12 continuous one-on-one ticks, and then recomputes a route toward the
+nearest current visible witness, using direct repulsion only as fallback. It
+does not create suspicion evidence. Validate locally before another hosted
+screen. Full v1/v2 analysis:
+`docs/experiments/2026-07-22-memoryless-repulsion-hosted-ab.md`.
+
+### Superseded movement results
 
 The aggressive 12-tick isolation/pursuit experiment is complete and rejected.
 In the 200/arm rotated-seat A/B, subject-operational murders rose from 63/174

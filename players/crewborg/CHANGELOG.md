@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-23 - Delayed witness-seeking avoidance
+
+- Reject the corrected immediate-repulsion v2 after a fresh 200/arm hosted A/B.
+  On subject-clean games, murders rose 50.8% -> 62.1% (`p=0.034`), wins fell
+  42.1% -> 23.1%, and task attempts abandoned rose 39 -> 278. The stricter
+  whole-roster-clean slice gives the same conclusion.
+- Require 12 continuous one-on-one ticks before movement preempts tasking. Once
+  active, recompute a route toward the nearest currently visible third player
+  every tick; use direct repulsion only when no witness is visible.
+- Always exclude both the geometric self candidate and the known self color.
+  This covers the rare exact-coordinate tie that caused two self-target events
+  among 6,672 clean hosted starts.
+
 ## 2026-07-23 - Hosted self-record identity fix
 
 - Match the camera-locked self record at its observed `(-2,-6)` offset from
