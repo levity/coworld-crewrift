@@ -10,7 +10,10 @@
   color only as a fallback. A wrong or missing cached color can no longer turn
   the self sprite into a permanent pursuit target or mask a nearby killer.
 - Local validation: 80 focused tests and the full 601-test suite pass (13
-  skipped); touched-file Ruff and `git diff --check` are clean.
+  skipped); touched-file Ruff and `git diff --check` are clean. The exact
+  activated amd64 image also passed Gate 1 in all eight slots. Earlier silent
+  smoke failures were a missing explicit entrypoint override: the certification
+  manifest otherwise tried to run its reference `/bin/notsus` command.
 
 ## 2026-07-22 - Memoryless one-on-one repulsion
 
