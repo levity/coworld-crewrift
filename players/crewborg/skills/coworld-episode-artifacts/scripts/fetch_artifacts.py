@@ -156,6 +156,14 @@ class Client:
         r.raise_for_status()
         return r.json()
 
+    def get_json_or_none(self, path: str, **params: Any) -> Any | None:
+        """GET JSON, treating a missing optional resource as absent."""
+        r = self._http.get(path, params=params or None)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
+
     def get_bytes_or_none(self, path: str) -> bytes | None:
         """GET bytes; return None (not raise) on a 4xx so one missing artifact
         does not abort the episode."""
@@ -465,7 +473,12 @@ def fetch_episode(
     # 4. Per-agent policy logs.
     if want_logs:
         if is_xp:
-            owned = client.get_json(f"/v2/episode-requests/{ref.ref_id}/policy-artifacts")
+            owned = client.get_json_or_none(
+                f"/v2/episode-requests/{ref.ref_id}/policy-artifacts"
+            )
+            if owned is None:
+                owned = []
+                summary["errors"].append("owned policy-artifact listing unavailable")
             logs_dir = out_dir / "logs"
             logs_dir.mkdir(exist_ok=True)
             for entry in owned:

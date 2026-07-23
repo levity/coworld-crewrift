@@ -26,6 +26,9 @@ class FakeClient:
             "has_artifact": True,
         }]
 
+    def get_json_or_none(self, path: str, **params: object) -> object | None:
+        return self.get_json(path, **params)
+
     def get_text_or_none(self, path: str) -> str | None:
         self.paths.append(path)
         values = {
@@ -67,3 +70,30 @@ def test_xp_fetch_uses_owned_episode_request_routes(tmp_path: Path) -> None:
     assert (tmp_path / "logs/policy_agent_2.log").read_text() == "policy log"
     assert (tmp_path / "artifacts/policy_artifact_2.zip").read_bytes() == b"zip"
     assert not any(path.startswith("/jobs/") for path in client.paths)
+
+
+def test_xp_fetch_tolerates_missing_owned_artifact_listing(tmp_path: Path) -> None:
+    class MissingOwnedClient(FakeClient):
+        def get_json_or_none(self, path: str, **params: object) -> None:
+            del params
+            self.paths.append(path)
+            return None
+
+    client = MissingOwnedClient()
+    ref = EpisodeRef(
+        ref_id="ereq_test",
+        created_at="2026-07-23T00:00:00Z",
+        job_id=None,
+        replay_url=None,
+        label="failed",
+        record={"id": "ereq_test", "status": "failed"},
+    )
+
+    summary = fetch_episode(
+        client, ref, tmp_path, want_replay=False, want_results=False, want_logs=True
+    )
+
+    assert summary["logs"] == []
+    assert summary["policy_artifacts"] == []
+    assert summary["errors"] == ["owned policy-artifact listing unavailable"]
+    assert (tmp_path / "artifact_status.json").exists()

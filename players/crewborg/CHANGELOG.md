@@ -8,6 +8,9 @@
 - Precommit murder rate as primary, task completion as a guardrail, and group
   task selections plus 0/1/2+ nearby-player time as mechanism checks. The exact
   pinned-SDK candidate image passed local Gate 1 in all eight slots.
+- Make the XP artifact watcher tolerate the expected missing owned-artifact
+  listing on failed episodes. A 404 is now recorded as optional artifact
+  absence instead of terminating the whole streaming warehouse pipeline.
 
 ## 2026-07-23 - Delayed witness-seeking avoidance
 
