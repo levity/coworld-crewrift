@@ -1,9 +1,9 @@
 """Role-agnostic local repulsion from one-on-one exposure.
 
-This is risk control, not deduction. Exactly one currently visible living player
-inside the risk radius preempts tasking and produces a fresh reachable goal away
-from that player. The intent ends immediately when the radius contains nobody or
-at least two other players.
+This is risk control, not deduction. Twelve continuous ticks with exactly one
+currently visible living player inside the risk radius trigger movement toward a
+currently visible witness, or directly away when no witness is visible. The intent
+ends immediately when the radius contains nobody or at least two other players.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from players.player_sdk import Mode
 
 RISK_RADIUS_SQ = 64**2
 REPULSION_DISTANCE = 96
-PURSUIT_TRACE_TICKS = 12
+REACTION_TICKS = 12
 NAV_SEARCH_HOPS = 3
 
 
@@ -76,14 +76,26 @@ class SelfPreservationMode(Mode[Belief, ActionState, Intent]):
 
         assert self._repelling_since is not None
         duration = max(0, belief.last_tick - self._repelling_since)
-        stage = "pursuit" if duration >= PURSUIT_TRACE_TICKS else "repulsion"
-        goal = _repulsion_goal(belief, companion)
+        if duration < REACTION_TICKS:
+            return None
+
+        witness = _nearest_current_witness(belief, companion)
+        goal = (
+            (witness.world_x, witness.world_y)
+            if witness is not None
+            else _repulsion_goal(belief, companion)
+        )
+        destination = (
+            f"toward witness {witness.color}"
+            if witness is not None
+            else "away from the nearby player"
+        )
         return Intent(
             kind="navigate_to",
             point=goal,
             target_color=companion.color,
             reason=(
-                f"self preservation ({stage}): move away from sole nearby player "
+                f"self preservation (pursuit): move {destination}; sole nearby player "
                 f"{companion.color}; continuous_ticks={duration}"
             ),
         )
@@ -102,12 +114,39 @@ def _current_nearby(belief: Belief) -> list[PlayerRecord]:
             record
             for record in belief.roster.values()
             if record is not self_record
-            and (self_record is not None or record.color != belief.self_color)
+            and record.color != belief.self_color
             and record.life_status == "alive"
             and record.last_seen_tick == belief.last_tick
             and _d2(self_xy, (record.world_x, record.world_y)) <= RISK_RADIUS_SQ
         ),
         key=lambda record: record.color,
+    )
+
+
+def _nearest_current_witness(
+    belief: Belief,
+    companion: PlayerRecord,
+) -> PlayerRecord | None:
+    self_xy = (belief.self_world_x, belief.self_world_y)
+    assert self_xy[0] is not None and self_xy[1] is not None
+    self_record = _current_self_record(belief, self_xy)
+    candidates = [
+        record
+        for record in belief.roster.values()
+        if record is not companion
+        and record is not self_record
+        and record.color != belief.self_color
+        and record.life_status == "alive"
+        and record.last_seen_tick == belief.last_tick
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda record: (
+            _d2(self_xy, (record.world_x, record.world_y)),
+            record.color,
+        ),
     )
 
 

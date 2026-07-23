@@ -39,6 +39,15 @@ def _enable(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
 
 
+def _trigger(mode: SelfPreservationMode, belief: Belief) -> Intent:
+    mode.decide(belief, ActionState())
+    belief.last_tick += 12
+    for record in belief.roster.values():
+        if record.last_seen_tick == belief.last_tick - 12:
+            record.last_seen_tick = belief.last_tick
+    return mode.decide(belief, ActionState())
+
+
 def test_enabled_reads_separate_flag_and_requires_deduction_history(monkeypatch) -> None:
     monkeypatch.delenv("CREWBORG_SELF_PRESERVATION", raising=False)
     monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
@@ -51,7 +60,7 @@ def test_enabled_reads_separate_flag_and_requires_deduction_history(monkeypatch)
     assert enabled() is False
 
 
-def test_one_nearby_player_immediately_preempts_tasking(monkeypatch) -> None:
+def test_one_nearby_player_waits_for_continuous_exposure(monkeypatch) -> None:
     _enable(monkeypatch)
     belief = _belief()
     _player(belief, "red", (120, 100))
@@ -60,12 +69,14 @@ def test_one_nearby_player_immediately_preempts_tasking(monkeypatch) -> None:
         kind="complete_task", task_index=4, reason="task"
     )
 
-    intent = mode.decide(belief, ActionState())
+    first = mode.decide(belief, ActionState())
+    intent = _trigger(mode, belief)
 
+    assert first.kind == "complete_task"
     assert intent.kind == "navigate_to"
     assert intent.point == (4, 100)
     assert intent.target_color == "red"
-    assert intent.reason.startswith("self preservation (repulsion)")
+    assert intent.reason.startswith("self preservation (pursuit)")
 
 
 def test_repulsion_cancels_an_in_progress_task(monkeypatch) -> None:
@@ -75,7 +86,11 @@ def test_repulsion_cancels_an_in_progress_task(monkeypatch) -> None:
     task_intent = Intent(kind="complete_task", task_index=4, reason="task")
     action_state = ActionState(current_intent=task_intent, held_mask=BTN_A)
 
-    intent = SelfPreservationMode().decide(belief, action_state)
+    mode = SelfPreservationMode()
+    mode.decide(belief, action_state)
+    belief.last_tick += 12
+    belief.roster["red"].last_seen_tick = belief.last_tick
+    intent = mode.decide(belief, action_state)
     command = resolve_action(intent, belief, action_state)
 
     assert action_state.current_intent == intent
@@ -89,10 +104,24 @@ def test_repulsion_needs_no_witness_destination(monkeypatch) -> None:
     _player(belief, "red", (120, 100))
     _player(belief, "blue", (500, 500), tick=-100)
 
-    intent = SelfPreservationMode().decide(belief, ActionState())
+    mode = SelfPreservationMode()
+    intent = _trigger(mode, belief)
 
     assert intent.kind == "navigate_to"
     assert intent.target_color == "red"
+
+
+def test_triggered_repulsion_moves_toward_nearest_visible_witness(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "red", (120, 100))
+    _player(belief, "blue", (180, 100))
+
+    intent = _trigger(SelfPreservationMode(), belief)
+
+    assert intent.point == (180, 100)
+    assert intent.target_color == "red"
+    assert "toward witness blue" in intent.reason
 
 
 def test_goal_recomputes_as_both_players_move(monkeypatch) -> None:
@@ -100,7 +129,7 @@ def test_goal_recomputes_as_both_players_move(monkeypatch) -> None:
     belief = _belief()
     _player(belief, "red", (120, 100))
     mode = SelfPreservationMode()
-    first = mode.decide(belief, ActionState())
+    first = _trigger(mode, belief)
 
     belief.last_tick += 1
     belief.self_world_x = 90
@@ -118,7 +147,7 @@ def test_zero_nearby_players_ends_repulsion(monkeypatch) -> None:
     belief = _belief()
     _player(belief, "red", (120, 100))
     mode = SelfPreservationMode()
-    assert "self preservation" in mode.decide(belief, ActionState()).reason
+    assert "self preservation" in _trigger(mode, belief).reason
 
     belief.last_tick += 1
     belief.roster["red"].last_seen_tick = belief.last_tick
@@ -133,7 +162,7 @@ def test_second_nearby_player_ends_repulsion(monkeypatch) -> None:
     belief = _belief()
     _player(belief, "red", (120, 100))
     mode = SelfPreservationMode()
-    mode.decide(belief, ActionState())
+    _trigger(mode, belief)
 
     belief.last_tick += 1
     belief.roster["red"].last_seen_tick = belief.last_tick
@@ -148,7 +177,7 @@ def test_only_currently_visible_players_count(monkeypatch) -> None:
     belief = _belief()
     _player(belief, "red", (120, 100), tick=9)
 
-    intent = SelfPreservationMode().decide(belief, ActionState())
+    intent = _trigger(SelfPreservationMode(), belief)
 
     assert "self preservation" not in intent.reason
 
@@ -159,7 +188,7 @@ def test_self_sprite_is_not_a_second_player(monkeypatch) -> None:
     _player(belief, "pink", (101, 100))
     _player(belief, "red", (120, 100))
 
-    intent = SelfPreservationMode().decide(belief, ActionState())
+    intent = _trigger(SelfPreservationMode(), belief)
 
     assert intent.target_color == "red"
 
@@ -171,13 +200,25 @@ def test_geometric_self_record_is_excluded_when_self_color_is_wrong(monkeypatch)
     _player(belief, "pink", (98, 94))  # hosted self-record offset
     _player(belief, "red", (120, 100))
 
-    intent = SelfPreservationMode().decide(belief, ActionState())
+    intent = _trigger(SelfPreservationMode(), belief)
 
     assert intent.target_color == "red"
-    assert intent.reason.startswith("self preservation (repulsion)")
+    assert intent.reason.startswith("self preservation (pursuit)")
 
 
-def test_continuous_repulsion_becomes_pursuit_for_telemetry_only(monkeypatch) -> None:
+def test_overlapping_self_color_and_geometric_candidate_are_both_excluded(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    _player(belief, "blue", (98, 94))
+    _player(belief, "pink", (98, 94))
+    _player(belief, "red", (120, 100))
+
+    intent = _trigger(SelfPreservationMode(), belief)
+
+    assert intent.target_color == "red"
+
+
+def test_continuous_exposure_triggers_at_twelve_ticks(monkeypatch) -> None:
     _enable(monkeypatch)
     belief = _belief()
     _player(belief, "red", (120, 100))
@@ -188,9 +229,8 @@ def test_continuous_repulsion_becomes_pursuit_for_telemetry_only(monkeypatch) ->
     belief.roster["red"].last_seen_tick = 22
     later = mode.decide(belief, ActionState())
 
-    assert "(repulsion)" in first.reason
+    assert "self preservation" not in first.reason
     assert "(pursuit)" in later.reason
-    assert first.point == later.point
 
 
 def test_new_companion_resets_pursuit_duration(monkeypatch) -> None:
@@ -205,9 +245,7 @@ def test_new_companion_resets_pursuit_duration(monkeypatch) -> None:
 
     intent = mode.decide(belief, ActionState())
 
-    assert intent.target_color == "blue"
-    assert "(repulsion)" in intent.reason
-    assert "continuous_ticks=0" in intent.reason
+    assert "self preservation" not in intent.reason
 
 
 def test_nav_goal_uses_reachable_cells_away_from_companion(monkeypatch) -> None:
@@ -229,7 +267,7 @@ def test_nav_goal_uses_reachable_cells_away_from_companion(monkeypatch) -> None:
         reachable={start, away, toward},
     )
 
-    intent = SelfPreservationMode().decide(belief, ActionState())
+    intent = _trigger(SelfPreservationMode(), belief)
 
     assert intent.point == (45, 55)
 
@@ -239,6 +277,6 @@ def test_overlapping_player_still_produces_nonzero_goal(monkeypatch) -> None:
     belief = _belief()
     _player(belief, "red", (100, 100))
 
-    intent = SelfPreservationMode().decide(belief, ActionState())
+    intent = _trigger(SelfPreservationMode(), belief)
 
     assert intent.point != (100, 100)

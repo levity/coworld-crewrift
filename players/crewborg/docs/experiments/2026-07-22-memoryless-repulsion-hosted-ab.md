@@ -146,5 +146,49 @@ requests:
 | control | `crewborg-memoryless-repulsion-control:v2` (`98d4b40f-97aa-42f5-99cc-14b9acc18dff`) | `xreq_a47eec45-f5ac-4aa3-815d-8ebf25f7f2aa`, `xreq_de16d4e1-a502-434e-8330-77f6308fcbed` |
 | candidate | `crewborg-memoryless-repulsion:v2` (`caf92954-bdc4-464f-bec7-a14443c5119f`) | `xreq_bac575e6-88bc-4714-8342-a6bd4336e9fa`, `xreq_8d38befc-5a31-4b10-bdbc-473f7d7bd912` |
 
-The first correctness gate remains zero repulsion or pursuit events targeting
-the subject's true self color. Outcome and mechanism results are pending.
+### Corrected result
+
+Reject v2 as well. Correcting self identity removed the pervasive v1
+contamination, but clean immediate repulsion still made survival, tasking, and
+wins worse.
+
+| Subject-operational games | control | candidate | delta |
+| --- | ---: | ---: | ---: |
+| games | 195 | 169 | |
+| murdered | 99 (50.8%) | 105 (62.1%) | **+11.4pp** |
+| first victim | 34 (17.4%) | 30 (17.8%) | +0.3pp |
+| crew win | 82 (42.1%) | 39 (23.1%) | **-19.0pp** |
+| mean completed tasks | 7.02 | 5.87 | -1.15 |
+| all eight tasks | 155 (79.5%) | 77 (45.6%) | **-34.0pp** |
+
+The murder delta has a 95% Wald interval of +1.2 to +21.5 points and Fisher
+`p=0.034`. The whole-roster-operational slice is stronger: 99/193 (51.3%) ->
+105/160 (65.6%), +14.3pp, Fisher `p=0.007`. Candidate execution occurred in a
+later platform window with many multi-player connection failures (40/200 games
+versus 7/200 control); both operational filters exclude them, and both retain
+the adverse result.
+
+The mechanism was active and harmful. In the 160 roster-clean candidate games,
+6,672 stage starts targeted crew 4,951 times (74.2%) and impostors 1,721 times
+(25.8%). Twelve-tick continued contacts were not more selective: only 23.8% of
+`pursuit` transitions targeted impostors. Candidate abandoned 278 task attempts
+versus 39 control.
+
+The self fix was nearly complete: only 2/6,672 starts targeted true self, both
+when the true-self color and another color occupied the exact expected anchor.
+The geometric tie-break excluded the other record and left self eligible. The
+next implementation excludes the union of geometric self and known self color.
+
+Positioning explains the outcome. On roster-clean living play ticks, time with
+2+ nearby players barely changed (25.3% -> 24.1%), while time with a sole nearby
+impostor rose 13.8% -> 24.2%. Of 105 murders, 67 occurred while repulsion was
+issuing movement on the prior tick and 36 while tasking. Every killer was
+already within 22 pixels on the prior tick. Reactive equal-speed flight did not
+open a gap; it separated from ordinary crew without producing a witness.
+
+### Next iteration
+
+Do not continue immediate blind repulsion. Require 12 continuous one-on-one
+ticks before interrupting work, then recompute movement toward the nearest
+currently visible third player each tick. Fall back to direct repulsion only
+when no witness is visible. This remains risk control, not suspicion evidence.
