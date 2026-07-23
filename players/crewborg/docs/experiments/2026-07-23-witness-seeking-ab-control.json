@@ -1,0 +1,22 @@
+{
+  "target": {"coworld_id": "cow_52d06063-dfa8-45fc-9533-a5365a71a04d"},
+  "roster": [
+    {"player": {"policy_ref": "crewborg-witness-seeking-control:v1"}},
+    {"player": {"policy_ref": "crewborg-aaln:v25"}},
+    {"player": {"policy_ref": "notsus:v130"}},
+    {"player": {"policy_ref": "jordan-crewborg-aaln:v1"}},
+    {"player": {"policy_ref": "crewrift-prime-notsus-richard:v4"}},
+    {"player": {"policy_ref": "crewborg:v107"}},
+    {"player": {"policy_ref": "daveey-prime-notsus:v2"}, "slot": 6},
+    {"player": {"policy_ref": "softmaxwell-crewborg:v34"}, "slot": 7}
+  ],
+  "game_config_overrides": {
+    "slots": [
+      {"role": "crew"}, {"role": "crew"}, {"role": "crew"},
+      {"role": "crew"}, {"role": "crew"}, {"role": "crew"},
+      {"role": "imposter"}, {"role": "imposter"}
+    ]
+  },
+  "num_episodes": 100,
+  "notes": "Delayed witness-seeking A/B control; behavior commit 3246b44; self-preservation off"
+}
