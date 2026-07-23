@@ -164,6 +164,19 @@ def test_self_sprite_is_not_a_second_player(monkeypatch) -> None:
     assert intent.target_color == "red"
 
 
+def test_geometric_self_record_is_excluded_when_self_color_is_wrong(monkeypatch) -> None:
+    _enable(monkeypatch)
+    belief = _belief()
+    belief.self_color = "blue"
+    _player(belief, "pink", (98, 94))  # hosted self-record offset
+    _player(belief, "red", (120, 100))
+
+    intent = SelfPreservationMode().decide(belief, ActionState())
+
+    assert intent.target_color == "red"
+    assert intent.reason.startswith("self preservation (repulsion)")
+
+
 def test_continuous_repulsion_becomes_pursuit_for_telemetry_only(monkeypatch) -> None:
     _enable(monkeypatch)
     belief = _belief()

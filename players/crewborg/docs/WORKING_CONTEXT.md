@@ -37,14 +37,19 @@ In 200 games/arm, subject-clean murders rose 87/181 (48.1%) -> 112/187
 (59.9%, +11.8pp, Fisher p=0.028), full tasks fell 78.5% -> 34.8%, and wins
 fell 45.9% -> 23.0%. Do not promote `crewborg-memoryless-repulsion:v1`.
 
-The test is also pervasively contaminated by a self-identity bug. Hosted self
+The first test was pervasively contaminated by a self-identity bug. Hosted self
 records sit at the stable `(-2,-6)` offset from `self_world` (distance 6.32),
 outside `SELF_SPRITE_MATCH_SQ=4**2`. The controller's color-only self filter
 then targeted crewborg's own sprite in 2,123/5,549 traced stage starts/upgrades
 and 182/187 operational games. Before 41/112 murders, the visible killer was
 the sole true other player inside 64 but the extra self record prevented task
-preemption. Fix identity and add a hard geometric self-record exclusion before
-retesting the rule; do not threshold-tune this result.
+preemption.
+
+The local follow-up now matches self at the hosted anchor, corrects the cached
+color every visible tick, and makes repulsion exclude the geometric record
+independently. Regression tests cover a wrong cached color plus a closer killer;
+the full suite is 601 passed / 13 skipped. Build, smoke, and repeat the exact
+A/B. The first telemetry gate is zero repulsion targets equal to true self.
 
 Even under contamination, geometry warns that separation is not safety: time
 with 2+ nearby fell 24.3% -> 11.7%, fully alone rose 46.3% -> 55.7%, and sole

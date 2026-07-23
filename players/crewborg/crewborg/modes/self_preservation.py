@@ -14,7 +14,15 @@ import os
 from crewborg.deduction.config import enabled as deduction_history_enabled
 from crewborg.modes.normal import NormalMode
 from crewborg.modes.stick import StickMode, enabled as stick_enabled
-from crewborg.types import ActionState, Belief, Intent, PlayerRecord
+from crewborg.types import (
+    SELF_RECORD_DX,
+    SELF_RECORD_DY,
+    SELF_SPRITE_MATCH_SQ,
+    ActionState,
+    Belief,
+    Intent,
+    PlayerRecord,
+)
 from players.player_sdk import Mode
 
 RISK_RADIUS_SQ = 64**2
@@ -88,16 +96,40 @@ class SelfPreservationMode(Mode[Belief, ActionState, Intent]):
 def _current_nearby(belief: Belief) -> list[PlayerRecord]:
     self_xy = (belief.self_world_x, belief.self_world_y)
     assert self_xy[0] is not None and self_xy[1] is not None
+    self_record = _current_self_record(belief, self_xy)
     return sorted(
         (
             record
             for record in belief.roster.values()
-            if record.color != belief.self_color
+            if record is not self_record
+            and (self_record is not None or record.color != belief.self_color)
             and record.life_status == "alive"
             and record.last_seen_tick == belief.last_tick
             and _d2(self_xy, (record.world_x, record.world_y)) <= RISK_RADIUS_SQ
         ),
         key=lambda record: record.color,
+    )
+
+
+def _current_self_record(
+    belief: Belief,
+    self_xy: tuple[int, int],
+) -> PlayerRecord | None:
+    expected = (self_xy[0] + SELF_RECORD_DX, self_xy[1] + SELF_RECORD_DY)
+    candidates = [
+        record
+        for record in belief.roster.values()
+        if record.last_seen_tick == belief.last_tick
+        and _d2(expected, (record.world_x, record.world_y)) <= SELF_SPRITE_MATCH_SQ
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda record: (
+            _d2(expected, (record.world_x, record.world_y)),
+            record.color,
+        ),
     )
 
 
