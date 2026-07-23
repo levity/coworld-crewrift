@@ -12,6 +12,9 @@
 - Always exclude both the geometric self candidate and the known self color.
   This covers the rare exact-coordinate tie that caused two self-target events
   among 6,672 clean hosted starts.
+- Local validation: 82 focused tests and the full 603-test suite pass (13
+  skipped); Ruff and `git diff --check` are clean. The pinned-SDK amd64 image
+  passed Gate 1 in all eight slots with the complete candidate config enabled.
 
 ## 2026-07-23 - Hosted self-record identity fix
 
