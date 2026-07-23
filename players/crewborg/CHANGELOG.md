@@ -14,6 +14,11 @@
 - Local validation: 54 focused tests and the full 599-test suite pass (13
   skipped); touched-file Ruff and `git diff --check` are clean. The activated
   amd64 image completed Gate 1 with all eight slots connected and no timeout.
+- The 200/arm hosted A/B rejects this build: murders rose 48.1% -> 59.9%, full
+  tasks fell 78.5% -> 34.8%, and crew wins fell 45.9% -> 23.0%. Telemetry found
+  that 38.3% of repulsion/pursuit starts targeted crewborg's own sprite because
+  the self-color match expected <=4 pixels while the hosted record is always at
+  offset `(-2, -6)`. Fix self identity before judging the clean rule.
 
 ## 2026-07-22 - Isolation-triggered pursuit escape
 
