@@ -169,35 +169,25 @@ def test_task_started_on_new_target_and_resume_after_interruption() -> None:
 
 def test_self_preservation_stage_transitions_are_counted() -> None:
     h = _Harness()
-    h.step(
-        intent=Intent(
-            kind="navigate_to",
-            target_color="red",
-            reason="self preservation (repulsion): move away from sole nearby player red",
+    # Two consecutive safe-distance ticks are one continuous stage (started once).
+    for _ in range(2):
+        h.step(
+            intent=Intent(
+                kind="complete_task",
+                task_index=3,
+                target_color="red",
+                reason="self preservation (safe distance): task 3 away from sole nearby red",
+            )
         )
-    )
-    h.step(
-        intent=Intent(
-            kind="navigate_to",
-            target_color="red",
-            reason="self preservation (repulsion): move away from sole nearby player red",
-        )
-    )
-    h.step(
-        intent=Intent(
-            kind="navigate_to",
-            target_color="red",
-            reason="self preservation (pursuit): leave one-on-one threat red",
-        )
-    )
+    # A plain task (no self-preservation reason) ends the active stage.
     h.step(intent=Intent(kind="complete_task", task_index=1))
 
     starts = h.events("domain.self_preservation_started")
-    assert [event.data["stage"] for event in starts] == ["repulsion", "pursuit"]
+    assert [event.data["stage"] for event in starts] == ["safe_distance"]
     assert all(event.data["threat"] == "red" for event in starts)
-    assert len(h.counters("domain.self_preservation_started")) == 2
+    assert len(h.counters("domain.self_preservation_started")) == 1
     [ended] = h.events("domain.self_preservation_ended")
-    assert ended.data == {"stage": "pursuit"}
+    assert ended.data == {"stage": "safe_distance"}
 
 
 def test_kill_attempted_requires_the_a_edge_in_the_command() -> None:

@@ -306,10 +306,8 @@ class CrewborgEventTracer:
     ) -> None:
         reason = intent.reason or ""
         stage = None
-        if reason.startswith("self preservation (repulsion)"):
-            stage = "repulsion"
-        elif reason.startswith("self preservation (pursuit)"):
-            stage = "pursuit"
+        if reason.startswith("self preservation (safe distance)"):
+            stage = "safe_distance"
         if stage == self._self_preservation_stage:
             return
         if stage is not None:

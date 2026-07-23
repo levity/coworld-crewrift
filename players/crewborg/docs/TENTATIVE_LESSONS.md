@@ -17,6 +17,26 @@ optional `Status:` note. Terse. One lesson per `###`.
 
 ---
 
+### Reactive follower-triggered movement fails even when reframed as productive tasking
+Evidence: Fourth reactive-movement design rejected (after immediate repulsion, isolation
+pursuit, witness-seeking). "Early safe distance" retreated to the nearest reachable task that
+*increases* separation from a lone follower at 96px/12-tick, on top of the group-tasking base --
+explicitly avoiding blind vectors and task abandonment. Still failed hard: wins 50% -> 30%
+(`p=0.006`), all-8 tasks 89% -> 60% (`p<0.001`), sole-impostor exposure 12.5% -> 17.2%,
+murders 46% -> 52.5%. The "away" task is usually distant, so the subject travels far (fewer
+tasks) and is caught alone in transit. The trigger is ~60-72% crew, so any movement response
+separates the subject from its safe crowd; equal move speed means flight cannot open a gap
+anyway. Status: retire `CREWBORG_SELF_PRESERVATION`; keep proactive group-tasking cohesion.
+
+### Objective 64px replay geometry is the load-bearing mechanism signal, not policy self-telemetry
+Evidence: Both 2026-07-23 A/Bs were adjudicated on per-tick player_state geometry (sole-impostor
+%, 2+-nearby %) computed from the event warehouse, because the 69MB/episode policy telemetry
+tapes are too heavy to aggregate across 200 games on the 2-vCPU VM. Geometry measures the
+*outcome* the mechanism targets; a cheap single-tape grep confirms the flag activated (safe-distance
+emitted 1,000-1,900 intents/game). build_warehouse writes parquet once at the end, so a build that
+times out (10min foreground cap) or is killed saves nothing -- run it in the background undisturbed
+(concurrent `uv run` calls appear to kill it) and let it finish before analysis.
+
 ### Sustained proximity selected allies, not killers
 Evidence: In the 200/arm aggressive self-preservation A/B, full candidate
 telemetry recorded 717 escape sessions: 629 threats were crew and only 88 were

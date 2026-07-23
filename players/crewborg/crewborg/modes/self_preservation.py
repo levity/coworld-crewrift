@@ -1,10 +1,26 @@
-"""Role-agnostic witness seeking after sustained one-on-one exposure.
+"""Crew safety: early safe-distance separation from a lone follower.
 
-This is risk control, not deduction. Twelve continuous ticks with exactly one
-currently visible living player inside the risk radius permit movement toward a
-currently visible witness. Without a witness, normal behavior continues; hosted
-evidence showed that blind repulsion was actively harmful. The intent ends immediately
-when the radius contains nobody or at least two other players.
+Gated by ``CREWBORG_SELF_PRESERVATION`` (and deduction history). On top of
+ordinary task completion -- including group-tasking cohesion, which is env-gated
+inside :class:`NormalMode` and stays on in this mode -- this adds one behavior:
+when exactly one other player has stayed within ``SAFE_RADIUS`` (deliberately
+LARGER than the 64px danger radius) for ``REACTION_TICKS`` continuous ticks, and
+no second player is nearby to form a group, retreat *productively* by steering to
+the nearest remaining reachable task whose anchor increases our separation from
+that lone follower.
+
+Why a larger radius and a task-based retreat. Crew and impostors move at
+identical speed (one global ``maxSpeed`` in the sim, no role modifier), so once a
+killer is already adjacent no equal-speed flight can open a gap -- and a crewmate
+fleeing from a standstill even loses the acceleration ramp. Reacting earlier, at
+``SAFE_RADIUS`` and before the follower is in kill range, preserves a margin the
+killer has to spend its own ramp to close. Routing the retreat through a real
+task keeps the win condition moving and follows reachable nav anchors, so it
+never abandons a task or drives into a wall -- the failure modes of the earlier
+blind-repulsion and witness-seeking designs. If the lone player is crew it simply
+will not follow, so the separation is free; if it is an impostor, we get a head
+start. When no remaining task increases separation we keep tasking normally
+rather than fleeing blindly.
 """
 
 from __future__ import annotations
@@ -12,8 +28,8 @@ from __future__ import annotations
 import os
 
 from crewborg.deduction.config import enabled as deduction_history_enabled
+from crewborg.modes.imposter_common import dist2, task_point
 from crewborg.modes.normal import NormalMode
-from crewborg.modes.stick import StickMode, enabled as stick_enabled
 from crewborg.types import (
     SELF_RECORD_DX,
     SELF_RECORD_DY,
@@ -25,7 +41,12 @@ from crewborg.types import (
 )
 from players.player_sdk import Mode
 
-RISK_RADIUS_SQ = 64**2
+# React while a single companion sits within this radius. Larger than the 64px
+# danger radius on purpose: opening distance before the follower reaches kill
+# range is the only way equal-speed movement can keep a killer off us.
+SAFE_RADIUS_SQ = 96**2
+# Continuous ticks one-on-one before acting, so a crewmate merely passing through
+# does not trigger a retreat.
 REACTION_TICKS = 12
 
 
@@ -39,19 +60,17 @@ class SelfPreservationMode(Mode[Belief, ActionState, Intent]):
     def __init__(self, params=None) -> None:
         super().__init__(params)
         self._normal = NormalMode()
-        self._stick = StickMode()
         self._companion: str | None = None
-        self._repelling_since: int | None = None
+        self._since_tick: int | None = None
+        self._retreat_target: int | None = None
 
     def decide(self, belief: Belief, action_state: ActionState) -> Intent:
-        repulsion = self._repulsion_intent(belief)
-        if repulsion is not None:
-            return repulsion
-        if stick_enabled():
-            return self._stick.decide(belief, action_state)
+        retreat = self._safe_distance_intent(belief)
+        if retreat is not None:
+            return retreat
         return self._normal.decide(belief, action_state)
 
-    def _repulsion_intent(self, belief: Belief) -> Intent | None:
+    def _safe_distance_intent(self, belief: Belief) -> Intent | None:
         if (
             not enabled()
             or belief.self_role != "crewmate"
@@ -70,72 +89,76 @@ class SelfPreservationMode(Mode[Belief, ActionState, Intent]):
         companion = nearby[0]
         if companion.color != self._companion:
             self._companion = companion.color
-            self._repelling_since = belief.last_tick
+            self._since_tick = belief.last_tick
+            self._retreat_target = None
 
-        assert self._repelling_since is not None
-        duration = max(0, belief.last_tick - self._repelling_since)
-        if duration < REACTION_TICKS:
+        assert self._since_tick is not None
+        if belief.last_tick - self._since_tick < REACTION_TICKS:
             return None
 
-        witness = _nearest_current_witness(belief, companion)
-        if witness is None:
+        return self._retreat_intent(belief, companion)
+
+    def _retreat_intent(self, belief: Belief, companion: PlayerRecord) -> Intent | None:
+        """Steer to the nearest remaining reachable task that opens the gap."""
+
+        if belief.map is None:
             return None
+        self_xy = (belief.self_world_x, belief.self_world_y)
+        threat = (companion.world_x, companion.world_y)
+        current_gap = dist2(threat, self_xy)
+
+        def opens_gap(index: int) -> bool:
+            if index not in belief.visible_task_indices or index >= len(belief.map.tasks):
+                return False
+            # Skip tasks the nav graph cannot route to (holding still there opens
+            # no distance); before the graph exists, task_point falls back to center.
+            if belief.nav is not None and belief.nav.task_anchor(index) is None:
+                return False
+            return dist2(threat, task_point(belief, index)) > current_gap
+
+        # Hold the chosen retreat task while it still opens the gap, so a moving
+        # follower cannot make us oscillate between stations (NormalMode latches
+        # its own target for the same reason).
+        if self._retreat_target is None or not opens_gap(self._retreat_target):
+            candidates = [
+                (dist2(self_xy, task_point(belief, index)), index)
+                for index in belief.visible_task_indices
+                if opens_gap(index)
+            ]
+            self._retreat_target = min(candidates)[1] if candidates else None
+
+        if self._retreat_target is None:
+            return None
+        duration = belief.last_tick - self._since_tick
         return Intent(
-            kind="navigate_to",
-            point=(witness.world_x, witness.world_y),
+            kind="complete_task",
+            task_index=self._retreat_target,
             target_color=companion.color,
             reason=(
-                f"self preservation (pursuit): move toward witness {witness.color}; sole nearby player "
-                f"{companion.color}; continuous_ticks={duration}"
+                f"self preservation (safe distance): task {self._retreat_target} away from sole "
+                f"nearby {companion.color}; continuous_ticks={duration}"
             ),
         )
 
     def _clear(self) -> None:
         self._companion = None
-        self._repelling_since = None
+        self._since_tick = None
+        self._retreat_target = None
 
 
 def _current_nearby(belief: Belief) -> list[PlayerRecord]:
-    self_xy = (belief.self_world_x, belief.self_world_y)
-    assert self_xy[0] is not None and self_xy[1] is not None
-    return sorted(
-        (
-            record
-            for record in belief.roster.values()
-            if record.color != belief.self_color
-            and not _matches_self_sprite(record, belief, self_xy)
-            and record.life_status == "alive"
-            and record.last_seen_tick == belief.last_tick
-            and _d2(self_xy, (record.world_x, record.world_y)) <= RISK_RADIUS_SQ
-        ),
-        key=lambda record: record.color,
-    )
+    """Other live players seen this tick within ``SAFE_RADIUS``, self excluded."""
 
-
-def _nearest_current_witness(
-    belief: Belief,
-    companion: PlayerRecord,
-) -> PlayerRecord | None:
     self_xy = (belief.self_world_x, belief.self_world_y)
-    assert self_xy[0] is not None and self_xy[1] is not None
-    candidates = [
+    return [
         record
         for record in belief.roster.values()
-        if record is not companion
-        and record.color != belief.self_color
+        if record.color != belief.self_color
         and not _matches_self_sprite(record, belief, self_xy)
         and record.life_status == "alive"
         and record.last_seen_tick == belief.last_tick
+        and dist2(self_xy, (record.world_x, record.world_y)) <= SAFE_RADIUS_SQ
     ]
-    if not candidates:
-        return None
-    return min(
-        candidates,
-        key=lambda record: (
-            _d2(self_xy, (record.world_x, record.world_y)),
-            record.color,
-        ),
-    )
 
 
 def _matches_self_sprite(
@@ -146,13 +169,8 @@ def _matches_self_sprite(
     expected = (self_xy[0] + SELF_RECORD_DX, self_xy[1] + SELF_RECORD_DY)
     return (
         record.last_seen_tick == belief.last_tick
-        and _d2(expected, (record.world_x, record.world_y)) <= SELF_SPRITE_MATCH_SQ
+        and dist2(expected, (record.world_x, record.world_y)) <= SELF_SPRITE_MATCH_SQ
     )
-
-
-def _d2(a: tuple[int | None, int | None], b: tuple[int, int]) -> int:
-    assert a[0] is not None and a[1] is not None
-    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
 
 def _truthy_env(name: str) -> bool:

@@ -9,7 +9,32 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
-## Current update (2026-07-23, proactive grouping pivot)
+## Current update (2026-07-23, safe distance REJECTED; grouping is the direction)
+
+Two hosted A/Bs closed today. **Dynamic group-tasking is validated** as a
+mechanism: revalidating the group-backed target while traveling fixed v1's
+stale-target caching, raising two-plus-nearby time 26.4% -> 32.5% and cutting
+sole-impostor exposure 16.5% -> 9.7% with no task cost (all-8 83% -> 85%); murders
+50% -> 46% (`p=0.67`, underpowered). Keep `CREWBORG_GROUP_TASKING` as the
+crew-safety base. (`docs/experiments/2026-07-23-dynamic-group-tasking-hosted-ab.md`)
+
+**Early safe-distance separation is REJECTED.** `CREWBORG_SELF_PRESERVATION` was
+reworked from witness-seeking into an early (96px, 12-tick) retreat toward the
+nearest reachable task that opens the gap from a lone follower, on top of the
+group-tasking base. Clean 100/arm A/B (candidate `xreq_3cba1a52`, control
+`xreq_a383bbe6`): wins 50% -> 30% (`p=0.006`), all-8 tasks 89% -> 60% (`p<0.001`),
+sole-impostor exposure 12.5% -> 17.2%, murders 46% -> 52.5%. The retreat steers to
+distant tasks, churning task completion and isolating the subject in transit. This
+is the **fourth** reactive-movement design to fail structurally (immediate
+repulsion, isolation pursuit, witness-seeking, early safe distance): proximity to
+one player is ~60-72% crew, so any movement response separates the subject from its
+safe crowd, and equal move speed means flight never wins. StickMode movement was
+retired in this rework (its `tailing_self` suppression stays). Retire
+`CREWBORG_SELF_PRESERVATION`; stop threshold-tuning reactive flight. Survival work
+should stay **proactive** (where the subject chooses to be before an encounter).
+Code is uncommitted in this worktree. (`docs/experiments/2026-07-23-safe-distance-hosted-ab.md`)
+
+## Prior update (2026-07-23, proactive grouping pivot)
 
 Delayed witness-seeking is also rejected. In a clean 100/arm hosted A/B,
 murders moved 48% -> 60%, wins 47% -> 34%, full tasks 79% -> 61%, and abandoned

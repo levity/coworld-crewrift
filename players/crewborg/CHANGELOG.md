@@ -966,3 +966,32 @@ After implementation:
 - Tightened the decisive-vote gate so symmetric fields do not produce an alphabetical pick: the top live marginal must separate from the first player outside the available impostor slots.
 - Fixed the pre-existing navbake test failure by narrowly remapping the committed asset's two legacy `crewrift.crewborg.*` pickle module paths to the current package paths.
 - Verified with Ruff, `git diff --check`, 67 focused meeting/belief tests, and the full crewborg suite (`501 passed, 13 skipped`). A solver-enabled local `scn_vote_basic` Gate-1 smoke connected all eight players, completed three meetings with zero vote timeouts, produced solver diagnostics at the learned deadline, wrote a replay, and exited cleanly.
+# 2026-07-23: dynamic group-tasking hosted validation
+
+- Ran the same-image, feature-off-vs-on A/B over 100 forced-crewmate episodes per
+  arm (candidate `xreq_fee602ef`, control `xreq_94f5acd8`); 200/200 expanded, 1
+  version-skewed replay excluded from deep events.
+- Dynamic revalidation fixed the v1 stale-target caching: objective 64px geometry
+  shows two-plus-nearby time 26.4% -> 32.5% (v1 fell 30.0% -> 24.9%) and
+  sole-impostor exposure 16.5% -> 9.7%, with no task-completion regression
+  (all-eight 83% -> 85%). Murders 50% -> 46% (`p=0.67`) — favorable but
+  underpowered; do not promote on outcomes alone.
+- Full analysis: `docs/experiments/2026-07-23-dynamic-group-tasking-hosted-ab.md`.
+
+# 2026-07-23: early safe-distance separation — reworked self-preservation, REJECTED
+
+- Replaced the failed witness-seeking self-preservation with an early (96px,
+  12-tick) safe-distance retreat: when one player lingers within the safe radius,
+  steer to the nearest remaining reachable task that increases separation (a
+  latched, productive retreat that never blind-flees). Retired StickMode movement
+  (kept its `tailing_self` suspicion suppression in `event_log.py`).
+- Hosted A/B on top of the group-tasking cohesion base (candidate `xreq_3cba1a52`,
+  control `xreq_a383bbe6`), 100 forced-crew episodes/arm. Rejected: wins
+  50% -> 30% (`p=0.006`), all-eight tasks 89% -> 60% (`p<0.001`), sole-impostor
+  exposure 12.5% -> 17.2%, murders 46% -> 52.5%. The retreat steers to distant
+  tasks, churning task completion and isolating the subject in transit — the same
+  reactive-flight failure as immediate repulsion / isolation pursuit /
+  witness-seeking. Fourth reactive-movement design to fail structurally.
+- Verified locally: 596 passed, 13 skipped; touched-file Ruff + `git diff --check`
+  clean; image imports smoke-tested in-container. Full analysis:
+  `docs/experiments/2026-07-23-safe-distance-hosted-ab.md`.
