@@ -1,14 +1,14 @@
-"""Role-agnostic local repulsion from one-on-one exposure.
+"""Role-agnostic witness seeking after sustained one-on-one exposure.
 
 This is risk control, not deduction. Twelve continuous ticks with exactly one
-currently visible living player inside the risk radius trigger movement toward a
-currently visible witness, or directly away when no witness is visible. The intent
-ends immediately when the radius contains nobody or at least two other players.
+currently visible living player inside the risk radius permit movement toward a
+currently visible witness. Without a witness, normal behavior continues; hosted
+evidence showed that blind repulsion was actively harmful. The intent ends immediately
+when the radius contains nobody or at least two other players.
 """
 
 from __future__ import annotations
 
-import math
 import os
 
 from crewborg.deduction.config import enabled as deduction_history_enabled
@@ -26,9 +26,7 @@ from crewborg.types import (
 from players.player_sdk import Mode
 
 RISK_RADIUS_SQ = 64**2
-REPULSION_DISTANCE = 96
 REACTION_TICKS = 12
-NAV_SEARCH_HOPS = 3
 
 
 def enabled() -> bool:
@@ -80,22 +78,14 @@ class SelfPreservationMode(Mode[Belief, ActionState, Intent]):
             return None
 
         witness = _nearest_current_witness(belief, companion)
-        goal = (
-            (witness.world_x, witness.world_y)
-            if witness is not None
-            else _repulsion_goal(belief, companion)
-        )
-        destination = (
-            f"toward witness {witness.color}"
-            if witness is not None
-            else "away from the nearby player"
-        )
+        if witness is None:
+            return None
         return Intent(
             kind="navigate_to",
-            point=goal,
+            point=(witness.world_x, witness.world_y),
             target_color=companion.color,
             reason=(
-                f"self preservation (pursuit): move {destination}; sole nearby player "
+                f"self preservation (pursuit): move toward witness {witness.color}; sole nearby player "
                 f"{companion.color}; continuous_ticks={duration}"
             ),
         )
@@ -108,13 +98,12 @@ class SelfPreservationMode(Mode[Belief, ActionState, Intent]):
 def _current_nearby(belief: Belief) -> list[PlayerRecord]:
     self_xy = (belief.self_world_x, belief.self_world_y)
     assert self_xy[0] is not None and self_xy[1] is not None
-    self_record = _current_self_record(belief, self_xy)
     return sorted(
         (
             record
             for record in belief.roster.values()
-            if record is not self_record
-            and record.color != belief.self_color
+            if record.color != belief.self_color
+            and not _matches_self_sprite(record, belief, self_xy)
             and record.life_status == "alive"
             and record.last_seen_tick == belief.last_tick
             and _d2(self_xy, (record.world_x, record.world_y)) <= RISK_RADIUS_SQ
@@ -129,13 +118,12 @@ def _nearest_current_witness(
 ) -> PlayerRecord | None:
     self_xy = (belief.self_world_x, belief.self_world_y)
     assert self_xy[0] is not None and self_xy[1] is not None
-    self_record = _current_self_record(belief, self_xy)
     candidates = [
         record
         for record in belief.roster.values()
         if record is not companion
-        and record is not self_record
         and record.color != belief.self_color
+        and not _matches_self_sprite(record, belief, self_xy)
         and record.life_status == "alive"
         and record.last_seen_tick == belief.last_tick
     ]
@@ -150,90 +138,15 @@ def _nearest_current_witness(
     )
 
 
-def _current_self_record(
+def _matches_self_sprite(
+    record: PlayerRecord,
     belief: Belief,
     self_xy: tuple[int, int],
-) -> PlayerRecord | None:
+) -> bool:
     expected = (self_xy[0] + SELF_RECORD_DX, self_xy[1] + SELF_RECORD_DY)
-    candidates = [
-        record
-        for record in belief.roster.values()
-        if record.last_seen_tick == belief.last_tick
-        and _d2(expected, (record.world_x, record.world_y)) <= SELF_SPRITE_MATCH_SQ
-    ]
-    if not candidates:
-        return None
-    return min(
-        candidates,
-        key=lambda record: (
-            _d2(expected, (record.world_x, record.world_y)),
-            record.color,
-        ),
-    )
-
-
-def _repulsion_goal(belief: Belief, companion: PlayerRecord) -> tuple[int, int]:
-    self_xy = (belief.self_world_x, belief.self_world_y)
-    assert self_xy[0] is not None and self_xy[1] is not None
-    other_xy = (companion.world_x, companion.world_y)
-
-    if belief.nav is None:
-        return _direct_goal(self_xy, other_xy, companion.color)
-
-    start = belief.nav.nearest_reachable_node(*self_xy)
-    if start is None:
-        return _direct_goal(self_xy, other_xy, companion.color)
-
-    candidates = _nearby_nav_cells(belief, start)
-    if not candidates:
-        return _direct_goal(self_xy, other_xy, companion.color)
-    best = max(
-        candidates,
-        key=lambda cell: (
-            _d2(belief.nav.node_point[cell], other_xy),
-            _d2(belief.nav.node_point[cell], self_xy),
-            -cell[0],
-            -cell[1],
-        ),
-    )
-    return belief.nav.node_point[best]
-
-
-def _nearby_nav_cells(belief: Belief, start: tuple[int, int]) -> set[tuple[int, int]]:
-    assert belief.nav is not None
-    seen = {start}
-    frontier = {start}
-    for _ in range(NAV_SEARCH_HOPS):
-        next_frontier = {
-            neighbour
-            for cell in frontier
-            for neighbour, _cost in belief.nav.adjacency.get(cell, ())
-            if neighbour in belief.nav.reachable and neighbour not in seen
-        }
-        if not next_frontier:
-            break
-        seen.update(next_frontier)
-        frontier = next_frontier
-    seen.discard(start)
-    return seen
-
-
-def _direct_goal(
-    self_xy: tuple[int, int],
-    other_xy: tuple[int, int],
-    companion_color: str,
-) -> tuple[int, int]:
-    dx = self_xy[0] - other_xy[0]
-    dy = self_xy[1] - other_xy[1]
-    length = math.hypot(dx, dy)
-    if length == 0:
-        # Stable across processes; unlike hash(), this does not depend on hash seed.
-        dx = 1 if sum(map(ord, companion_color)) % 2 == 0 else -1
-        dy = 0
-        length = 1
     return (
-        round(self_xy[0] + REPULSION_DISTANCE * dx / length),
-        round(self_xy[1] + REPULSION_DISTANCE * dy / length),
+        record.last_seen_tick == belief.last_tick
+        and _d2(expected, (record.world_x, record.world_y)) <= SELF_SPRITE_MATCH_SQ
     )
 
 

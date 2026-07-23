@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Reduce avoidable crew murders without contaminating deduction. Local repulsion
-is deliberately role-neutral: it uses only current geometry, not the joint
-posterior, and never appends movement choices or targets to deduction history.
+Reduce avoidable crew murders without contaminating deduction. Survival movement
+is deliberately separate from the joint posterior and never appends its choices
+or targets to deduction history.
 
 The motivating v2 300-game crew screen found that the subject was murdered in
 172/300 games (57.3%), versus 49.2% across the six crew seats. At 65.1% of its
@@ -12,27 +12,31 @@ murders, only the killer was nearby. The fixed slot/color experiment cannot
 prove that movement caused this gap, but it makes one-on-one exposure a testable
 mechanism.
 
+Three hosted experiments found that broad reactive flight is harmful. Immediate
+repulsion, delayed pursuit, and delayed witness-seeking all increased murders,
+task interruption, or both. Equal-speed movement does not open a gap after a
+killer is in range, while role-neutral triggers mostly target ordinary crew.
+
 ## Two Independent Defenses
 
-### 1. Memoryless local repulsion
+### 1. Current-witness-only movement
 
-While all of the following hold, tasking is preempted and the agent moves away:
+Tasking is preempted only while all of the following hold:
 
 - the agent is a living crewmate and both `CREWBORG_DEDUCTION_HISTORY=1` and
   `CREWBORG_SELF_PRESERVATION=1` are enabled;
-- exactly one other living player is currently visible within 64 pixels; and
-- fewer than two other living players are currently inside that radius.
+- exactly one other living player has remained currently visible within 64
+  pixels for 12 continuous ticks; and
+- a third living player is currently visible and supplies a recomputed
+  destination.
 
-There is no named threat, activation delay, witness destination, or retained
-escape point. Each tick chooses a fresh reachable navigation cell farther from
-the sole nearby player. Without a navigation graph it projects a point directly
-away from the current relative position. Repulsion ends immediately when the
-radius contains zero or at least two other players.
+If there is no current witness, normal or stick behavior continues. There is no
+blind repulsion and no retained destination. Movement ends immediately when the
+risk radius contains zero or at least two other players, or when the witness is
+no longer current.
 
-Continuous exposure is traced as `pursuit` after 12 ticks, but that label is
-telemetry only. Proximity and flight never change impostor probabilities. A
-future pursuit feature may add evidence only after hosted data establishes a
-specific discriminative behavior; it is not part of this policy.
+Continuous exposure is traced as `pursuit`, but that label is telemetry only.
+Proximity and flight never change impostor probabilities.
 
 ### 2. Group-aware tasking
 
@@ -48,13 +52,13 @@ suspect-only controller cannot address those cases.
 ## Boundaries
 
 - The solver remains a pure function of `DeductionHistory`.
-- The repulsion goal is derived again from current geometry every tick. It must
+- The witness goal is derived again from current geometry every tick. It must
   not retain a destination after the geometry changes.
 - Do not re-enable `tailing_self` under stick mode, feed escape behavior back
   into deduction, or treat a solo companion as an alibi.
-- Repulsion may interrupt an in-progress task. The action layer resets partial
-  task progress when movement begins; tasking resumes through the normal policy
-  as soon as the one-on-one condition clears.
+- Witness seeking may interrupt an in-progress task. The action layer resets
+  partial task progress when movement begins; tasking resumes through the normal
+  policy as soon as its gates clear.
 - Keep each defense independently environment-gated and traceable.
 
 ## Validation
