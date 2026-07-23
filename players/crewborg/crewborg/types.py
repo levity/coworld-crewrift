@@ -629,10 +629,12 @@ def _record_death(
     record.mark_dead(tick, source, body_xy)
 
 
-# The self-sprite decodes to *exactly* ``self_world`` (the camera centers us); a real
-# player can't overlap us. So the visible player within this (small, rounding-tolerant)
-# squared distance of ``self_world`` is us, not someone else.
-SELF_SPRITE_MATCH_SQ = 4**2
+# Hosted decoding places the self player record at this stable offset from the
+# camera-derived ``self_world`` point. Match around that anchor rather than around
+# ``self_world`` itself: nearby players can be closer to the latter than our sprite.
+SELF_RECORD_DX = -2
+SELF_RECORD_DY = -6
+SELF_SPRITE_MATCH_SQ = 2**2
 
 
 def update_belief(belief: Belief, percept: Percept) -> None:
@@ -674,15 +676,23 @@ def update_belief(belief: Belief, percept: Percept) -> None:
         belief.crew_tasks_remaining = resolved.crew_tasks_remaining
     belief.active_task_progress_pct = resolved.active_task_progress_pct
 
-    # Learn our own color. The voting UI's self-marker is authoritative; otherwise the
-    # camera-center player (at ``self_world``) is us — learned once and persisted (our
-    # colour is fixed for the game). Needed so suspicion never targets *self*.
+    # Learn our own color. The voting UI's self-marker is authoritative; otherwise
+    # use the camera-locked self record. Re-evaluate the geometric match every tick
+    # so it can repair an earlier bad identity learned while players were stacked.
     if resolved.voting.self_marker_color is not None:
         belief.self_color = resolved.voting.self_marker_color
-    elif belief.self_color is None and resolved.self_world_x is not None and resolved.visible_players:
+    elif resolved.self_world_x is not None and resolved.visible_players:
         sx, sy = resolved.self_world_x, resolved.self_world_y
-        me = min(resolved.visible_players, key=lambda p: (p.world_x - sx) ** 2 + (p.world_y - sy) ** 2)
-        if (me.world_x - sx) ** 2 + (me.world_y - sy) ** 2 <= SELF_SPRITE_MATCH_SQ:
+        expected_x = sx + SELF_RECORD_DX
+        expected_y = sy + SELF_RECORD_DY
+        me = min(
+            resolved.visible_players,
+            key=lambda p: (p.world_x - expected_x) ** 2 + (p.world_y - expected_y) ** 2,
+        )
+        if (
+            (me.world_x - expected_x) ** 2 + (me.world_y - expected_y) ** 2
+            <= SELF_SPRITE_MATCH_SQ
+        ):
             belief.self_color = me.color
 
     # Live sightings: a "player <color>" in-world proves that player is alive here,

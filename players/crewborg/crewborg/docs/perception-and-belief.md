@@ -358,17 +358,19 @@ the live-world handle. `total_player_count` is the max distinct colors seen
 
 ### `self_color` — excluding self from every suspicion path
 
-The camera is locked to the agent, so the player rendered at the camera centre
-(`self_world`) is the agent. `update_belief` learns `self_color` so that self never
+The camera is locked to the agent, so the player rendered at a fixed offset from
+`self_world` is the agent. `update_belief` learns `self_color` so that self never
 leaks into the roster as a suspect, tail target, or vote target:
 
 - the **voting UI self-marker** is authoritative when present;
-- otherwise, the visible player nearest to `self_world` is the agent **iff** it is
-  within `SELF_SPRITE_MATCH_SQ = 4²` squared px (the self-sprite decodes to exactly
-  `self_world`; a real player cannot overlap it).
+- otherwise, hosted decoding places the self record at the stable offset
+  `SELF_RECORD_DX/DY = (-2,-6)` from `self_world`; match within two pixels of
+  that anchor rather than choosing whichever player is closest to `self_world`.
+- repeat the geometric match every visible tick so it repairs an identity learned
+  incorrectly while the spawn stack was crowded.
 
-Learned once and persisted (color is fixed for the game). Without it the agent
-suspects, tails, and votes itself.
+Without a correct identity the agent can suspect, tail, vote for, or flee from
+its own camera-locked sprite.
 
 ### Phase machine
 

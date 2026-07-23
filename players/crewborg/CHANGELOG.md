@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-23 - Hosted self-record identity fix
+
+- Match the camera-locked self record at its observed `(-2,-6)` offset from
+  `self_world`, rather than within four pixels of the wrong center point.
+- Re-evaluate that authoritative geometric match each visible tick so a crowded
+  spawn cannot leave a wrong `self_color` persisted for the whole game.
+- Self-preservation independently excludes the geometric self record and uses
+  color only as a fallback. A wrong or missing cached color can no longer turn
+  the self sprite into a permanent pursuit target or mask a nearby killer.
+- Local validation: 80 focused tests and the full 601-test suite pass (13
+  skipped); touched-file Ruff and `git diff --check` are clean.
+
 ## 2026-07-22 - Memoryless one-on-one repulsion
 
 - Replaced the rejected named-threat/witness-destination controller with an

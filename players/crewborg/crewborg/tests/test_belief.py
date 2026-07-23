@@ -19,10 +19,29 @@ def test_self_color_learned_from_the_camera_center_sprite() -> None:
     _fold(
         belief, 1, self_world_x=60, self_world_y=66,
         visible_players=(
-            VisiblePlayer(object_id=1000, color="red", facing="left", world_x=60, world_y=66),  # us
+            VisiblePlayer(object_id=1000, color="red", facing="left", world_x=58, world_y=60),  # us
             VisiblePlayer(object_id=1001, color="blue", facing="left", world_x=120, world_y=120),
         ),
     )
+    assert belief.self_color == "red"
+
+
+def test_self_color_uses_sprite_anchor_and_repairs_an_earlier_mistake() -> None:
+    from crewborg.perception.entities import VisiblePlayer
+
+    belief = Belief(self_color="blue")
+    _fold(
+        belief,
+        1,
+        self_world_x=60,
+        self_world_y=66,
+        visible_players=(
+            VisiblePlayer(object_id=1000, color="red", facing="left", world_x=58, world_y=60),
+            # Another player is closer to self_world but not to the self-record anchor.
+            VisiblePlayer(object_id=1001, color="blue", facing="left", world_x=60, world_y=65),
+        ),
+    )
+
     assert belief.self_color == "red"
 
 
