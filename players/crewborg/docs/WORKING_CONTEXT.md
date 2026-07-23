@@ -30,6 +30,10 @@ does not create suspicion evidence. Validate locally before another hosted
 screen. Full v1/v2 analysis:
 `docs/experiments/2026-07-22-memoryless-repulsion-hosted-ab.md`.
 
+Validation is clean: 603 passed / 13 skipped, focused tests and Ruff pass, and
+the exact pinned-SDK amd64 image passed Gate 1 in all eight slots. A 100/arm
+same-image hosted screen is the next gate.
+
 ### Superseded movement results
 
 The aggressive 12-tick isolation/pursuit experiment is complete and rejected.
