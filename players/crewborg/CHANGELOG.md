@@ -2,13 +2,25 @@
 
 ## 2026-07-23 - Delayed witness-seeking avoidance
 
+- Reject delayed witness-seeking after a clean 100/arm hosted A/B. Murders moved
+  48% -> 60%, wins 47% -> 34%, full tasks 79% -> 61%, and abandoned task
+  attempts 26 -> 449. Only 2% of escape ticks had a visible witness; blind
+  repulsion handled the other 98% and increased sole-impostor exposure.
+- Remove blind repulsion fallback. Twelve-tick exposure may now interrupt work
+  only when a current third-player destination exists; otherwise normal or
+  stick behavior continues.
+- Exclude every roster record matching the self-sprite anchor, rather than one
+  tie-broken candidate. This fixes the two remaining hosted self targets caused
+  by exact-coordinate overlaps and a wrong cached color.
+- Local follow-up validation: 601 passed / 13 skipped; touched-file Ruff and
+  `git diff --check` are clean.
 - Reject the corrected immediate-repulsion v2 after a fresh 200/arm hosted A/B.
   On subject-clean games, murders rose 50.8% -> 62.1% (`p=0.034`), wins fell
   42.1% -> 23.1%, and task attempts abandoned rose 39 -> 278. The stricter
   whole-roster-clean slice gives the same conclusion.
-- Require 12 continuous one-on-one ticks before movement preempts tasking. Once
-  active, recompute a route toward the nearest currently visible third player
-  every tick; use direct repulsion only when no witness is visible.
+- The evaluated build required 12 continuous one-on-one ticks before movement
+  preempted tasking, recomputed a route toward a currently visible third player,
+  and used direct repulsion when no witness was visible.
 - Always exclude both the geometric self candidate and the known self color.
   This covers the rare exact-coordinate tie that caused two self-target events
   among 6,672 clean hosted starts.

@@ -9,7 +9,26 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
-## Current update (2026-07-23, self-preservation movement)
+## Current update (2026-07-23, proactive grouping pivot)
+
+Delayed witness-seeking is also rejected. In a clean 100/arm hosted A/B,
+murders moved 48% -> 60%, wins 47% -> 34%, full tasks 79% -> 61%, and abandoned
+task attempts 26 -> 449. Candidate time with 2+ nearby players fell 26.8% ->
+17.1%, while sole-impostor exposure rose 8.3% -> 27.3%.
+
+Telemetry explains the inversion: 1,591 sessions activated in 99/100 games;
+72% targeted crew, and only 2% of 78,165 escape ticks had a visible witness.
+Blind repulsion supplied the other 98%, and all 60 murders happened while it
+was the prior intent. Even a 300-tick recent-witness bound covers only 31.8% of
+those ticks. Do not continue tuning role-neutral reactive flight.
+
+The local follow-up removes blind fallback and excludes every record at the
+geometric self anchor, fixing two remaining exact-overlap self targets. The
+next useful isolated experiment is proactive group-supported task selection
+with self-preservation off. Full result:
+`docs/experiments/2026-07-23-witness-seeking-hosted-ab.md`.
+
+### Superseded immediate repulsion result
 
 The corrected immediate-repulsion v2 is also rejected. In a fresh 200/arm A/B,
 subject-clean murders rose 99/195 (50.8%) -> 105/169 (62.1%, `p=0.034`), wins
@@ -23,16 +42,13 @@ actively fleeing. Candidate time with a sole nearby impostor rose 13.8% ->
 24.2%, while 2+ player time stayed flat. Direct equal-speed flight separated
 ordinary crew but did not escape killers already within kill distance.
 
-The local next iteration excludes both geometric and color self records, waits
-for 12 continuous one-on-one ticks, and then recomputes a route toward the
-nearest current visible witness, using direct repulsion only as fallback. It
-does not create suspicion evidence. Validate locally before another hosted
-screen. Full v1/v2 analysis:
+The next iteration excluded both geometric and color self records, waited for
+12 continuous one-on-one ticks, and then recomputed a route toward the nearest
+current visible witness, using direct repulsion as fallback. Full v1/v2 analysis:
 `docs/experiments/2026-07-22-memoryless-repulsion-hosted-ab.md`.
 
-Validation is clean: 603 passed / 13 skipped, focused tests and Ruff pass, and
-the exact pinned-SDK amd64 image passed Gate 1 in all eight slots. A 100/arm
-same-image hosted screen is the next gate.
+Its local validation was clean: 603 passed / 13 skipped, focused tests and Ruff
+passed, and the exact pinned-SDK amd64 image passed Gate 1 in all eight slots.
 
 ### Superseded movement results
 
