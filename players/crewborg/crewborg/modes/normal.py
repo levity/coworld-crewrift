@@ -52,6 +52,16 @@ GROUP_LOITER_RADIUS_SQ = 120**2
 GROUP_LOITER_HOLD_SQ = 72**2
 GROUP_LOITER_FIX_TICKS = 96
 
+# Post-task escort (CREWBORG_POST_TASK_ESCORT): a crewmate that has finished all
+# its own tasks can no longer speed the task win (tasks are per-player), so its
+# remaining value is not dying (impostors win at parity) and gathering vote
+# evidence -- both served by staying WITH the live-crew pack (kills in a group get
+# witnessed; the pack is where the information is). Unlike static loiter, escort
+# keeps following the cluster centroid, closing in only when the pack pulls beyond
+# this radius, else holding station -- near enough to witness, far enough not to
+# hug one player and read as a tail. No active back-off (that just re-isolates us).
+ESCORT_REAPPROACH_SQ = 80**2
+
 
 class NormalMode(Mode[Belief, ActionState, Intent]):
     name = "normal"
@@ -84,6 +94,9 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
         sweep = self._sweep_intent(belief, tasks)
         if sweep is not None:
             return sweep
+        escort = _escort_crew(belief)
+        if escort is not None:
+            return escort
         loiter = _post_task_loiter(belief)
         if loiter is not None:
             return loiter
@@ -200,24 +213,12 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
         return Intent(kind="navigate_to", point=_nav_point(belief, tasks[nearest], nearest), reason="sweeping for tasks")
 
 
-def _post_task_loiter(belief: Belief) -> Intent | None:
-    """Opt-in: a finished crewmate holds with the pack instead of wandering home.
+def _densest_live_crew_cluster(belief: Belief) -> list | None:
+    """The largest cluster of recently-seen live crewmates (>=2), or None.
 
-    Gated by ``CREWBORG_POST_TASK_LOITER`` and reached only when Normal has no task
-    left to do. Biases toward the densest cluster of recently-seen live crewmates
-    (safety in numbers denies kill windows) and holds still once inside it. Off ⇒
-    behaviour is byte-identical to the old return-to-start path.
+    A cluster is an anchor crewmate plus every other live crewmate within
+    GROUP_LOITER_RADIUS_SQ of it. Shared by post-task loiter and escort.
     """
-
-    if (
-        not _truthy_env("CREWBORG_POST_TASK_LOITER")
-        or not belief.self_alive
-        or belief.self_role != "crewmate"
-    ):
-        return None
-    self_xy = _self_xy(belief)
-    if self_xy is None:
-        return None
     tick = belief.last_tick
     live = [
         record
@@ -238,17 +239,63 @@ def _post_task_loiter(belief: Belief) -> Intent | None:
             and _dist2(here, (other.world_x, other.world_y)) <= GROUP_LOITER_RADIUS_SQ
         ]
 
-    # Densest cluster: keep the winner's neighbour list from the same pass rather
-    # than recomputing it for the anchor.
     anchor, anchor_neighbours = max(
         ((record, neighbours(record)) for record in live),
         key=lambda pair: len(pair[1]),
     )
     cluster = [anchor, *anchor_neighbours]
-    if len(cluster) < 2:
+    return cluster if len(cluster) >= 2 else None
+
+
+def _escort_crew(belief: Belief) -> Intent | None:
+    """Opt-in (CREWBORG_POST_TASK_ESCORT): a finished crewmate shadows the live-crew
+    pack at a standoff instead of returning to spawn. Reached only when Normal has no
+    task left. Off => falls through to loiter / return-to-start unchanged.
+    """
+    if (
+        not _truthy_env("CREWBORG_POST_TASK_ESCORT")
+        or not belief.self_alive
+        or belief.self_role != "crewmate"
+    ):
         return None
+    self_xy = _self_xy(belief)
+    if self_xy is None:
+        return None
+    cluster = _densest_live_crew_cluster(belief)
+    if cluster is None:
+        return None
+    cx = sum(record.world_x for record in cluster) // len(cluster)
+    cy = sum(record.world_y for record in cluster) // len(cluster)
+    if _dist2(self_xy, (cx, cy)) > ESCORT_REAPPROACH_SQ:
+        return Intent(kind="navigate_to", point=(cx, cy), reason="escort: closing on the crew group")
+    # In escort range: keep station near the pack without crowding onto it.
+    return Intent(kind="loiter", reason="escort: holding station with the crew group")
+
+
+def _post_task_loiter(belief: Belief) -> Intent | None:
+    """Opt-in: a finished crewmate holds with the pack instead of wandering home.
+
+    Gated by ``CREWBORG_POST_TASK_LOITER`` and reached only when Normal has no task
+    left to do. Biases toward the densest cluster of recently-seen live crewmates
+    (safety in numbers denies kill windows) and holds still once inside it. Off ⇒
+    behaviour is byte-identical to the old return-to-start path.
+    """
+
+    if (
+        not _truthy_env("CREWBORG_POST_TASK_LOITER")
+        or not belief.self_alive
+        or belief.self_role != "crewmate"
+    ):
+        return None
+    self_xy = _self_xy(belief)
+    if self_xy is None:
+        return None
+    cluster = _densest_live_crew_cluster(belief)
+    if cluster is None:
+        return None
+    anchor = cluster[0]
     target = (anchor.world_x, anchor.world_y)
-    visible_now = sum(record.last_seen_tick == tick for record in cluster)
+    visible_now = sum(record.last_seen_tick == belief.last_tick for record in cluster)
     if _dist2(self_xy, target) <= GROUP_LOITER_HOLD_SQ and visible_now >= 2:
         return Intent(kind="loiter", reason="post-task loiter: holding with the group")
     return Intent(kind="navigate_to", point=target, reason="post-task loiter: regrouping with crew")
