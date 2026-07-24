@@ -49,6 +49,16 @@ REPLAN_INTERVAL = 8
 
 # Report fires when within ReportRange = 20px (dist² ≤ 400) of a body (sim.nim).
 REPORT_RANGE_SQ = 400
+# Press report only well *inside* ReportRange, not at its 20px lip. Body localization
+# can be off by ~7px, so a press from the boundary lands just outside the server's true
+# range and is silently rejected (Prime replay: 266 dead presses at ~21px, then killed).
+# 12px of the believed body ⇒ ≤19px real even at that error — comfortably in range.
+REPORT_MARGIN_SQ = 144
+# After a spell of failed presses (REPORT_REPOSITION_TICKS), tighten the margin to
+# point-blank so we drive the last few pixels onto the body instead of holding still at
+# the boundary — even a large localization error can't then strand us out of range.
+REPORT_CLOSE_SQ = 36
+REPORT_REPOSITION_TICKS = 24
 # Kill fires within KillRange = 20px (dist² ≤ 400); vent within VentRange = 16px
 # (dist² ≤ 256) (sim.nim).
 KILL_RANGE_SQ = 400
@@ -123,6 +133,7 @@ def _reset_execution(action_state: ActionState, intent: Intent) -> None:
     action_state.route_goal = None
     action_state.route_teleports = {}
     action_state.ticks_since_plan = 0
+    action_state.report_ticks = 0
     action_state.vote_confirmed = False
     action_state.chat_sent = False
 
@@ -304,7 +315,12 @@ def _resolve_report(
     if body is None:
         return Command(held_mask=0)
     body_xy = (body.world_x, body.world_y)
-    if _dist2(self_xy, body_xy) <= REPORT_RANGE_SQ:
+    action_state.report_ticks += 1
+    # Require a comfortable margin inside ReportRange before pressing; escalate to
+    # point-blank once presses have kept failing, so a mislocalized body can't strand us
+    # pressing forever at the range boundary (design §12; Prime replay recovery).
+    margin = REPORT_CLOSE_SQ if action_state.report_ticks > REPORT_REPOSITION_TICKS else REPORT_MARGIN_SQ
+    if _dist2(self_xy, body_xy) <= margin:
         # In range: a fresh A press reports the body (sim.nim tryReport).
         return Command(held_mask=_edge_press(action_state, BTN_A))
     return Command(held_mask=_navigate_mask(belief, action_state, self_xy, body_xy))
