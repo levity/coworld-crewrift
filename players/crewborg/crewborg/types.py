@@ -552,6 +552,9 @@ class ActionState(BaseModel):
     # a spell of dead presses we drive point-blank onto the body, and report_body times
     # out on this counter and resumes tasking instead of freezing (see action.py).
     report_ticks: int = 0
+    # Consecutive ticks we've been trying to engage a task station without the
+    # progress bar appearing -- drives the edge-park recovery in _resolve_complete_task.
+    task_stuck_ticks: int = 0
     # Whether the current vote intent has been confirmed (A pressed on the choice),
     # so we don't re-press once the vote is cast.
     vote_confirmed: bool = False
