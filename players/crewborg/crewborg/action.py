@@ -38,6 +38,16 @@ BTN_B = 0x40
 # Movement-controller tuning (design §12). Distances are world pixels.
 ARRIVE_RADIUS = 4  # within this of an axis target ⇒ that axis has arrived
 WAYPOINT_RADIUS = 8  # within this of a route waypoint ⇒ advance to the next
+
+# Task-station edge-park recovery. Our self-estimate carries a ~ARRIVE_RADIUS error,
+# so navigating to a task and stopping within ARRIVE_RADIUS of its center can leave our
+# TRUE position at the rect edge -- 1px outside the sim's exclusive activation bound --
+# where holding A never engages the station and we would freeze forever. When we believe
+# we're on the station but the progress bar hasn't appeared, we press A for a few ticks
+# then, if still not engaged, drive to the rect center to pull our true position inside,
+# and retry -- cycling until the station engages (design §12; Prime edge-park recovery).
+TASK_ENGAGE_TICKS = 4  # hold A this long trying to engage before distrusting "inside"
+TASK_NUDGE_TICKS = 4   # then steer to the rect center this long to move truly inside
 # Momentum stopping distance ≈ v·fr/(1-fr) with fr = 144/256; ≈ 1.29·v. Release
 # the axis a bit before that so friction brings us to rest on the target.
 STOP_FACTOR = 1.3
@@ -110,6 +120,28 @@ def _movement_mask(self_xy: tuple[int, int], target_xy: tuple[int, int], velocit
     return mask
 
 
+def _press_toward(self_xy: tuple[int, int], target_xy: tuple[int, int]) -> int:
+    """D-pad mask pressing straight toward ``target_xy`` with NO arrival dead-zone.
+
+    Unlike ``_movement_mask`` this presses on any non-zero offset. It exists for the
+    task edge-park recovery: the normal ARRIVE_RADIUS dead-zone is exactly what left
+    us parked a few px short of a task center, so the un-wedge nudge must ignore it.
+    """
+
+    dx = target_xy[0] - self_xy[0]
+    dy = target_xy[1] - self_xy[1]
+    mask = 0
+    if dx < 0:
+        mask |= BTN_LEFT
+    elif dx > 0:
+        mask |= BTN_RIGHT
+    if dy < 0:
+        mask |= BTN_UP
+    elif dy > 0:
+        mask |= BTN_DOWN
+    return mask
+
+
 def _dist2(a: tuple[int, int], b: tuple[int, int]) -> int:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
@@ -134,6 +166,7 @@ def _reset_execution(action_state: ActionState, intent: Intent) -> None:
     action_state.route_teleports = {}
     action_state.ticks_since_plan = 0
     action_state.report_ticks = 0
+    action_state.task_stuck_ticks = 0
     action_state.vote_confirmed = False
     action_state.chat_sent = False
 
@@ -294,19 +327,36 @@ def _resolve_complete_task(
     intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]
 ) -> Command:
     if intent.task_index is None or belief.map is None or intent.task_index >= len(belief.map.tasks):
+        action_state.task_stuck_ticks = 0
         return Command(held_mask=0)
     task = belief.map.tasks[intent.task_index]
     inside = task.x <= self_xy[0] < task.x + task.w and task.y <= self_xy[1] < task.y + task.h
-    if inside:
-        # On the station: hold A with no d-pad (any d-pad resets task progress);
-        # residual momentum settles via friction while progress accrues.
+
+    if belief.active_task_progress_pct is not None:
+        # The station's progress bar is up: the sim confirms we're engaged. Hold A with
+        # no d-pad (any d-pad resets progress); residual momentum settles via friction.
+        action_state.task_stuck_ticks = 0
         return Command(held_mask=BTN_A)
-    # Otherwise drive onto the station's baked anchor (a reachable pixel inside the
-    # rect), falling back to the geometric center before the nav graph exists.
+
+    if inside:
+        # Believed-on-station but not engaged. Press A to (try to) start; if it keeps
+        # failing our ~few-px self-error has us parked at the rect edge, so steer to the
+        # center to bring our true position inside, then retry. We can't do both at once
+        # (a d-pad press resets task progress), so alternate in a short cycle.
+        action_state.task_stuck_ticks += 1
+        phase = (action_state.task_stuck_ticks - 1) % (TASK_ENGAGE_TICKS + TASK_NUDGE_TICKS)
+        if phase < TASK_ENGAGE_TICKS:
+            return Command(held_mask=BTN_A)
+        # Nudge straight at the rect center, ignoring the arrival radius (which is what
+        # stranded us at the edge): even a 1px offset gets a press.
+        return Command(held_mask=_press_toward(self_xy, (task.center.x, task.center.y)))
+
+    # Not on station: drive onto the baked anchor (a reachable pixel inside the rect),
+    # falling back to the geometric center before the nav graph exists.
+    action_state.task_stuck_ticks = 0
     anchor = belief.nav.task_anchor(intent.task_index) if belief.nav is not None else None
     goal = anchor if anchor is not None else (task.center.x, task.center.y)
     return Command(held_mask=_navigate_mask(belief, action_state, self_xy, goal))
-
 
 def _resolve_report(
     intent: Intent, belief: Belief, action_state: ActionState, self_xy: tuple[int, int]

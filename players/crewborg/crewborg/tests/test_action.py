@@ -16,6 +16,7 @@ from crewborg.action import (
     encode_chat,
     encode_input,
     resolve_action,
+    TASK_ENGAGE_TICKS,
 )
 from crewborg.map.types import MapData, MapPoint, MapRect, TaskStation, Vent
 from crewborg.nav import build_nav_graph
@@ -191,6 +192,34 @@ def test_complete_task_holds_a_inside_rect_and_navigates_outside() -> None:
     belief_outside = Belief(map=_one_task_map(), self_world_x=0, self_world_y=0)
     command = resolve_action(Intent(kind="complete_task", task_index=0), belief_outside, ActionState())
     assert command.held_mask == BTN_RIGHT | BTN_DOWN  # drive toward center (110, 110)
+
+
+def test_complete_task_progress_bar_up_holds_a() -> None:
+    # When the sim confirms engagement (progress bar visible), hold A indefinitely.
+    belief = Belief(map=_one_task_map(), self_world_x=119, self_world_y=119,
+                    active_task_progress_pct=30)
+    action_state = ActionState()
+    intent = Intent(kind="complete_task", task_index=0)
+    for _ in range(12):
+        command = resolve_action(intent, belief, action_state)
+        assert command.held_mask == BTN_A
+
+
+def test_complete_task_edge_park_recovers_by_nudging_to_center() -> None:
+    # Believed-inside at the rect edge but the station never engages (progress None):
+    # the true position is parked 1px outside, so after a few failed A presses the
+    # recovery must steer toward the rect center (110,110) to pull us truly inside,
+    # rather than freezing on A forever.
+    belief = Belief(map=_one_task_map(), self_world_x=119, self_world_y=119)  # edge of [100,120)
+    action_state = ActionState()
+    intent = Intent(kind="complete_task", task_index=0)
+    masks = [resolve_action(intent, belief, action_state).held_mask for _ in range(12)]
+    # First TASK_ENGAGE_TICKS ticks press A to try to engage.
+    assert masks[:TASK_ENGAGE_TICKS] == [BTN_A] * TASK_ENGAGE_TICKS
+    # Then it nudges toward the center (110,110) -> LEFT|UP from (119,119).
+    assert masks[TASK_ENGAGE_TICKS] == BTN_LEFT | BTN_UP
+    # It does not stay stuck holding A the whole time.
+    assert any(m == (BTN_LEFT | BTN_UP) for m in masks)
 
 
 def test_encode_chat_wire_format() -> None:
