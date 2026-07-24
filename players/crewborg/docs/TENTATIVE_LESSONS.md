@@ -25,13 +25,20 @@ run with the same N are a PAIRED comparison. The local runner WAITS for policies
 per-tick deadline), so CPU oversubscription on a 2-vCPU box slows wall-clock (~230s/game) but
 does not corrupt behavior (zero timeouts, full games/votes/tasks).
 
-### crewborg's real freeze is normal-mode navigation, not report_body
-Evidence: attributing every "frozen while tasks remain" tick (zero velocity, no active task) to
-the active mode over 20 self-play games: **98% of stall is in `normal` mode**; `report_body`
-totals only 69-109 ticks across 10 games. Run-length analysis: median stall run is 4 ticks
-(benign momentary pauses) but **10-14 runs of >=100 ticks carry ~65% of all stall time, max
-~1084 ticks** -- roughly one catastrophic freeze per game while tasking. Fix stuck-recovery in
-the tasking/nav path; the report-boundary freeze is real but rare.
+### crewborg's real freeze is task edge-parking (arrival threshold x localization error)
+SUPERSEDES the earlier "normal-mode navigation" framing. Root-caused 3x in traced local
+self-play (CREWBORG_TRACE=debug -> telemetry.jsonl, joined to replay velocity via
+crewrift-analysis/freeze_probe.py): the multi-hundred-tick freeze is crewborg standing on a task
+pressing A that never engages. Mechanism: crewborg under-estimates its own x by ~4px, and
+_navigate_mask stops within ARRIVE_RADIUS=4 of the goal, so its TRUE position parks at the task
+rect's exclusive upper bound (actual x == task.x+task.w, 1px outside). The sim
+(sim.nim ~3196) only activates a task when the real position is strictly inside AND no d-pad is
+pressed, so it holds A forever while believing inside=True. Two surfaces: mid-task (up to 53% of
+a seat's alive time) and post-task-done "return to start room" (held=0, parked ~5px short of a
+waypoint). The earlier "98% normal-mode, ~1 catastrophic freeze/game while tasking" mixed these
+in and mis-attributed post-done standing as while-tasking (player_state-only done-tick detection
+was imperfect). Fix: gate task A-holds on the ground-truth progress bar and nudge to the rect
+CENTER when not engaging (action.py _resolve_complete_task, image crewborg:edge-park-fix).
 
 ### Do not count finished-crew standing still as a stall
 Evidence: a crewmate that has completed all 8 tasks legitimately stands at spawn. Counting those
