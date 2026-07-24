@@ -25,6 +25,20 @@ run with the same N are a PAIRED comparison. The local runner WAITS for policies
 per-tick deadline), so CPU oversubscription on a 2-vCPU box slows wall-clock (~230s/game) but
 does not corrupt behavior (zero timeouts, full games/votes/tasks).
 
+### Post-task escort is the wrong slice on Prime -- crew die MID-task, not after
+Hosted Prime A/B (2026-07-24, 100/arm, escort on vs off, both with the edge-park freeze
+fix): escort NEUTRAL on survival (murder 50->51%, win 20->23%, all-8 52->50%, no task
+cost). Its mechanism half-worked -- of murdered subjects, isolated kills fell 84.0%->72.5%
+(kills more witnessed), sole-impostor geometry 9.2%->8.2% -- but 2+-nearby did NOT rise,
+and none of it converted to fewer deaths. Reason: **43% of subjects are killed BEFORE
+finishing their tasks** (isolated 78% of the time), and escort is a no-op until all 8
+tasks are done, so only ~7-8 murdered subjects/arm were even in its window. The dominant
+crew failure is dying mid-task while isolated -- upstream of anything post-task. Keep crew
+together WHILE tasking (the group-cohesion direction), don't just escort after. Escort is
+harmless (no regression, less isolated kills) but too small a slice to promote alone. The
+freeze fix itself validated hosted: pathological stall 0.01 in BOTH arms, 0/200 games
+>=30% stall.
+
 ### crewborg's real freeze is task edge-parking (arrival threshold x localization error)
 SUPERSEDES the earlier "normal-mode navigation" framing. Root-caused 3x in traced local
 self-play (CREWBORG_TRACE=debug -> telemetry.jsonl, joined to replay velocity via
