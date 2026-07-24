@@ -31,6 +31,7 @@ import math
 import os
 
 from crewborg.map.types import Room, TaskStation
+from crewborg.agent_tracking import ranked_seek_points
 from crewborg.strategy.commander.bias import commander_of, room_crew_count
 from crewborg.types import ActionState, Belief, Intent
 from players.player_sdk import EmptyModeParams, Mode
@@ -61,6 +62,12 @@ GROUP_LOITER_FIX_TICKS = 96
 # this radius, else holding station -- near enough to witness, far enough not to
 # hug one player and read as a tail. No active back-off (that just re-isolates us).
 ESCORT_REAPPROACH_SQ = 80**2
+# A finished escort never returns to spawn: if no crew cluster is in view it seeks the
+# densest expected-crew area, and failing that patrols (laps to the farthest room) to
+# keep circulating and gathering evidence. All move targets steer clear of suspected
+# impostors -- a color the suspicion model rates at/above this bar -- by this radius.
+ESCORT_SUSPECT_BAR = 0.6
+ESCORT_AVOID_SQ = 140**2
 
 
 class NormalMode(Mode[Belief, ActionState, Intent]):
@@ -247,6 +254,44 @@ def _densest_live_crew_cluster(belief: Belief) -> list | None:
     return cluster if len(cluster) >= 2 else None
 
 
+def _suspect_points(belief: Belief) -> list[tuple[int, int]]:
+    """Last-known positions of alive players the suspicion model rates as likely
+    impostors (>= ESCORT_SUSPECT_BAR) -- places a finished escort should not walk toward."""
+    points: list[tuple[int, int]] = []
+    for color, score in belief.suspicion.items():
+        if color == belief.self_color or score < ESCORT_SUSPECT_BAR:
+            continue
+        record = belief.roster.get(color)
+        if record is not None and record.life_status == "alive":
+            points.append((record.world_x, record.world_y))
+    return points
+
+
+def _clear_of_suspects(point: tuple[int, int], suspects: list[tuple[int, int]]) -> bool:
+    return all(_dist2(point, suspect) > ESCORT_AVOID_SQ for suspect in suspects)
+
+
+def _reachable_point(belief: Belief, point: tuple[int, int]) -> tuple[int, int]:
+    if belief.nav is not None:
+        cell = belief.nav.nearest_reachable_node(*point)
+        if cell is not None:
+            return belief.nav.node_point[cell]
+    return point
+
+
+def _patrol_target(belief: Belief, self_xy: tuple[int, int],
+                   suspects: list[tuple[int, int]]) -> tuple[int, int] | None:
+    """Farthest reachable room center from us (long laps = coverage + motion),
+    preferring rooms clear of suspects; falls back to farthest overall so we always move."""
+    if belief.map is None or not belief.map.rooms:
+        return None
+    centers = [(room.x + room.w // 2, room.y + room.h // 2) for room in belief.map.rooms]
+    clear = [c for c in centers if _clear_of_suspects(c, suspects)]
+    pool = clear if clear else centers
+    target = max(pool, key=lambda c: _dist2(self_xy, c))
+    return _reachable_point(belief, target)
+
+
 def _escort_crew(belief: Belief) -> Intent | None:
     """Opt-in (CREWBORG_POST_TASK_ESCORT): a finished crewmate shadows the live-crew
     pack at a standoff instead of returning to spawn. Reached only when Normal has no
@@ -261,15 +306,32 @@ def _escort_crew(belief: Belief) -> Intent | None:
     self_xy = _self_xy(belief)
     if self_xy is None:
         return None
+    suspects = _suspect_points(belief)
+
+    # 1) A real cluster (>=2 recently-seen live crew): hold station at a standoff --
+    # safety in numbers, near enough to witness, far enough not to hug one player.
     cluster = _densest_live_crew_cluster(belief)
-    if cluster is None:
-        return None
-    cx = sum(record.world_x for record in cluster) // len(cluster)
-    cy = sum(record.world_y for record in cluster) // len(cluster)
-    if _dist2(self_xy, (cx, cy)) > ESCORT_REAPPROACH_SQ:
-        return Intent(kind="navigate_to", point=(cx, cy), reason="escort: closing on the crew group")
-    # In escort range: keep station near the pack without crowding onto it.
-    return Intent(kind="loiter", reason="escort: holding station with the crew group")
+    if cluster is not None:
+        cx = sum(record.world_x for record in cluster) // len(cluster)
+        cy = sum(record.world_y for record in cluster) // len(cluster)
+        if _dist2(self_xy, (cx, cy)) > ESCORT_REAPPROACH_SQ:
+            return Intent(kind="navigate_to", point=(cx, cy), reason="escort: closing on the crew group")
+        return Intent(kind="loiter", reason="escort: holding station with the crew group")
+
+    # 2) No cluster in view: seek the densest expected-crew area (occupancy, weighted to
+    # the largest group) so we find a pack -- skipping cells sitting on a suspect. A lone
+    # player is NOT a valid anchor (~60-72% crew, no witness benefit), so we seek density.
+    for point in ranked_seek_points(belief):
+        if _clear_of_suspects(point, suspects):
+            return Intent(kind="navigate_to", point=_reachable_point(belief, point),
+                          reason="escort: seeking the crew group")
+
+    # 3) Nothing to seek: patrol (laps to the farthest reachable room, avoiding suspects)
+    # rather than ever parking at spawn -- keep moving and gathering evidence.
+    patrol = _patrol_target(belief, self_xy, suspects)
+    if patrol is not None:
+        return Intent(kind="navigate_to", point=patrol, reason="escort: patrolling for crew")
+    return None
 
 
 def _post_task_loiter(belief: Belief) -> Intent | None:
