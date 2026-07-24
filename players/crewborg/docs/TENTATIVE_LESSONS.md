@@ -17,6 +17,28 @@ optional `Status:` note. Terse. One lesson per `###`.
 
 ---
 
+### Local self-play reproduces crewborg's freeze pathology -- iterate there, not hosted
+Evidence: 10 paired self-play seeds per arm on Prime (8 crewborg seats/game = 60 crew-seat
+samples) reproduced the freezing seen in hosted games, at a fraction of the cost/time and with
+full local artifacts. `coworld run-episode -n N` increments the seed per episode, so two images
+run with the same N are a PAIRED comparison. The local runner WAITS for policies (no hosted
+per-tick deadline), so CPU oversubscription on a 2-vCPU box slows wall-clock (~230s/game) but
+does not corrupt behavior (zero timeouts, full games/votes/tasks).
+
+### crewborg's real freeze is normal-mode navigation, not report_body
+Evidence: attributing every "frozen while tasks remain" tick (zero velocity, no active task) to
+the active mode over 20 self-play games: **98% of stall is in `normal` mode**; `report_body`
+totals only 69-109 ticks across 10 games. Run-length analysis: median stall run is 4 ticks
+(benign momentary pauses) but **10-14 runs of >=100 ticks carry ~65% of all stall time, max
+~1084 ticks** -- roughly one catastrophic freeze per game while tasking. Fix stuck-recovery in
+the tasking/nav path; the report-boundary freeze is real but rare.
+
+### Do not count finished-crew standing still as a stall
+Evidence: a crewmate that has completed all 8 tasks legitimately stands at spawn. Counting those
+ticks as "pathological stall" inflated the metric from 8.6% to 35.5% in one self-play sample and
+made a neutral change look like a 6x regression. Count a freeze only while that seat still has
+tasks to do. (The same artifact inflated an earlier hosted-Prime stall figure.)
+
 ### Reactive follower-triggered movement fails even when reframed as productive tasking
 Evidence: Fourth reactive-movement design rejected (after immediate repulsion, isolation
 pursuit, witness-seeking). "Early safe distance" retreated to the nearest reachable task that
