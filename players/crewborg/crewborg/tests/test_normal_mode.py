@@ -535,6 +535,43 @@ def test_post_task_loiter_skips_ghosts(monkeypatch) -> None:
     assert intent.kind == "navigate_to" and intent.point == (0, 0)  # ghost just goes home
 
 
+def test_post_task_escort_off_by_default_returns_home(monkeypatch) -> None:
+    monkeypatch.delenv("CREWBORG_POST_TASK_ESCORT", raising=False)
+    monkeypatch.delenv("CREWBORG_POST_TASK_LOITER", raising=False)
+    belief = _done_belief(self_world_x=500, self_world_y=500)
+    _crew(belief, "red", (100, 100))
+    _crew(belief, "blue", (130, 100))
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (0, 0)
+
+
+def test_post_task_escort_closes_on_the_cluster_centroid(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_POST_TASK_ESCORT", "1")
+    belief = _done_belief(self_world_x=500, self_world_y=500)
+    _crew(belief, "red", (100, 100))
+    _crew(belief, "blue", (130, 100))  # centroid (115, 100)
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (115, 100)  # centroid, not anchor
+    assert "escort" in intent.reason
+
+
+def test_post_task_escort_holds_station_within_range(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_POST_TASK_ESCORT", "1")
+    belief = _done_belief(self_world_x=150, self_world_y=100)  # 35px from centroid (115,100)
+    _crew(belief, "red", (100, 100))
+    _crew(belief, "blue", (130, 100))
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "loiter" and "escort" in intent.reason
+
+
+def test_post_task_escort_needs_two_live_players(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_POST_TASK_ESCORT", "1")
+    belief = _done_belief(self_world_x=500, self_world_y=500)
+    _crew(belief, "red", (100, 100))  # only one => no cluster
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (0, 0)
+
+
 def test_sweeps_baked_tasks_when_no_signals_arrive() -> None:
     # showTaskArrows disabled: no task signals, so assigned stays empty. Rather
     # than idle forever, sweep toward the nearest baked station to discover tasks.
