@@ -546,6 +546,12 @@ class ActionState(BaseModel):
     # Last observed self world position, for estimating velocity (predictive stop).
     last_self_x: int | None = None
     last_self_y: int | None = None
+    # Consecutive ticks the current ``report`` intent has been resolved (reset when the
+    # intent changes). Drives the report path's reposition/give-up escalation: pressing
+    # from the ReportRange lip fails when body localization is a few pixels off, so after
+    # a spell of dead presses we drive point-blank onto the body, and report_body times
+    # out on this counter and resumes tasking instead of freezing (see action.py).
+    report_ticks: int = 0
     # Whether the current vote intent has been confirmed (A pressed on the choice),
     # so we don't re-press once the vote is cast.
     vote_confirmed: bool = False
