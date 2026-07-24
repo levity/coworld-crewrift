@@ -564,12 +564,27 @@ def test_post_task_escort_holds_station_within_range(monkeypatch) -> None:
     assert intent.kind == "loiter" and "escort" in intent.reason
 
 
-def test_post_task_escort_needs_two_live_players(monkeypatch) -> None:
+def test_post_task_escort_never_returns_to_spawn_patrols_instead(monkeypatch) -> None:
     monkeypatch.setenv("CREWBORG_POST_TASK_ESCORT", "1")
-    belief = _done_belief(self_world_x=500, self_world_y=500)
-    _crew(belief, "red", (100, 100))  # only one => no cluster
+    belief = _done_belief(map=_roomed_map(), self_world_x=500, self_world_y=500)
+    _crew(belief, "red", (100, 100))  # only one => no cluster, no occupancy => patrol
     intent = NormalMode().decide(belief, ActionState())
-    assert intent.kind == "navigate_to" and intent.point == (0, 0)
+    # Never (0,0) spawn: patrol to the farthest room center from (500,500) = Left (50,50).
+    assert intent.kind == "navigate_to" and intent.point == (50, 50)
+    assert intent.point != (0, 0) and "patrol" in intent.reason
+
+
+def test_post_task_escort_patrol_avoids_a_suspected_impostor(monkeypatch) -> None:
+    from crewborg.modes.normal import _clear_of_suspects
+    monkeypatch.setenv("CREWBORG_POST_TASK_ESCORT", "1")
+    belief = _done_belief(map=_roomed_map(), self_world_x=250, self_world_y=50)
+    _crew(belief, "red", (250, 50))          # suspect sits in our room / the farthest one
+    belief.suspicion = {"red": 0.9}
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and "patrol" in intent.reason
+    # Whatever room we head to, it must be clear of the suspect (never toward it).
+    assert intent.point != (250, 50)
+    assert _clear_of_suspects(intent.point, [(250, 50)])
 
 
 def test_sweeps_baked_tasks_when_no_signals_arrive() -> None:
