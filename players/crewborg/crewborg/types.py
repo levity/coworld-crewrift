@@ -293,21 +293,6 @@ class MeetingRecord(BaseModel):
     ejected_color: str | None = None
 
 
-class KillAlibi(BaseModel):
-    """One immutable hidden-kill observation retained for joint inference."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    observer_color: str
-    victim_color: str
-    death_source: Literal["body", "census"]
-    death_seen_tick: int
-    window_start_tick: int
-    window_end_tick: int
-    alibied_colors: tuple[str, ...]
-    possible_killers: tuple[str, ...]
-
-
 # How many recent raw observation frames the perception tape keeps (~1 s at 24 Hz).
 RECENT_FRAMES_MAX = 24
 
@@ -436,17 +421,14 @@ class Belief(BaseModel):
     # reasoning will consume.
     chat_log: list[ChatEvent] = Field(default_factory=list)
 
-    # Lossless-enough relational memory for the opt-in social-deduction solver.
-    # Unlike the fitted model's scalar counters below, these preserve speaker,
-    # targets, meeting, stance, provenance, public votes, and ejection outcomes.
+    # Lossless-enough relational memory: speaker, targets, meeting, stance,
+    # provenance, public votes and ejection outcomes, as opposed to the fitted
+    # model's scalar counters below. Retained because strategy/meeting/vote_policy.py
+    # reads social_claims; the joint solver that originally motivated them was
+    # removed once deduction/ superseded it.
     social_claims: list[SocialClaim] = Field(default_factory=list)
     meeting_history: list[MeetingRecord] = Field(default_factory=list)
     solver_counted_chats: set[tuple[int, str | None, str]] = Field(default_factory=set)
-    # Opt-in co-presence alibi bookkeeping, owned entirely by strategy/alibi.py.
-    # Its immutable KillAlibi event list is append-only so joint hypotheses can
-    # always be recomputed from the original observation rather than a compressed
-    # player-level score (default OFF; empty until that module populates it).
-    alibi_state: dict = Field(default_factory=dict)
 
     # New deduction path: exact semantic observations in append-only order.
     # Conclusions are deliberately absent; every solve rebuilds from this ledger.
