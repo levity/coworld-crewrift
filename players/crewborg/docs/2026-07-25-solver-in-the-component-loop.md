@@ -168,10 +168,30 @@ a gapless window for the alibi). Warehouse `player_visible_interval` / `player_s
 **full-tick expansion**, *or* the reachability relaxation from §1.1, which removes the gapless
 requirement anyway. Doing §1.1 first makes `fair` mode cheap. That ordering matters.
 
-(On the expansion route: [`deduction-analysis.md`](./reference/deduction-analysis.md) points at
-`stream_eval.py --workers 2`, but `crewrift-analysis/README.md` records that streaming path as
-**broken in this environment** — its internal fetch lacks softmax+httpx. Use `fetch.sh` →
-`wh_build.sh` instead.)
+**On the expansion route — two docs disagreed; resolved 2026-07-25.**
+[`deduction-analysis.md`](./reference/deduction-analysis.md) points at `stream_eval.py --workers 2`;
+`crewrift-analysis/README.md` called that path broken. *`deduction-analysis.md` is right and the
+README was stale.* `stream_eval.py` did discard the caller's environment by hardcoding a nested
+`uv run` — the failure recorded in
+[`TENTATIVE_LESSONS.md`](./TENTATIVE_LESSONS.md) ("Streaming orchestration must preserve its selected
+environment") — but `d616714` (2026-07-20) fixed it: watchers now spawn `sys.executable`, so the
+fetch inherits whatever env launched the orchestrator. Verified end to end here — under
+`xp_py` the watcher subprocess and the `uv run crewrift-event-warehouse` build step both run clean,
+and `-n` does not silently cap a watch (`fetch_artifacts` sets it unlimited when `--watch`).
+
+Two caveats that survive:
+
+- **The fix is branch-only.** `origin/master` still carries the nested-`uv run` spawn, so the old
+  warning holds for anyone running master's copy.
+- **`build_warehouse.py --xreq` is still fragile** — its `_fetch_one` shells a nested
+  `uv run python`, which re-resolves from the *caller's cwd* rather than inheriting.
+
+For full-tick expansion on this 2-vCPU box, still prefer `fetch.sh` → `wh_build.sh` — but for a
+throughput reason, not a dependency one: `build.py` picks a load-aware worker count and checkpoints
+Parquet per batch, so a kill costs one batch. `stream_eval.py` does neither, and its `--workers`
+defaults to CPU count. Use `stream_eval.py` when you want the warehouse to grow *while a fresh xreq
+is still running*; use `fetch.sh` → `wh_build.sh` to expand episodes already on disk, which is what
+`fair` mode needs.
 
 ## 4. The adaptation, ranked
 

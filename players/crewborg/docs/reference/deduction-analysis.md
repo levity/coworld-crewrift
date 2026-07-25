@@ -69,6 +69,16 @@ python "$S" --xreq <xreq-id> --out /tmp/<arm>-warehouse \
   --expand-replay /tmp/expand-<crewrift-version> --workers 2
 ```
 
+**The interpreter you launch this with is the one that fetches.** Since `d616714`
+the watchers spawn `sys.executable`, so `python` here must already import
+`softmax.auth` and `httpx` — bare `python` works only with such a venv active.
+Launch it under a runner that guarantees them (e.g. `crewrift-analysis`'s
+`xp_py`) rather than relying on the ambient environment. To expand episodes
+**already on disk**, prefer `fetch.sh` → `wh_build.sh`: `build.py` picks a
+load-aware worker count and checkpoints Parquet per batch, so a kill costs one
+batch instead of the run. `stream_eval.py` earns its keep when the warehouse
+should grow *while the xreq is still running*.
+
 Before behavioral analysis, inspect `manifest.json`, failed episode counts,
 `trace_complete`, and `trace_warning`. Authoritative XP outcomes may retain a
 warning episode, but event-derived behavior must exclude its partial timeline.
