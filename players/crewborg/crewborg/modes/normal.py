@@ -23,6 +23,18 @@ Two stall guards (design §5):
 - *Arrows-disabled sweep* — when ``showTaskArrows`` is off, off-screen tasks emit
   no signals, so the signal set can be empty at spawn even with tasks to do. Rather
   than head home immediately, sweep the baked stations to discover assigned ones.
+
+**Witnessed tasking (opt-in ``CREWBORG_WITNESS_TASKING``).** A proactive, stronger
+sibling of group-tasking that targets *isolated* crew deaths (diagnostics: 78% of our
+crew deaths are truly isolated — only the killer within ~64px — and 85% happen
+pre-task, clustered in peripheral rooms). Two levers, crewmate-only, pre-/mid-task:
+(1) task *selection* prefers a reachable task that keeps ≥1 recently-seen live crew
+nearby (a witness), and briefly defers an isolated task while a reachable live-crew
+cluster exists (capped, so tasking never starves); (2) if a single follower is glued
+nearby with no witness for a sustained window (the shadow-kill setup), route toward
+the densest live-crew cluster / a populated area (a witness) — never flee, which just
+relocates the isolation — steering clear of suspected impostors. Off by default ⇒
+behaviour is byte-identical to today.
 """
 
 from __future__ import annotations
@@ -69,6 +81,25 @@ ESCORT_REAPPROACH_SQ = 80**2
 ESCORT_SUSPECT_BAR = 0.6
 ESCORT_AVOID_SQ = 140**2
 
+# Witnessed tasking (CREWBORG_WITNESS_TASKING): a proactive, stronger companion to
+# group-tasking. Group-tasking needs >=2 supporters in a cluster and only nudged
+# geometry (no outcome change); a single witness already denies the isolated
+# shadow-kill, so this prefers any task with >=1 recently-seen live crew nearby and,
+# when only isolated tasks remain, holds with a reachable cluster instead of walking
+# alone into an empty room. Bounds guard task throughput: a witnessed task is chosen
+# only within a detour cap, and an isolated task is deferred only while company is
+# actually reachable and only for a capped number of decisions.
+WITNESS_TASK_RADIUS_SQ = 120**2   # a live crew within this of a task anchor = a witness
+WITNESS_TASK_FIX_TICKS = 48       # "recently seen" horizon (matches group-tasking)
+DEFAULT_WITNESS_TASK_MAX_DETOUR = 200  # extra travel we'll spend to reach a witnessed task
+# Lone-follower shadow-kill setup: exactly one glued follower within ~120px and no
+# witness (3rd live crew) within ~64px, sustained -> route to company, never flee.
+LONE_FOLLOWER_RADIUS_SQ = 120**2
+WITNESS_NEAR_RADIUS_SQ = 64**2
+LONE_FOLLOWER_FIX_TICKS = 48
+LONE_FOLLOWER_SUSTAIN_TICKS = 6   # setup must persist this long before diverting (anti-jitter)
+WITNESS_DEFER_CAP = 24            # max consecutive defers of an isolated task (throughput guard)
+
 
 class NormalMode(Mode[Belief, ActionState, Intent]):
     name = "normal"
@@ -81,6 +112,8 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
         self._max_progress: int = 0  # peak progress seen for the current target
         self._target_progress_started = False
         self._swept: set[int] = set()
+        self._lone_follower_ticks = 0  # sustained-window counter for the shadow-kill setup
+        self._witness_defers = 0  # consecutive isolated-task defers (capped by WITNESS_DEFER_CAP)
 
     def decide(self, belief: Belief, action_state: ActionState) -> Intent:
         del action_state
@@ -88,6 +121,9 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
 
         self._update_target(belief, tasks)
         if self._target is not None:
+            detour = self._witness_tasking(belief, tasks)
+            if detour is not None:
+                return detour
             return Intent(
                 kind="complete_task",
                 task_index=self._target,
@@ -195,7 +231,69 @@ class NormalMode(Mode[Belief, ActionState, Intent]):
         if grouped is not None:
             self._target_reason = "group-aware tasking: completing supported assigned task"
             return grouped
+        witnessed = _witness_task_candidate(belief, tasks, candidates, self_xy)
+        if witnessed is not None:
+            self._target_reason = "witness-tasking: completing a witnessed assigned task"
+            return witnessed
         return min(candidates, key=lambda i: _dist2(self_xy, _nav_point(belief, tasks[i], i)))
+
+    def _witness_tasking(self, belief: Belief, tasks: tuple[TaskStation, ...]) -> Intent | None:
+        """Opt-in (CREWBORG_WITNESS_TASKING): keep a live witness while tasking.
+
+        Runs only for a live crewmate that has a task selected and is not yet
+        progressing on-station (so an in-progress task is never abandoned). Off, a
+        ghost, an impostor, or a live commander directive => returns None and Normal
+        completes the task unchanged. Two levers:
+
+        1. If a single follower is glued nearby with no witness for a sustained window
+           (the shadow-kill setup), route toward the densest live-crew cluster / a
+           populated area rather than fleeing or pressing into an empty room.
+        2. Else, if the selected task is isolated (no witness at its anchor) but a
+           reachable live-crew cluster exists, briefly defer and hold with company --
+           capped by WITNESS_DEFER_CAP so full tasking is preserved.
+
+        All move targets steer clear of suspected impostors.
+        """
+
+        if (
+            not _truthy_env("CREWBORG_WITNESS_TASKING")
+            or not belief.self_alive
+            or belief.self_role != "crewmate"
+            or self._target_progress_started
+            or commander_of(belief) is not None
+        ):
+            self._lone_follower_ticks = 0
+            self._witness_defers = 0
+            return None
+        self_xy = _self_xy(belief)
+        if self_xy is None:
+            return None
+        suspects = _suspect_points(belief)
+
+        # (2) Lone glued follower, no witness -> move to company (never flee).
+        if _lone_follower_setup(belief, self_xy):
+            self._lone_follower_ticks += 1
+        else:
+            self._lone_follower_ticks = 0
+        if self._lone_follower_ticks >= LONE_FOLLOWER_SUSTAIN_TICKS:
+            detour = _route_to_company(belief, suspects)
+            if detour is not None:
+                return detour
+
+        # (1) Selected task is isolated but a reachable cluster exists -> defer (capped).
+        if self._target is not None and self._target < len(tasks):
+            anchor = _nav_point(belief, tasks[self._target], self._target)
+            isolated = not _live_crew_near(
+                belief, anchor, WITNESS_TASK_RADIUS_SQ, WITNESS_TASK_FIX_TICKS
+            )
+            if not isolated:
+                self._witness_defers = 0
+            elif self._witness_defers < WITNESS_DEFER_CAP:
+                detour = _defer_isolated_task(belief, suspects)
+                if detour is not None:
+                    self._witness_defers += 1
+                    return detour
+        return None
 
     def _sweep_intent(self, belief: Belief, tasks: tuple[TaskStation, ...]) -> Intent | None:
         """Sweep baked stations to discover assigned tasks (arrows-disabled, §5)."""
@@ -506,6 +604,132 @@ def _group_task_max_detour() -> int:
     except ValueError:
         return DEFAULT_GROUP_TASK_MAX_DETOUR
     return max(0, value)
+
+
+def _live_crew_near(
+    belief: Belief,
+    point: tuple[int, int],
+    radius_sq: int,
+    fix_ticks: int,
+) -> list:
+    """Recently-seen (<= ``fix_ticks`` old) live crewmates within ``radius_sq`` of ``point``."""
+    tick = belief.last_tick
+    return [
+        record
+        for record in belief.roster.values()
+        if record.color != belief.self_color
+        and record.life_status == "alive"
+        and 0 <= tick - record.last_seen_tick <= fix_ticks
+        and _dist2(point, (record.world_x, record.world_y)) <= radius_sq
+    ]
+
+
+def _witness_task_max_detour() -> int:
+    raw = os.environ.get("CREWBORG_WITNESS_TASK_MAX_DETOUR", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_WITNESS_TASK_MAX_DETOUR
+    except ValueError:
+        return DEFAULT_WITNESS_TASK_MAX_DETOUR
+    return max(0, value)
+
+
+def _witness_task_candidate(
+    belief: Belief,
+    tasks: tuple[TaskStation, ...],
+    candidates: list[int],
+    self_xy: tuple[int, int],
+) -> int | None:
+    """Prefer a reachable task keeping >=1 recently-seen live crew (a witness) near its
+    anchor, within a bounded detour. Stronger than group-tasking (which needs a >=2
+    cluster): a single witness already denies the isolated shadow-kill. Off => None."""
+    if not _truthy_env("CREWBORG_WITNESS_TASKING"):
+        return None
+    nearest = min(
+        candidates,
+        key=lambda index: _dist2(self_xy, _nav_point(belief, tasks[index], index)),
+    )
+    nearest_distance = math.isqrt(
+        _dist2(self_xy, _nav_point(belief, tasks[nearest], nearest))
+    )
+    max_distance = nearest_distance + _witness_task_max_detour()
+    witnessed = []
+    for index in candidates:
+        point = _nav_point(belief, tasks[index], index)
+        distance = math.isqrt(_dist2(self_xy, point))
+        support = len(
+            _live_crew_near(belief, point, WITNESS_TASK_RADIUS_SQ, WITNESS_TASK_FIX_TICKS)
+        )
+        if support >= 1 and distance <= max_distance:
+            witnessed.append((index, support, distance))
+    if not witnessed:
+        return None
+    # Most witnesses first (ideally >=2), then nearest, then lowest index for stability.
+    return min(witnessed, key=lambda item: (-item[1], item[2], item[0]))[0]
+
+
+def _lone_follower_setup(belief: Belief, self_xy: tuple[int, int]) -> bool:
+    """The shadow-kill setup: exactly one glued follower within ~120px and no witness
+    (3rd live crew) within ~64px -- i.e. we are truly isolated with a single tail."""
+    followers = _live_crew_near(
+        belief, self_xy, LONE_FOLLOWER_RADIUS_SQ, LONE_FOLLOWER_FIX_TICKS
+    )
+    if len(followers) != 1:
+        return False
+    near = _live_crew_near(
+        belief, self_xy, WITNESS_NEAR_RADIUS_SQ, LONE_FOLLOWER_FIX_TICKS
+    )
+    return len(near) <= 1
+
+
+def _witness_cluster_point(
+    belief: Belief, suspects: list[tuple[int, int]]
+) -> tuple[int, int] | None:
+    """Centroid of the densest live-crew cluster, if one exists and is clear of suspects."""
+    cluster = _densest_live_crew_cluster(belief)
+    if cluster is None:
+        return None
+    cx = sum(record.world_x for record in cluster) // len(cluster)
+    cy = sum(record.world_y for record in cluster) // len(cluster)
+    if not _clear_of_suspects((cx, cy), suspects):
+        return None
+    return (cx, cy)
+
+
+def _route_to_company(
+    belief: Belief, suspects: list[tuple[int, int]]
+) -> Intent | None:
+    """Move toward a witness: the densest live-crew cluster, else the densest expected-crew
+    area (occupancy). Never toward a suspect; None if no company can be found."""
+    point = _witness_cluster_point(belief, suspects)
+    if point is not None:
+        return Intent(
+            kind="navigate_to",
+            point=_reachable_point(belief, point),
+            reason="witness-tasking: moving to a witness, not fleeing",
+        )
+    for seek in ranked_seek_points(belief):
+        if _clear_of_suspects(seek, suspects):
+            return Intent(
+                kind="navigate_to",
+                point=_reachable_point(belief, seek),
+                reason="witness-tasking: seeking a populated area for a witness",
+            )
+    return None
+
+
+def _defer_isolated_task(
+    belief: Belief, suspects: list[tuple[int, int]]
+) -> Intent | None:
+    """Hold with a reachable live-crew cluster before walking alone into an isolated task.
+    None if no company is reachable -> the isolated task proceeds (task-throughput guard)."""
+    point = _witness_cluster_point(belief, suspects)
+    if point is None:
+        return None
+    return Intent(
+        kind="navigate_to",
+        point=_reachable_point(belief, point),
+        reason="witness-tasking: holding with company before an isolated task",
+    )
 
 
 def _truthy_env(name: str) -> bool:
