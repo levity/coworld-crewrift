@@ -34,7 +34,6 @@ from crewborg.strategy import (
     update_social_evidence,
     update_suspicion,
 )
-from crewborg.strategy.alibi import update_alibi
 from crewborg.strategy.commander.llm import build_commander_client_from_env, commander_feature_enabled
 from crewborg.strategy.commander.strategy import CommanderStrategy, apply_commander_inferences
 from crewborg.strategy.commander.trace import CommanderTrace
@@ -138,7 +137,6 @@ def build_runtime(
             belief.believed_imposters.clear()
         else:
             update_event_log(belief)
-            update_alibi(belief)
             update_social_evidence(belief)
             update_suspicion(belief)
 
