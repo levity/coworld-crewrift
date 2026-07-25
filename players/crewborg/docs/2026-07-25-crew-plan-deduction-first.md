@@ -31,11 +31,18 @@ v2/v3 and false for v4 onward.** Verified empirically: 12 episodes fetched from 
 escort A/B control arm (`xreq_32db3512`, crewborg-lw:v4) show slot-0 voting at
 **+10…+15 ticks** with `"<color> sus: they were tailing me"` chat at +1 — the Path A
 deterministic accuse-and-vote signature. crewborg-lw:v2 traces show +1153…+1161 and
-`"X and Y both point to Z. vote Z"` at +241 — Path B. v4/v5 also shipped with
-`policy_artifacts: []` (no telemetry). Somewhere in the v3 → v4 rebuild
-(`crewborg:escort-v2`), the whole `--secret-env` set was dropped, taking the branch's
-namesake architecture and the training-data tap with it. `version_log.md` still
-describes v4/v5 as carrying "base config".
+`"X and Y both point to Z. vote Z"` at +241 — Path B. Confirmed directly from v4's own
+telemetry: its meeting trace is `domain.meeting_decision` with
+`path: "silent_skip"`, `top_suspect: null`, **`solver.fired: false`**, and **zero**
+`domain.deduction_history_decision` events. v4 was uploaded with **no `CREWBORG_*`
+behaviour flags at all** (lean default tracing). Somewhere in the v3 → v4 rebuild
+(`crewborg:escort-v2`) the whole `--secret-env` set was dropped, taking the branch's
+namesake architecture with it. `version_log.md` still describes v4/v5 as carrying
+"base config".
+
+*(Correction to an earlier draft of this doc: v4/v5 do still emit telemetry. The
+empty `policy_artifacts: []` seen at first was an artifact of fetching with
+`--no-logs`, which also suppresses the policy-artifact download — not of the upload.)*
 
 This also *resolves* the apparent contradiction in HANDOFF: the vote-gate sweep and the
 aaln vote-policy port really did move behaviour, because v4+ genuinely runs Path A.
