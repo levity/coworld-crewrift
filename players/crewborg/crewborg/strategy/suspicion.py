@@ -592,6 +592,17 @@ def top_suspect(belief: Belief) -> str | None:
         # a parity gift; the held-out decision sim puts this bar at ~100% imposter
         # precision. An IMPOSTER deflecting keeps the legacy clear-leader logic
         # below: engineering plausible mis-ejections is its job, not a risk.
+        #
+        # Opt-in state-aware policy (env CREWBORG_VOTE_POLICY): must-eject / social
+        # pile-on / a 0.75 comfortable bar. Lazily imported so the default (flag off)
+        # path is byte-identical to today. See strategy/meeting/vote_policy.py.
+        from crewborg.strategy.meeting.vote_policy import (
+            crew_vote_target,
+            vote_policy_enabled,
+        )
+
+        if vote_policy_enabled():
+            return crew_vote_target(belief)
         return color if p >= WEIGHTS_VOTE_PROBABILITY else None
     if p >= VOTE_PROBABILITY:
         return color  # near-certain on its own
