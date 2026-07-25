@@ -254,6 +254,29 @@ several times the decision count. Buy meetings.
 
 ---
 
+## 7. Addendum — what Phase 0 changed (2026-07-25, after this note was written)
+
+The Phase-0 A/B ([`experiments/2026-07-25-deduction-architecture-hosted-ab.md`](./experiments/2026-07-25-deduction-architecture-hosted-ab.md))
+landed. Four updates to the above:
+
+1. **§1 holds and sharpens.** In the clean deduction-only arm (no `SOLVER`/`STICK`/`ALIBI`),
+   the split is not 91 / 9 but **100 / 0**: all 244 eject decisions were structural witness
+   pins and the joint solve drove **none**. Item 6 of §4 (refit the 22 constants) is bounded
+   even harder than stated — reorder as written, or drop it.
+2. **A correction to §2/N7.** I claimed ghosts still do tasks. They do not: `applyInput`
+   routes non-alive players to `applyGhostMovement` and returns before the task block. So a
+   crew death is a hard cap on the 48-task win — measured, a crew ejection predicts losing
+   it perfectly (0/27, `p = 1.5e-04`). This makes **not getting your own crew ejected** a
+   first-class crew metric, which the metric tree in Part 3 under-weights.
+3. **The fair oracle has a free sample source.** Ghost seats keep running `infer()` with
+   perfect vision and were right **173/173** in 100 games. Those decisions are discarded
+   in-game but are exactly the ground-truth-labelled corpus §3's `fair` mode needs — and
+   they cost nothing. Harvest them before building the three-mode builder.
+4. **The decision-layer item in §4 is now evidenced.** "Model pivotality, not unilateral
+   ejection" is no longer a hunch: 21 of control's 30 crew ejections were *1 crew vote +
+   2 imposter votes*. One crewmate's wrong ballot is the swing that lets the imposter pair
+   eject a crewmate. Pivotality is the whole game at this board size.
+
 ## Appendix — reproducing §1
 
 The tool lives in the analysis repo, not here — it imports nothing from the policy and never re-runs
