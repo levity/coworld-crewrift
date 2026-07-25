@@ -150,12 +150,19 @@ Every point of the gain is the **48-task win**; ejection-driven wins are identic
 | win by 48 tasks | 25 % | 46 % | **+21.0 pp** | 0.0030 |
 | win by ejection / maxTicks | 3 % | 3 % | 0.0 pp | 1.000 |
 
-The link between the two is that **ghosts cannot do tasks** — `applyInput` sends any
-non-alive player to `applyGhostMovement` and returns before the task block. So losing a
-crewmate who still has tasks makes 48/48 unreachable. Confirmed:
+A strong empirical association, **mechanism not established**:
 
 > Of the 27 control episodes containing a crew ejection, **0 reached the 48-task win**;
 > of the 73 without, 25 did (34 %). `p = 1.5e-04`.
+
+An earlier draft of this section explained that by "ghosts cannot do tasks". **That is
+false** — `applyGhostMovement` carries its own complete task-completion block for dead
+crewmates, and in this very dataset **1588 of 8507 task completions (19 %) occur after the
+completing seat was killed**. Ghosts do tasks, and crewborg does them.
+
+So the ejection ↔ task-win association is real but unexplained. It may be confounding
+(ejections happen in games already going badly) rather than causal. Do not build on it
+until a within-arm test separates the two.
 
 Control ejected 30 crewmates and 2 imposters. The candidate ejected **nobody**. All 30
 wrong ejections needed imposter votes — 21 of them were exactly *1 crew vote + 2 imposter
