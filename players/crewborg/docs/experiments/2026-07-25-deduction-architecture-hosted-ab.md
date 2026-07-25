@@ -108,6 +108,131 @@ episodes): passed `rc=0`, both episodes ran to completion, and
 `domain.deduction_history_decision` is present in the crew seats' telemetry —
 the flag demonstrably takes effect in this image.
 
-## Result
+## Result — candidate WINS on the primary, but not by the predicted mechanism
 
-*(pending — both arms running)*
+Both arms completed 100/100 with **zero** operational failures.
+
+### Primary
+
+| Metric | Control (v13) | Candidate (v14) | Δ |
+|---|---:|---:|---:|
+| **Team crew win** | **28/100 (28.0%)** | **49/100 (49.0%)** | **+21.0pp** |
+
+Fisher exact two-sided **`p = 0.0035`**; approximate 95% CI for the delta
+**[+7.8, +34.2] pp**. Passes the pre-registered decision rule.
+
+Consistency check: the control's 28.0% reproduces the vote-gate sweep's 28.0% for
+crewborg-lw at gate 0.9 on this exact roster — the control is the champion.
+
+### Guardrails — not just clean, they improved
+
+| Metric (600 subject seats/arm) | Control | Candidate |
+|---|---:|---:|
+| mean tasks | 6.75 | **7.38** |
+| all-8 task rate | 249/600 (41.5%) | **386/600 (64.3%)** |
+| kills against subject seats (40-ep replay sample) | 133 | 140 |
+| operational failures | 0 | 0 |
+
+### Pre-registered sanity check — passed
+
+Control telemetry contains only `domain.meeting_decision`; candidate only
+`domain.deduction_history_decision`. No flag leakage in either direction.
+
+### Mechanism — the surprise
+
+Ballot-level, from expanded replays (40 episodes/arm, authoritative):
+
+| | Control | Candidate |
+|---|---:|---:|
+| ballots cast | 550 | 195 |
+| targeted (non-skip) | 110 (20.0%) | 32 (16.4%) |
+| **at-impostor precision** | **84.5%** (93/17) | **100.0%** (32/0) |
+| median vote offset after Voting | 5 ticks | 1158 ticks |
+| **meetings** | **137** | **51** |
+
+Vote precision moved as predicted (84.5% → 100%). **But the candidate ejects fewer
+impostors in absolute terms (32 vs 93) and still wins far more, so better voting is
+not the main channel.** The meeting counts point at the real one:
+
+| Meeting calls (40 episodes) | Control | Candidate |
+|---|---:|---:|
+| body reports | 57 | 51 |
+| **emergency-button calls** | **80** | **0** |
+| called by a subject seat | 135 of 137 | 45 of 51 |
+
+**The fitted-posterior path pressed the emergency button 80 times in 40 games — two
+per game — and every one of those meant a crewmate abandoning its tasks to run to the
+button.** The deduction path clears `belief.suspicion` and
+`belief.believed_imposters`, so `active_tail_suspect` always returns `None` and
+Accuse mode can never fire. Kills are essentially unchanged (133 vs 140), so this is
+not a survival effect: it is **task throughput**, recovered by not interrupting play.
+
+Why the button-pressing was worthless is visible in the posteriors — see the
+decision-quality section below.
+
+### Decision quality (`tools/decision_quality.py`)
+
+Per-player rows at each arm's own decision point, labelled with ground truth
+(2,819 control / 2,128 candidate rows — roughly 25× the evidence that 100 win/loss
+outcomes carry):
+
+| | Control (fitted) | Candidate (deduction) |
+|---|---:|---:|
+| Brier (↓) | 0.3130 [0.2968, 0.3266] | **0.1424** [0.1369, 0.1485] |
+| log loss (↓) | 0.8852 | **0.4116** |
+| **AUC (↑)** | **0.355** | **0.832** |
+| top-1 = impostor | 33.8% | 80.6% |
+
+**The fitted posterior's AUC is 0.355 — materially worse than random.** Its
+calibration table is inverted across the middle of its range: the 0.5–0.6 bucket
+contains 9.3% real impostors while the 0.1–0.2 bucket contains 55.8%. Only the two
+extremes behave, and the 0.9–1.0 bucket (96.0% actual) is the **definitional
+witnessed floor** — a direct catch, not a learned quantity. So the 0.9 vote bar was
+not "the model's optimal operating point"; it was the bar that excludes the model
+almost entirely and votes only on direct catches. Everything below it is anti-signal,
+which is exactly why the gate sweep and the aaln vote-policy port both lost.
+
+The candidate is monotone across every populated bucket and well calibrated
+(0.4–0.5 → 47.2% actual, 0.5–0.6 → 54.3%, 0.9–1.0 → 100%).
+
+*Timing caveat, stated honestly:* the control's `suspicion_snapshot` is emitted at
+meeting start and the candidate's decision at the 1152-tick deadline, so the two
+posteriors are not measured on the same information set. Each is measured at the
+moment its own policy decides, which is the decision-relevant comparison, but it is
+not an equal-information one.
+
+### Verdict and what it does NOT establish
+
+**Promote the deduction path** — primary won at `p = 0.0035`, every guardrail
+improved, no operational cost.
+
+But the +21pp **bundles two changes** that this design cannot separate:
+
+1. crew ballots become near-perfectly precise (84.5% → 100%), and
+2. Accuse mode is silently disabled, removing 2 spurious button-meetings per game.
+
+The mechanism data says (2) is doing most of the work. That has a cheap independent
+test: run the **control path with Accuse disabled** (raise `ACCUSE_THRESHOLD` above
+1.0, or gate `active_tail_suspect`). If most of the +21pp survives on the old
+architecture, then a one-line change captures the bulk of the win and the
+architecture's real contribution is the precision, which then needs its own
+justification. **That decomposition arm has not been run.**
+
+## Follow-up: 4-2-2 mixed-roster confirmation (running)
+
+The homogeneous roster flatters this candidate in one specific way: the deduction
+path *parses other players' chat as evidence*, and on a 6-subject roster it is
+parsing five copies of its own templated phrasing. A mixed field speaks differently.
+
+| Arm | Policy version | Experience request |
+|---|---|---|
+| Control | `crewborg-lw:v13` | `xreq_bd851df5-4d40-4e1b-9f1d-8fbcdb29484d` |
+| Candidate | `crewborg-lw:v14` | `xreq_90f99126-83e9-489e-92f7-8c6ab70f8169` |
+
+Roster: 4× subject crew (slots 0–3) + 2× `crewborg-aaln` crew (4–5) + 2×
+`crewborg-aaln` impostor (6–7), 100 episodes/arm, fired 2026-07-25T19:27Z.
+
+Note this design carries ~2/3 of the treatment (4 of 6 crew seats), so a homogeneous
++21pp would appear as roughly +14pp here; at n=100 that is ~55% power. Treat the
+per-decision metrics above — which are far better powered — as the primary read if
+the win-rate delta lands unresolved.
