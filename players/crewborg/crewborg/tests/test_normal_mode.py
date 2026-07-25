@@ -627,3 +627,169 @@ def test_picks_reachable_task_over_nearer_unreachable_one() -> None:
     belief.nav = build_nav_graph(mask, map_data=belief.map, cell_size=8)
     intent = NormalMode().decide(belief, ActionState())
     assert intent.kind == "complete_task" and intent.task_index == 0  # task 1 is unreachable
+
+
+# --- Witnessed tasking (CREWBORG_WITNESS_TASKING) ------------------------------
+
+from crewborg.modes.normal import (  # noqa: E402
+    LONE_FOLLOWER_SUSTAIN_TICKS,
+    WITNESS_DEFER_CAP,
+    _clear_of_suspects,
+)
+
+
+def _witness_task_belief(**kw) -> Belief:
+    base = dict(
+        map=_roomed_map(),
+        assigned_task_indices={0, 2},
+        visible_task_indices={0, 2},
+        self_world_x=44,
+        self_world_y=44,  # on task 0's anchor (44, 44); task 2 is the far/right one
+        self_color="red",
+        self_role="crewmate",
+        self_alive=True,
+        last_tick=10,
+    )
+    base.update(kw)
+    return Belief(**base)
+
+
+def test_witness_tasking_off_by_default_leaves_task_pick_unchanged(monkeypatch) -> None:
+    monkeypatch.delenv("CREWBORG_WITNESS_TASKING", raising=False)
+    monkeypatch.delenv("CREWBORG_GROUP_TASKING", raising=False)
+    belief = _witness_task_belief()
+    _crew(belief, "green", (244, 44))  # a witness sitting on the far task
+    intent = NormalMode().decide(belief, ActionState())
+    # Flag off => still the nearest task, unchanged reason (byte-identical to today).
+    assert intent.kind == "complete_task" and intent.task_index == 0
+    assert intent.reason == "completing assigned task"
+
+
+def test_witness_tasking_prefers_a_single_witness_over_an_isolated_nearer_task(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_WITNESS_TASKING", "1")
+    monkeypatch.setenv("CREWBORG_WITNESS_TASK_MAX_DETOUR", "250")
+    monkeypatch.delenv("CREWBORG_GROUP_TASKING", raising=False)  # group needs >=2; witness needs 1
+    belief = _witness_task_belief()
+    _crew(belief, "green", (244, 44))  # a *single* witness on the far task
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "complete_task" and intent.task_index == 2
+    assert intent.reason.startswith("witness-tasking:")
+
+
+def _isolated_with_distant_cluster(**kw) -> Belief:
+    """Crewmate on an isolated task (no witness), with a 2-crew cluster far away
+    (>120px from us => not a lone follower) and clear of suspects."""
+    base = dict(
+        map=_map_with_tasks(),  # tasks at (110,110) and (510,510)
+        assigned_task_indices={0, 1},
+        visible_task_indices={0, 1},
+        self_world_x=110,
+        self_world_y=110,  # on task 0's anchor, isolated
+        self_color="red",
+        self_role="crewmate",
+        self_alive=True,
+        last_tick=10,
+    )
+    base.update(kw)
+    belief = Belief(**base)
+    _crew(belief, "green", (110, 400))
+    _crew(belief, "blue", (140, 400))  # cluster centroid (125, 400)
+    return belief
+
+
+def test_witness_tasking_defers_isolated_task_toward_the_cluster(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_WITNESS_TASKING", "1")
+    belief = _isolated_with_distant_cluster()
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "navigate_to" and intent.point == (125, 400)
+    assert "holding with company" in intent.reason
+
+
+def test_witness_tasking_deferral_cap_lets_the_isolated_task_proceed(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_WITNESS_TASKING", "1")
+    belief = _isolated_with_distant_cluster()
+    mode = NormalMode()
+    intents = []
+    for _ in range(WITNESS_DEFER_CAP + 1):
+        for record in belief.roster.values():
+            record.last_seen_tick = belief.last_tick
+        intents.append(mode.decide(belief, ActionState()))
+        belief.last_tick += 1
+    # Every decision up to the cap defers; then throughput wins and the task proceeds.
+    assert all(i.kind == "navigate_to" for i in intents[:WITNESS_DEFER_CAP])
+    assert intents[WITNESS_DEFER_CAP].kind == "complete_task"
+    assert intents[WITNESS_DEFER_CAP].task_index == 0
+
+
+def test_witness_tasking_proceeds_with_isolated_task_when_no_company_reachable(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_WITNESS_TASKING", "1")
+    belief = _isolated_with_distant_cluster()
+    belief.roster.clear()  # no company anywhere => nothing to defer toward
+    intent = NormalMode().decide(belief, ActionState())
+    assert intent.kind == "complete_task" and intent.task_index == 0
+
+
+def test_witness_tasking_lone_follower_routes_to_a_witness_not_toward_a_suspect(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREWBORG_WITNESS_TASKING", "1")
+    belief = Belief(
+        map=_map_with_tasks(),
+        assigned_task_indices={0, 1},
+        visible_task_indices={0, 1},
+        self_world_x=500,
+        self_world_y=500,
+        self_color="red",
+        self_role="crewmate",
+        self_alive=True,
+        last_tick=10,
+    )
+    _crew(belief, "black", (500, 440))  # a single glued follower, 60px away (no witness)
+    _crew(belief, "green", (200, 200))
+    _crew(belief, "blue", (230, 200))  # the real witnesses (cluster centroid (215, 200))
+    belief.suspicion = {"black": 0.9}  # the follower is our prime suspect
+
+    mode = NormalMode()
+    intents = []
+    for _ in range(LONE_FOLLOWER_SUSTAIN_TICKS):
+        for record in belief.roster.values():
+            record.last_seen_tick = belief.last_tick
+        intents.append(mode.decide(belief, ActionState()))
+        belief.last_tick += 1
+
+    # Sustained window: the very first tick does NOT bolt (anti-jitter), the last does.
+    assert intents[0].kind == "complete_task"
+    final = intents[-1]
+    assert final.kind == "navigate_to"
+    assert "witness" in final.reason and "not fleeing" in final.reason
+    assert final.point == (215, 200)  # toward the witnesses...
+    assert _clear_of_suspects(final.point, [(500, 440)])  # ...and away from the suspect
+
+
+def test_witness_tasking_lone_follower_does_nothing_when_flag_off(monkeypatch) -> None:
+    monkeypatch.delenv("CREWBORG_WITNESS_TASKING", raising=False)
+    belief = Belief(
+        map=_map_with_tasks(),
+        assigned_task_indices={0, 1},
+        visible_task_indices={0, 1},
+        self_world_x=500,
+        self_world_y=500,
+        self_color="red",
+        self_role="crewmate",
+        self_alive=True,
+        last_tick=10,
+    )
+    _crew(belief, "black", (500, 440))
+    _crew(belief, "green", (200, 200))
+    _crew(belief, "blue", (230, 200))
+    mode = NormalMode()
+    for _ in range(LONE_FOLLOWER_SUSTAIN_TICKS + 2):
+        for record in belief.roster.values():
+            record.last_seen_tick = belief.last_tick
+        intent = mode.decide(belief, ActionState())
+        belief.last_tick += 1
+    assert intent.kind == "complete_task"  # flag off => never diverts
