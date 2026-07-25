@@ -33,11 +33,11 @@ which changes the priority order in that plan's Phase 2.
 
 ## 1. The measurement
 
-Reproducible with the new tool (no warehouse, no replay expansion, no duckdb — the policy artifact
-already carries the decision *and* its full evidence audit):
+Reproducible with `crewrift-analysis/deduction_audit.py` (no warehouse, no replay expansion, no
+duckdb — the policy artifact already carries the decision *and* its full evidence audit):
 
 ```sh
-python players/crewborg/tools/audit_decision_traces.py \
+python ~/projects/softmax/crewrift-analysis/deduction_audit.py \
   ~/.claude/jobs/ba2ec2e2/tmp/prime-gt-wh_episodes
 ```
 
@@ -165,9 +165,13 @@ isn't good enough".
 channels have *consecutive-tick* preconditions (`current.tick == previous.tick + 1` for the kill pin;
 a gapless window for the alibi). Warehouse `player_visible_interval` / `player_state` only exist when
 `snapshot_every > 0`, and at coarse snapshots those predicates fail outright. So `fair` mode requires
-**full-tick expansion** — which `stream_eval.py --workers 2` already supports, at known cost — *or*
-the reachability relaxation from §1.1, which removes the gapless requirement anyway. Doing §1.1 first
-makes `fair` mode cheap. That ordering matters.
+**full-tick expansion**, *or* the reachability relaxation from §1.1, which removes the gapless
+requirement anyway. Doing §1.1 first makes `fair` mode cheap. That ordering matters.
+
+(On the expansion route: [`deduction-analysis.md`](./reference/deduction-analysis.md) points at
+`stream_eval.py --workers 2`, but `crewrift-analysis/README.md` records that streaming path as
+**broken in this environment** — its internal fetch lacks softmax+httpx. Use `fetch.sh` →
+`wh_build.sh` instead.)
 
 ## 4. The adaptation, ranked
 
@@ -232,13 +236,19 @@ several times the decision count. Buy meetings.
 
 ## Appendix — reproducing §1
 
+The tool lives in the analysis repo, not here — it imports nothing from the policy and never re-runs
+inference, so it must keep reading *frozen historical* artifacts across schema changes rather than
+version-locking to `deduction/`. (`evaluate_deduction.py` is the opposite: it re-runs `infer()` and
+therefore belongs beside the solver.)
+
 ```sh
+A=~/projects/softmax/crewrift-analysis/deduction_audit.py
+
 # the corpus used here (200 prime-gt episodes with policy artifacts)
-python players/crewborg/tools/audit_decision_traces.py \
-  ~/.claude/jobs/ba2ec2e2/tmp/prime-gt-wh_episodes
+python "$A" ~/.claude/jobs/ba2ec2e2/tmp/prime-gt-wh_episodes
 
 # machine-readable
-python players/crewborg/tools/audit_decision_traces.py <episodes-dir> --json
+python "$A" <episodes-dir> --json
 ```
 
 The tool needs only `results.json` (for the `imposter` column → ground-truth roles via the fixed
