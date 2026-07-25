@@ -236,3 +236,59 @@ Note this design carries ~2/3 of the treatment (4 of 6 crew seats), so a homogen
 +21pp would appear as roughly +14pp here; at n=100 that is ~55% power. Treat the
 per-decision metrics above — which are far better powered — as the primary read if
 the win-rate delta lands unresolved.
+
+### 4-2-2 result — confirms the mechanism; win-rate delta unresolved as predicted
+
+Both arms 100/100, zero operational failures.
+
+| Metric | Control | Candidate | Δ |
+|---|---:|---:|---:|
+| team crew win | 16/100 (16.0%) | 26/100 (26.0%) | +10.0pp |
+| subject mean tasks | 6.85 | 7.10 | +0.25 |
+| subject all-8 (400 seats) | 41.8% | 48.5% | +6.7pp |
+
+Fisher exact `p = 0.118`, 95% CI **[−1.2, +21.2] pp** — **unresolved at n=100**, which
+is exactly what was pre-registered as likely (predicted ~+14pp at ~55% power; observed
++10pp sits comfortably inside that expectation). This neither confirms nor refutes the
+homogeneous +21pp on the win metric.
+
+**The per-decision metrics resolve it, and they are decisive** (49 vs 43 episodes of
+telemetry; 1,668 vs 1,820 labelled player rows):
+
+| | Control (fitted) | Candidate (deduction) |
+|---|---:|---:|
+| Brier (↓) | 0.2792 [0.2534, 0.3012] | **0.1418** [0.1330, 0.1499] |
+| **AUC (↑)** | **0.449** | **0.834** |
+| top-1 = impostor | 44.0% | 75.4% |
+| act precision | 89.2% | **100.0%** |
+
+**The candidate's decision quality is unchanged from the homogeneous roster
+(AUC 0.832 → 0.834, Brier 0.1424 → 0.1418).** That kills the main validity worry
+about the 6+2 design: the deduction path parses a genuinely mixed field's chat exactly
+as well as it parses its own. The homogeneous roster did **not** flatter it. (The
+fitted path improves slightly on a mixed field, 0.355 → 0.449, but is still no better
+than a coin flip.)
+
+**Attenuation is dilution, not flattery.** Meeting calls over 30 replayed episodes:
+
+| | Control | Candidate |
+|---|---:|---:|
+| subject **button** calls | **35** | **0** |
+| subject body reports | 20 | 31 |
+| aaln-crew button calls | 0 | 3 |
+| aaln-crew body reports | 14 | 4 |
+| kills against all seats | 107 | 105 |
+
+Subject button calls go 35 → 0 again, reproducing the homogeneous finding. Note the
+aaln crew make only 3 button calls in 30 games — **button-spam is specific to our
+fitted-posterior Accuse mode, not general crew behaviour.** With only 4 of 6 crew
+seats treated, just two-thirds of that benefit lands, which explains the smaller
+win-rate delta without invoking any roster artifact.
+
+### Standing conclusion
+
+Promote the deduction path. Its advantage is real and replicates on a realistic field;
+the per-decision evidence is unambiguous and the win-rate direction is consistent
+across both rosters. The open question remains **attribution**, not validity: run the
+old path with Accuse disabled to find out how much of the gain is the one-line effect
+versus the reasoning.
