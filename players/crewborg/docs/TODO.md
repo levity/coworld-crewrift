@@ -32,6 +32,38 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## Open
 
+### Delete the legacy crew-side solver overlay (2026-07-25)
+
+**Queued by the human, to run once the 4-2-2 confirmation A/B has landed** — deferred
+only because removal touches `modes/attend_meeting.py`, the file under test in that
+run, and we did not want source to diverge from the measured image mid-experiment.
+
+`strategy/meeting/solver.py` was added on this branch (`824eea7`); it is **not on
+origin/master**. It is off by default (`CREWBORG_SOLVER`), unused by the champion, and
+superseded by `deduction/`, which won the Phase-0 A/B (28% → 49% team win, `p=0.0035`).
+
+**Why it must go rather than linger:** `SolverConfig` and `deduction/inference.py`'s
+`InferenceConfig` are near-identical copies of the same 22 likelihood constants. Phase
+2a of `docs/2026-07-25-crew-plan-deduction-first.md` fits those constants from the
+corpus — two copies guarantees divergence. It is also structurally contaminated: it
+takes the fitted posterior (`belief.suspicion`, measured at **AUC 0.355**, worse than
+random) as a tempered prior at `prior_strength=0.20`.
+
+**Scope** (~2,700 lines):
+- `crewborg/strategy/meeting/solver.py` (1,261)
+- `crewborg/strategy/alibi.py` (242) — only the legacy path consumes it
+  (`__init__.py` `update_alibi`, in the non-deduction branch)
+- `crewborg/tests/test_meeting_solver.py` (843), `crewborg/tests/test_alibi.py` (369)
+- call sites: `modes/attend_meeting.py` (`solver_report`, `public_solver_report`,
+  `solver_vetoes`, `_decide_crewmate_deferred`, `_maybe_solver_*`), `__init__.py`,
+  `strategy/meeting/chat_read.py`, `crewborg/tests/test_meeting_modes.py`
+- `tools/analyze_solver_history.py` — offline only; delete with it or port to the
+  deduction path
+- the `CREWBORG_SOLVER*` rows in `crewborg/README.md`'s env table
+
+**Do NOT remove `strategy/suspicion.py`** — impostor deflection targeting still uses
+the fitted posterior via `top_suspect`. Only the crew-side overlay goes.
+
 ### Test sustained pursuit as solver evidence (2026-07-22)
 
 The memoryless repulsion controller records continuous one-on-one exposure and
