@@ -26,6 +26,7 @@ import argparse
 import bisect
 import collections
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -149,6 +150,21 @@ def main() -> None:
     )
     skew = {r[0] for r in con.execute(
         "SELECT DISTINCT episode_id FROM events WHERE key='trace_warning'").fetchall()}
+    # Skew is a broken build, not a sample to quietly shrink. These episodes' event
+    # timelines are TRUNCATED at an arbitrary tick, so their meetings are missing --
+    # dropping them silently would understate every simulated ejection count while
+    # looking like a clean run.
+    if skew and os.environ.get("CREWRIFT_ALLOW_SKEW") != "1":
+        total = con.execute(
+            "SELECT count(DISTINCT episode_id) FROM events").fetchone()[0]
+        raise SystemExit(
+            f"\nsimulate_tally: REFUSING to simulate on {args.warehouse}.\n"
+            f"  {len(skew)}/{total} episodes carry a `trace_warning` — the expand_replay\n"
+            f"  binary does not match the replays, so meetings are missing and every\n"
+            f"  count below would be an undercount.\n"
+            f"  Diagnose:  crewrift-analysis/check_expander.py --episodes <episodes_dir>\n"
+            f"  Bypass:    CREWRIFT_ALLOW_SKEW=1 (simulates the untruncated remainder)."
+        )
     imposters = collections.defaultdict(set)
     for eid, slot in con.execute(
             "SELECT DISTINCT episode_id, slot FROM events WHERE role='imposter'").fetchall():
