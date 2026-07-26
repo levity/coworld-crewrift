@@ -642,9 +642,11 @@ def test_gate_presets_select_decision_config_fields() -> None:
     assert shipped == DecisionConfig()
 
     loose = DecisionConfig(**gate_overrides({"CREWBORG_DECISION_GATE": "loose"}))
-    assert loose.base_probability == 0.40
-    assert loose.base_margin == 0.0
-    assert loose.min_independent_sources == 1
+    # margin and support are the jointly-binding pair; the probability threshold is
+    # deliberately NOT part of this preset.
+    assert loose.base_margin == 1e-3
+    assert loose.require_support is False
+    assert loose.base_probability == shipped.base_probability
     # The parity machinery must not move with the gate preset.
     assert loose.parity_risk_cutoff == shipped.parity_risk_cutoff
     assert loose.forced_vote_probability == shipped.forced_vote_probability
@@ -652,6 +654,20 @@ def test_gate_presets_select_decision_config_fields() -> None:
         loose.dangerous_wrong_eject_probability
         == shipped.dangerous_wrong_eject_probability
     )
+
+    p40 = DecisionConfig(**gate_overrides({"CREWBORG_DECISION_GATE": "loose+p40"}))
+    assert p40.base_probability == 0.40
+    assert p40.require_support is False
+
+
+def test_margin_floor_is_epsilon_not_zero() -> None:
+    """A flat posterior (margin == 0) must still be refused under the loose preset."""
+
+    from crewborg.deduction.config import gate_overrides
+    from crewborg.deduction.decision import DecisionConfig
+
+    loose = DecisionConfig(**gate_overrides({"CREWBORG_DECISION_GATE": "loose"}))
+    assert loose.base_margin > 0.0, "margin==0 is 55% accurate; it must not pass"
 
 
 def test_unknown_gate_preset_degrades_to_shipped() -> None:
@@ -662,3 +678,13 @@ def test_unknown_gate_preset_degrades_to_shipped() -> None:
 
     assert gate_overrides({"CREWBORG_DECISION_GATE": "lose"}) == {}
     assert DecisionConfig(**gate_overrides({"CREWBORG_DECISION_GATE": ""})) == DecisionConfig()
+
+
+def test_require_support_false_still_respects_margin_and_probability() -> None:
+    """Dropping support must not turn the gate into "always eject"."""
+
+    from crewborg.deduction.decision import DecisionConfig
+
+    cfg = DecisionConfig(require_support=False)
+    assert cfg.base_probability == 0.65
+    assert cfg.base_margin == 0.10

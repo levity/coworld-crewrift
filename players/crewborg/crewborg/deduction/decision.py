@@ -24,6 +24,11 @@ class DecisionConfig:
     forced_vote_probability: float = 0.51
     parity_risk_cutoff: float = 0.80
     min_independent_sources: int = 2
+    # The accusation/source requirement below is reachable in ~6% of decisions
+    # (measured: 498/739 have zero attributed sources), because "sources" are social
+    # and the claim parser drops ~81% of utterances. Set False to gate on the
+    # posterior alone; `structural` still short-circuits either way.
+    require_support: bool = True
 
 
 @dataclass(frozen=True)
@@ -157,8 +162,10 @@ def decide_from_inference(
         and target in evidence.targets
         for evidence in result.evidence
     )
-    has_support = structural or (
-        has_accusation and len(sources) >= policy.min_independent_sources
+    has_support = (
+        structural
+        or not policy.require_support
+        or (has_accusation and len(sources) >= policy.min_independent_sources)
     )
     has_evidence = bool(
         result.pins

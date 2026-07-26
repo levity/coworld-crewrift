@@ -157,7 +157,8 @@ def evaluate(rows: list[dict[str, Any]], cfg: DecisionConfig) -> dict[str, Any]:
         target, probability = ranked[0]
         outside = ranked[IMPOSTER_COUNT][1] if len(ranked) > IMPOSTER_COUNT else 0.0
         margin = probability - outside
-        support = row["structural"] or row["sources"] >= cfg.min_independent_sources
+        support = (row["structural"] or not cfg.require_support
+               or row["sources"] >= cfg.min_independent_sources)
         if (
             support
             and probability >= _required(row, cfg)
