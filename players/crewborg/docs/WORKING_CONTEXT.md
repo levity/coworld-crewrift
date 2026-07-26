@@ -30,8 +30,15 @@ and unlogged, and league episodes carry no policy artifacts to fall back on (ver
 §Provenance, and the rewritten `crewborg/version_log.md` header. **The bare `vN` rows at
 the bottom of version_log.md are a different policy line and are not our builds.**
 
-**Next submission is `crewborg-lw:v20`** (v19 exists, inert), to carry
-`CREWBORG_KILL_WINDOW` on top of v18's config.
+**`crewborg-lw:v20` IS SUBMITTED** (2026-07-26, `sub_3178148f`, version
+`9a30196e-93c5-4bba-a661-b27d6b49aa33`, `--auto-champion lineage`). Config = v18's three
+levers **+ `CREWBORG_KILL_WINDOW=both`** — one variable against the champion. Gate-1 was
+clean (12/12 seats on the correct brain, 4 active `at_least_one` constraints, solve max
+39.7 ms, zero ops timeouts) and its tags round-trip from the API, so unlike v18 its
+config needs no probe to recover. **Watch it qualify**, then compare against v18 —
+note the only hosted evidence for the kill window is offline (64 seats: pins 28/29 ->
+26/26 sound, truth kept 63/64 -> 64/64, at a cost of 3 pins), so coverage is the metric
+to watch.
 
 ## Current update (2026-07-26, `/simplify`: the two crew brains are now separated in the tree)
 
