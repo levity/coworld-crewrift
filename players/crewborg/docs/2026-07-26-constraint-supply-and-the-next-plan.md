@@ -1,16 +1,44 @@
-# The solver is starved, not broken — and a revised plan (2026-07-26)
+# Discarded observations in the deduction path — a candidate lever, and a revised plan (2026-07-26)
 
-Supersedes the ranking in
+Revises the ranking in
 [`2026-07-25-solver-in-the-component-loop.md`](./2026-07-25-solver-in-the-component-loop.md) §4.
 Everything here is measured on data already on disk; no hosted games were bought.
 
-## 0. The one-line finding
+## 0. What is measured, and what is only hypothesised
 
-The joint solver contributes **0 of 244 ejects** not because its enumeration is wrong,
-but because **every channel that could hand it a structural constraint is discarded
-before it gets there.** It runs on pins alone — and pins decide the vote by themselves,
-so the enumerator is decorative. Fix the constraint *supply* and the machinery we
-already paid for starts earning.
+**Measured.** The joint solve contributed **0 of 244 ejects** in the Phase-0 candidate arm;
+all 244 were witness pins. `inference.py:894` discards a body-transition observation whenever
+2+ players were in kill range, without recording which players. That is 54 discarded
+observations per 100 games — 26 % of all body-transition observations.
+
+**Hypothesised, NOT tested.** That supplying those observations as hard `at_least_one`
+constraints would change any decision. An earlier draft of this note asserted the solver was
+"starved" and that fixing supply would make it "start earning". That overstated the evidence,
+and the check below partly undercuts it.
+
+**The competing explanation.** `decision.py` blocks a non-structural eject behind
+`has_accusation AND >= 2 independent sources`. If that gate binds, extra constraints change
+nothing. Skip reasons across 495 skip decisions (a skip can cite several):
+
+| share of skips | reason |
+|---:|---|
+| 94.3 % | posterior below parity-aware threshold |
+| 91.5 % | leading set is not separated |
+| 69.1 % | ballot evidence lacks accusation or structural support |
+| 25.5 % | insufficient independent or structural support |
+
+Both families bind, usually together. Posterior *sharpness* is the most frequent blocker,
+which is the thing constraints would act on — and hard constraints could also satisfy the
+support gate by making a target `structural` (all surviving hypotheses contain it). So the
+hypothesis stays live. It is not established.
+
+**The bound that matters.** Of 739 decisions, only **78 skips (10.6 %)** had an ambiguous-kill
+observation available at all. So even if every one of them flipped — optimistic, since 94 %
+also fail the posterior threshold for other reasons — this change reaches **at most ~11 % of
+decisions**. It is a candidate worth one cheap offline test, not a transformative fix.
+
+**The test that would settle it**, and it costs no hosted games: re-run `infer()` over the
+recorded histories with the constraint added and count decision flips against ground truth.
 
 ## 1. What the discard log actually says
 
@@ -50,7 +78,7 @@ But "a body appeared and only A and B were in kill range" is a sound, proof-stre
 statement: **at least one of {A, B} is an impostor.** That is precisely the input a joint
 enumerator exists to consume.
 
-**Size of the opportunity** (distinct observations, not repeated decisions):
+**Size of the opportunity** (an upper bound on reach, not a claimed effect) (distinct observations, not repeated decisions):
 
 | | per 100 games | per game |
 |---|---:|---:|
@@ -60,7 +88,7 @@ enumerator exists to consume.
 So **26 % of all body-transition observations are discarded.** 39 of 100 games contain at
 least one; 14 contain two or more.
 
-**Strength of one constraint.** From a seat's view of an 8-player, 2-impostor game there
+**Prior-space arithmetic** (illustrative only — this is a uniform-prior count, not a measured effect on the real posterior). From a seat's view of an 8-player, 2-impostor game there
 are C(7,2) = 21 hypotheses. "At least one of {A,B}" eliminates those where neither is an
 impostor — C(5,2) = 10 — leaving 11. **One observation prunes ~52 % of the space**, and
 two overlapping ones usually pin it outright.
@@ -95,7 +123,7 @@ The old §4 order was built before we knew the solver was starved. Revised:
 
 | # | change | why it moved | cost |
 |---|---|---|---|
-| **1** | **Hard `at_least_one` from ambiguous body transitions** | *(new)* Acts on the `direct` channel, which already drives 100 % of ejects at 100 % precision. Recovers 26 % of that channel's observations. Machinery half-exists. | small |
+| **1** | **Offline counterfactual for hard `at_least_one`** — measure first, implement only if it flips decisions | *(new)* Acts on the `direct` channel, which already drives 100 % of ejects. Recovers 26 % of that channel's observations, but reaches **at most ~11 % of decisions** (§0), and whether it flips any is untested. Ranked first because it is the cheapest thing to *falsify*, not because it is the biggest win. | small |
 | **2** | Skip-vote likelihood | Still the largest single discard (2526). Unchanged. | small |
 | **3** | Reachability alibi (replace continuous co-presence) | Still 1188 discards; also unblocks `fair` mode. Unchanged. | medium |
 | 4 | Three-mode history builder (`fair` oracle) | Still the routing instrument. Partly stood in for by the ghost bracket now shipped. | large |
