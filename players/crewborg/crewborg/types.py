@@ -281,18 +281,6 @@ class SocialClaim(BaseModel):
     text: str
 
 
-class MeetingRecord(BaseModel):
-    """Public facts retained from one meeting, including its evolving vote tally."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    meeting_id: int
-    caller_color: str | None = None
-    call_kind: str | None = None
-    votes: dict[str, str | None] = Field(default_factory=dict)
-    ejected_color: str | None = None
-
-
 # How many recent raw observation frames the perception tape keeps (~1 s at 24 Hz).
 RECENT_FRAMES_MAX = 24
 
@@ -421,14 +409,6 @@ class Belief(BaseModel):
     # reasoning will consume.
     chat_log: list[ChatEvent] = Field(default_factory=list)
 
-    # Lossless-enough relational memory: speaker, targets, meeting, stance,
-    # provenance, public votes and ejection outcomes, as opposed to the fitted
-    # model's scalar counters below. Retained because strategy/meeting/vote_policy.py
-    # reads social_claims; the joint solver that originally motivated them was
-    # removed once deduction/ superseded it.
-    social_claims: list[SocialClaim] = Field(default_factory=list)
-    meeting_history: list[MeetingRecord] = Field(default_factory=list)
-    solver_counted_chats: set[tuple[int, str | None, str]] = Field(default_factory=set)
 
     # New deduction path: exact semantic observations in append-only order.
     # Conclusions are deliberately absent; every solve rebuilds from this ledger.
@@ -746,10 +726,6 @@ def update_belief(belief: Belief, percept: Percept) -> None:
     # The vote-result interstitial names the player the meeting ejected.
     if resolved.ejected_color is not None:
         _record_death(belief, resolved.ejected_color, percept.tick, "ejection")
-        for meeting in reversed(belief.meeting_history):
-            if meeting.ejected_color is None:
-                meeting.ejected_color = resolved.ejected_color
-                break
 
     if resolved.vote_timer_ticks is not None:
         belief.vote_timer_ticks = resolved.vote_timer_ticks
