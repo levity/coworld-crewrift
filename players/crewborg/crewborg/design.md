@@ -131,8 +131,8 @@ emerges resolves both. NB the old `select_victim` ("pick the single most-isolate
 commit") is the up-front-gamble anti-pattern for *seeking* — it stays only for Hunt (the strike, after a peel
 -off is already chosen). Never follow the teammate imposter. The occupancy substrate is retained as a cold
 -start fallback (seen nobody yet → explore the low-traffic PERIPHERAL rooms where stragglers isolate, not the
-hub). Implementation in progress; the prior Pretend/Search logic is cold-stored under
-`modes/_deprecated/` (DO NOT USE).
+hub). Implementation in progress; the prior Pretend/Search logic was retired 2026-06-24
+and deleted 2026-07-26 (see git history).
 
 **Aggressive initial-connect reconnect (§3.1).** Hosted episodes were failing at a
 high rate with a `-100` `connect_timeout`: the symptom (verified from artifacts) was
@@ -592,8 +592,8 @@ re-decides.
 | **Attend Meeting** | phase = `Voting` | **deflect onto crewmates, never a teammate** (§10.4): proactively accuse + vote a non-teammate who genuinely *looks* sus (real cues, same format as a crewmate); else wait and **bandwagon** onto a crewmate others suss/vote, citing *fabricated* safe cues in the identical format; else, when **one removal from parity with a known live teammate**, *manufacture* a coordinated vote to close it; else skip at the deadline |
 
 **Search is the imposter's always-on seeking stance** (`modes/search.py`, rebuilt
-2026-06-24; the prior occupancy-density Pretend/Search is cold-stored at
-`modes/_deprecated/`). Motivation (event-warehouse diagnosis): crewborg was *near a
+2026-06-24; the prior occupancy-density Pretend/Search was deleted 2026-07-26,
+see git history). Motivation (event-warehouse diagnosis): crewborg was *near a
 crew member only ~half as often* as the top imposters — its kill execution is
 best-in-field, it just isn't present for enough natural isolation moments. Search
 attacks that directly by staying with crew. It does **not** kill; it keeps us

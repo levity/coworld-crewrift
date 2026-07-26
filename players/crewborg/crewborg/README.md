@@ -71,7 +71,6 @@ crewborg/              package crewborg
   modes/               behavioral stances —
                          crew:     normal · attend_meeting · report_body · accuse
                          imposter: search · recon · hunt · evade   (+ idle, imposter_common)
-                         _deprecated/  cold-stored (retired pretend mode) — DO NOT USE
   strategy/            rule_based.py (mode selector) · suspicion.py (Bayesian P(imposter))
                          · social_evidence.py (vote/chat evidence) · event_log.py (per-player log)
                          · occupancy.py · opportunity.py · trajectory.py · path_prediction.py

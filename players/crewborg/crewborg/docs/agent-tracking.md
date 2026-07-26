@@ -205,7 +205,8 @@ coldest (positive mass only); `best_seek_point` returns the first. Evade uses
 `best_seek_point` as the fallback when no room target is available. `self_xy` is
 accepted for call-site symmetry but unused — cells are already prefiltered to the
 reachable component, so no live A* is needed. (`ranked_seek_points` is otherwise
-consumed only by the cold-stored occupancy Search, `modes/_deprecated/search.py`.)
+consumed only by the occupancy Search that was retired 2026-06-24 and deleted
+2026-07-26; see git history.)
 
 ### Evade's preference order
 

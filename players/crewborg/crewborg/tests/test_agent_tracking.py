@@ -1,20 +1,15 @@
 """Agent location tracking tests (docs/agent-tracking.md).
 
-The two ``test_pretend_*`` integration tests are skipped — Pretend's occupancy-room
-seeking was retired 2026-06-24 (cold-stored at ``modes/_deprecated/``) pending the
-new group-follow → peel-off approach. The substrate/estimator tests stay live (the
-substrate is retained as the cold-start fallback).
+The two ``test_pretend_*`` integration tests were deleted 2026-07-26 with
+``modes/_deprecated/`` (permanently skipped since Pretend's occupancy-room seeking
+was retired 2026-06-24). The substrate/estimator tests stay live, as do the direct
+tests of ``best_seek_point`` / ``best_pretend_room_target`` — those helpers are still
+consumed by Evade, Recon and Search.
 """
 
 from __future__ import annotations
 
 import numpy as np
-import pytest
-
-deprecated_seeking = pytest.mark.skip(
-    reason="Pretend occupancy-room seeking retired 2026-06-24 (modes/_deprecated/); "
-    "new approach pending. See design.md."
-)
 
 from crewborg.agent_tracking import (
     OccupancySnapshot,
@@ -24,9 +19,8 @@ from crewborg.agent_tracking import (
     update_agent_tracking,
 )
 from crewborg.map.types import MapData, MapPoint, MapRect, Room, TaskStation
-from crewborg.modes._deprecated.pretend import PretendMode  # retired; only the skipped tests use it
 from crewborg.nav import build_nav_graph
-from crewborg.types import ActionState, Belief, PerceptionFrame, PlayerRecord
+from crewborg.types import Belief, PerceptionFrame, PlayerRecord
 
 
 def _map() -> MapData:
@@ -207,71 +201,3 @@ def test_best_pretend_room_target_has_hysteresis() -> None:
     assert target is not None
     assert target.room_name == "Right"
 
-
-@deprecated_seeking
-def test_pretend_uses_occupancy_room_target() -> None:
-    belief = _belief()
-    belief.last_tick = 850
-    update_agent_tracking(belief)
-    substrate = belief.agent_tracking.substrate
-    assert substrate is not None
-    right_cell = next(cell for cell in substrate.cells.values() if cell.label == "Right")
-    belief.agent_tracking.snapshot = OccupancySnapshot(
-        tick=850,
-        expected_by_cell={right_cell.index: 1.0},
-        top_cell=right_cell.index,
-        top_point=right_cell.center,
-        top_expected=1.0,
-        tracked_count=1,
-        support_cell_count=1,
-    )
-
-    intent = PretendMode().decide(belief, ActionState())
-    assert intent.kind == "navigate_to"
-    assert intent.point[0] >= 64
-    assert intent.reason == "pretending at likely crew task"
-
-
-@deprecated_seeking
-def test_pretend_commits_to_an_occupancy_room_until_mode_preemption() -> None:
-    belief = _belief()
-    # Put spawn outside the test rooms so both Left and Right are eligible fake-task
-    # rooms; this isolates target commitment from starting-room filtering.
-    belief.map = belief.map.model_copy(update={"home": MapPoint(x=-10, y=-10)})
-    belief.last_tick = 10
-    belief.self_world_y = 60
-    update_agent_tracking(belief)
-    substrate = belief.agent_tracking.substrate
-    assert substrate is not None
-    left_cell = next(cell for cell in substrate.cells.values() if cell.label == "Left")
-    right_cell = next(cell for cell in substrate.cells.values() if cell.label == "Right")
-    belief.agent_tracking.snapshot = OccupancySnapshot(
-        tick=10,
-        expected_by_cell={right_cell.index: 1.0},
-        top_cell=right_cell.index,
-        top_point=right_cell.center,
-        top_expected=1.0,
-        tracked_count=1,
-        support_cell_count=1,
-    )
-
-    mode = PretendMode()
-    first = mode.decide(belief, ActionState())
-    assert first.kind == "navigate_to" and first.point[0] >= 64
-
-    belief.last_tick = 20
-    belief.agent_tracking.snapshot = OccupancySnapshot(
-        tick=20,
-        expected_by_cell={left_cell.index: 2.0},
-        top_cell=left_cell.index,
-        top_point=left_cell.center,
-        top_expected=2.0,
-        tracked_count=1,
-        support_cell_count=1,
-    )
-    still_committed = mode.decide(belief, ActionState())
-    assert still_committed.kind == "navigate_to" and still_committed.point == first.point
-
-    belief.last_tick = 1000
-    still_committed = mode.decide(belief, ActionState())
-    assert still_committed.kind == "navigate_to" and still_committed.point == first.point

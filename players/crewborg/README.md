@@ -114,3 +114,24 @@ crewborg builds to a `linux/amd64` Docker image (the Coworld upload contract) fr
 The image installs the shared player SDK from the public `Metta-AI/coworld-tools` repo (pinned in
 `tools/build/versions.env`) and runs `python -m crewborg.coworld.policy_player`. All inputs are
 public, so a build needs only Docker — no credentials.
+
+## Testing it
+
+From this directory (`players/crewborg/`):
+
+```bash
+uv run --group dev pytest          # the whole suite; expect all green, no skips
+uv run --group dev ruff check <changed files>
+```
+
+`pyproject.toml` declares the test environment — it is **not** a packaging manifest and
+is not how the image is built. It exists so a clean checkout reproduces a green suite:
+`pytest-asyncio` (without it `test_bridge.py`'s `async def` tests are collected and then
+all fail) and `spacy` + `en_core_web_sm` (imported by `test_chat_read.py`) used to be
+present only in whoever's ad-hoc environment, so every fresh machine saw 15 failures and
+8 errors that had nothing to do with the code. Keep its runtime dependency list in sync
+with `crewborg/coworld/Dockerfile`.
+
+A skipped test is treated as a defect here, not a status: the suite carried 13 permanent
+skips for a month pinning retired behaviour, which is a broken window that hides real
+regressions. Delete such tests — git history keeps the old contract.
