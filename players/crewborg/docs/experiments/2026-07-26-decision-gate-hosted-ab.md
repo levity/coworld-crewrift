@@ -107,7 +107,16 @@ timeouts.
 
 ## Requests
 
-*(filled in at fire time)*
+Fired 2026-07-26. Both from image `crewborg:gate-ab2`; confirmed each queued 100
+episodes with 0 failed immediately after creation (no double-fire).
+
+| Arm | Policy version | `policy_version_id` | Experience request |
+|---|---|---|---|
+| Control | `crewborg-lw:v16` | `6a7444c3-1aa6-42de-8c56-786408d263d2` | `xreq_20c0564c-a5f2-49d0-a22e-424f7dd3575c` |
+| Candidate (`CREWBORG_DECISION_GATE=loose`) | `crewborg-lw:v17` | `20cd2cc0-2aac-4270-afdf-5c603e28fe0a` | `xreq_94b472f6-4a0d-468b-84ea-1c108175e9c7` |
+
+`crewborg-lw:v15` was uploaded earlier from a superseded image and is **not** used by
+either arm.
 
 ## Result
 
