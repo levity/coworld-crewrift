@@ -118,6 +118,35 @@ a before/after on the same episodes.
    its colour-map / slot-identity queries duplicate `suss.episode_color_maps` and
    `suss.slot_identity`.
 
+### A false witness pin can produce a CONFIDENTLY WRONG structural eject (2026-07-26)
+
+Found by the hosted sanity XP `xreq_51754f1f` (16 episodes, `crewborg-lw:v19`, pinned
+roles, live opponents). Not a regression: `_witnessed_actions` is byte-identical to
+`crew-signals-v2`, and the kill-range/co-presence constants are numerically unchanged
+(400 / 784) after being moved to `game_rules.py`.
+
+In episode `ereq_ff5a9fdd`, true impostors were `red` and `cyan`. A crewborg crew seat
+recorded `direct | unique actor adjacent when pink became a body -> pins {blue}`, where
+`blue` was a **crewmate**. That single false pin produced `structural=True, p=1.0`,
+`reason="personally witnessed impostor action"`, and two ejects against a teammate. A
+true impostor (`red`) was simultaneously claiming and voting against `blue`, but the pin
+did **not** depend on that -- it came from crewborg's own `direct` channel.
+
+**Why it matters now.** `crew-signals-v2` just shipped the `structural-only` gate
+(`deduction/config.py`) on the measurement that structural ejects were 9/9 correct in
+league play. This is a mechanism by which a structural eject can be confidently wrong,
+and `structural-only` has no defence against it -- it *removes* the accusation/source
+corroboration that would otherwise be a second opinion. Over this run structural was
+32/34; a small sample, so it does not overturn 9/9, but it does show the failure mode is
+reachable.
+
+**Likely cause to check first.** `_witnessed_actions` requires consecutive frames
+(`current.tick == previous.tick + 1`) and exactly one player within `kill_range_sq` of
+the victim's previous position. If the real killer vents or leaves the frame between the
+two ticks, an innocent bystander becomes the "unique adjacent actor". The audit record
+already names the actor, so this is testable offline against recorded histories: re-run
+`infer()` over the retained ledgers and count pins whose actor is not a true impostor.
+
 ### Deferred by the same pass — correctness-adjacent, needs a decision not a cleanup
 
 These change behaviour, so they are **not** cleanup. Each is stated with the evidence
