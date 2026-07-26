@@ -23,7 +23,6 @@ import re
 from crewborg.types import (
     Belief,
     ChatEvent,
-    MeetingRecord,
     SocialClaim,
     SolverClaimProvenance,
     SolverClaimStance,
@@ -73,8 +72,6 @@ def update_social_evidence(belief: Belief) -> None:
     intervals that logger maintains) and before ``update_suspicion``.
     """
 
-    _record_solver_claims(belief)
-    _track_solver_meeting(belief)
     _count_chat_stances(belief)
     _track_meeting_votes(belief)
     _bank_meeting_caller(belief)
@@ -406,21 +403,6 @@ def _evidence_kind(clause: str) -> SolverEvidenceKind:
     return "bare"
 
 
-def _record_solver_claims(belief: Belief) -> None:
-    colors = set(belief.roster)
-    meeting_id = belief.phase_start_tick
-    if belief.phase != "Voting" and belief.meeting_history:
-        meeting_id = belief.meeting_history[-1].meeting_id
-    for event in belief.chat_log:
-        key = (event.tick, event.speaker_color, event.text)
-        if key in belief.solver_counted_chats:
-            continue
-        belief.solver_counted_chats.add(key)
-        belief.social_claims.extend(
-            parse_social_claims(event, meeting_id=meeting_id, colors=colors)
-        )
-
-
 def _count_chat_stances(belief: Belief) -> None:
     if not belief.chat_log:
         return
@@ -454,36 +436,6 @@ def _count_chat_stances(belief: Belief) -> None:
 
 
 # --- vote tallies ---------------------------------------------------------------
-
-
-def _track_solver_meeting(belief: Belief) -> None:
-    """Upsert the current meeting's public metadata and latest attributed tally."""
-
-    if belief.phase != "Voting":
-        return
-    meeting_id = belief.phase_start_tick
-    meeting = next(
-        (record for record in reversed(belief.meeting_history) if record.meeting_id == meeting_id),
-        None,
-    )
-    if meeting is None:
-        meeting = MeetingRecord(
-            meeting_id=meeting_id,
-            caller_color=belief.meeting_caller_color,
-            call_kind=belief.meeting_call_kind,
-        )
-        belief.meeting_history.append(meeting)
-    else:
-        meeting.caller_color = meeting.caller_color or belief.meeting_caller_color
-        meeting.call_kind = meeting.call_kind or belief.meeting_call_kind
-
-    slots = {candidate.slot: candidate.color for candidate in belief.voting.candidates}
-    if slots and belief.voting.dots:
-        meeting.votes = {
-            slots[vote.voter]: None if vote.target == SKIP_VOTE_TARGET else slots.get(vote.target)
-            for vote in belief.voting.dots
-            if vote.voter in slots
-        }
 
 
 def _track_meeting_votes(belief: Belief) -> None:
