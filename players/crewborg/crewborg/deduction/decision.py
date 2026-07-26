@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from crewborg.deduction.config import gate_overrides
+from crewborg.deduction.config import gate_overrides, inference_overrides
 from crewborg.deduction.inference import (
     InferenceConfig,
     InferenceResult,
@@ -89,7 +89,12 @@ def decide(
 ) -> MeetingDecision:
     """Infer and choose a vote without mutable or legacy conclusions."""
 
-    result = infer(history, config=inference_config)
+    # As with the gate: an explicit config always wins (tests, sweeps), otherwise the
+    # preset named by CREWBORG_SPEAKER_TRUST, defaulting to the shipped posterior.
+    result = infer(
+        history,
+        config=inference_config or InferenceConfig(**inference_overrides()),
+    )
     return decide_from_inference(
         history,
         result,
