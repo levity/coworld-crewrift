@@ -29,18 +29,27 @@ GATE_ENV = "CREWBORG_DECISION_GATE"
 # only by `--secret-env`. Keeping the presets here rather than in `decision.py` keeps
 # the gate's arithmetic free of environment lookups.
 #
-# "loose": measured offline over 476 living-seat decisions from 100 Prime games
-# (`tools/sweep_decision_gate.py`). Sweeping `base_probability` alone changes almost
-# nothing (coverage 14.9% -> 16.8%) because the SUPPORT gate binds first; relaxing
-# support to one source and dropping the margin floor is what opens coverage. On a
-# 50/50 episode-level held-out split: coverage 16.0% -> 30.6%, 63 ejects, 0 wrong
-# (95% upper bound on the error rate 4.8%). Untested against the league field.
+# Measured offline over 476 living-seat decisions from 100 Prime games
+# (`tools/sweep_decision_gate.py`), validated on a 50/50 episode-level held-out split.
+# Untested against the league field -- both halves face the same crewborg-aaln.
 GATE_PRESETS: dict[str, dict[str, float | int]] = {
     "shipped": {},
+    # The minimal interpretable unit: margin and support are JOINTLY binding --
+    # held-out, relaxing either alone moves coverage 16.0% -> 16.0% (nothing), and
+    # both together give 16.0% -> 21.8% with 45 right / 0 wrong. The margin floor is
+    # lowered to an epsilon rather than removed: margin == 0 means a flat posterior
+    # and only 55% top-1 accuracy, while ANY positive margin measured 100% across 203
+    # decisions. base_probability is deliberately NOT touched here.
     "loose": {
+        "base_margin": 1e-3,
+        "require_support": False,
+    },
+    # Adds the probability threshold on top. A separate question; kept apart so the
+    # two are never bundled into one A/B.
+    "loose+p40": {
+        "base_margin": 1e-3,
+        "require_support": False,
         "base_probability": 0.40,
-        "base_margin": 0.0,
-        "min_independent_sources": 1,
     },
 }
 
