@@ -24,8 +24,9 @@ evaluator emits byte-identical metrics at `--games 300 --seed 7` and runs 2.01s 
 of the package four times -- but one of those four was
 `strategy/social_evidence.parse_social_claims`, which had exactly ONE caller
 (`deduction/inference.py`) and which the legacy path never called. The parser is now
-`deduction/claims.py`, so `strategy/` is the fitted brain, `deduction/` is the deduction
-brain, and the only things they share are brain-neutral: `game_rules.py`,
+its own module (after the later spaCy rewrite, `strategy/claims.py`, shared by BOTH
+roles). `deduction/` is the deduction brain and the only things it shares are
+brain-neutral: `game_rules.py`,
 `perception.entities`, `strategy.occupancy`. This is why a separate player base is NOT
 the answer -- see the verdict below.
 

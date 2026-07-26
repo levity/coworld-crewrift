@@ -67,14 +67,13 @@ rather than as the model.
   `strategy/meeting/solver.py`, `strategy/alibi.py`, `vote_policy.py`, the
   `MeetingRecord` / `meeting_history` / `social_claims` ledger, `modes/_deprecated/`,
   and their tests. ~4,400 lines, all superseded by `deduction/`.
-- **Moved 2026-07-26 (`/simplify`):** the claim parser is now
-  `crewborg/deduction/claims.py`, not `strategy/social_evidence.py` — it had exactly
-  one caller (`deduction/inference.py`) and the legacy path never used it, so its old
-  home made the fitted brain look like a dependency of the deduction brain. The two
-  brains now share only `game_rules.py`, `perception.entities` and
-  `strategy.occupancy`. `strategy/social_evidence.py` is 516 -> 169 lines and is
-  purely legacy. `SocialClaim` lost its `Solver*` prefixes (named after the deleted
-  solver) and its unread `meeting_id` / `tick` / `text` fields.
+- **Claim parsing, 2026-07-26 (two passes, converged):** `/simplify` first pulled the
+  regex parser out of `strategy/social_evidence.py`; the spaCy rewrite then replaced all
+  three parsers with the single `crewborg/strategy/claims.py`. That module is now the one
+  parser for BOTH roles, so it is deliberately not under `deduction/` (crew-only).
+  `strategy/social_evidence.py` is left with only the legacy fitted counters. The claim
+  types moved out of `types.py` into `strategy/claims.py` beside their producer, and lost
+  the `Solver*` prefix they inherited from the deleted `strategy/meeting/solver.py`.
 - **Retained rejected experiments (~700 lines, all default-off):** `POST_TASK_ESCORT`,
   `POST_TASK_LOITER`, `GROUP_TASKING`, `WITNESS_TASKING`, `SELF_PRESERVATION`, `STICK`.
   Kept **deliberately** — see the retention note above `GROUP_TASK_RADIUS_SQ` in

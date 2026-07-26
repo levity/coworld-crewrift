@@ -88,9 +88,11 @@ deduction/  ->  game_rules.py            (kill range, co-presence, imposter coun
 ```
 
 It imports nothing from the fitted brain (`strategy/suspicion.py`,
-`strategy/social_evidence.py`, `suspicion_lab/`). The chat parser used to live in
-`strategy/social_evidence.py`, which made the legacy path look like a dependency;
-it is now `deduction/claims.py` and takes an `UtteranceObserved` directly.
+`strategy/social_evidence.py`, `suspicion_lab/`). It does import
+`strategy/claims.py` -- the single spaCy claim parser shared by BOTH roles, which is
+why that module is not under `deduction/`. It replaced three drifting
+implementations, one of which used to live inside `social_evidence.py` and made the
+legacy path look like a dependency of this one.
 
 The flag is deliberately role-scoped. Impostors retain the complete legacy
 event, suspicion, movement, and meeting path, which prevents a crew-solver
@@ -112,9 +114,8 @@ experiment from changing both role policies. The unflagged path is unchanged.
 
 The ledger stores observations, not claims, alibis, witnessed-action pins, or
 player suspicion. Those are conclusions and are rebuilt each solve. `SocialClaim`
-(`deduction/claims.py`) is one such conclusion: it carries only what inference
-reads, and deliberately *not* the meeting, tick, or exact text, which stay on the
-`UtteranceObserved` it was derived from.
+(`strategy/claims.py`) is one such conclusion, rebuilt from the retained utterance
+on every solve rather than stored.
 Continuous world frames are retained because absence and co-presence are
 meaningful only across an unbroken observation window.
 
