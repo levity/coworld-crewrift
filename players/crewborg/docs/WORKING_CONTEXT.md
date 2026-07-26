@@ -45,6 +45,16 @@ the answer -- see the verdict below.
   (served as a hardcoded 0), `Belief.deduction_world_ticks` (a parallel index the event-id
   set already implied), and an unreachable branch in `_fallback_vote_target`.
 
+**Rebased onto `crew-signals-v2` @ `ddad0ec`** (per-speaker trust + the
+`structural-only` gate preset). One semantic conflict, resolved deliberately rather
+than textually: the new `decide()` read `CREWBORG_SPEAKER_TRUST` from the environment
+inside the pure stage -- the same pattern this branch had just removed for
+`CREWBORG_DECISION_GATE`. Both presets now resolve once in
+`AttendMeetingMode.__init__` and are passed down, so speaker trust is preserved
+exactly while the "no stage reads the environment" invariant holds for the posterior
+too. `tools/sweep_speaker_trust.py` constructs `InferenceConfig()` explicitly, so it
+never depended on the env read.
+
 **Follow-up the same day: the fork moved, and the `.clear()` is gone.** The pivot used
 to run the fitted model on every pre-reveal tick and then `belief.suspicion.clear()`
 once the role latched to crewmate -- "use the old brain, then delete the evidence".
