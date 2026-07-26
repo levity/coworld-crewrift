@@ -52,13 +52,20 @@ buys guaranteed role coverage at the cost of seat-bias cancellation, so no win-r
 claim is available from it. 16/16 ops-clean. **80/80 crewborg seats consistent**: all 16
 impostor seats reported `crew_brain=fitted` with zero deduction events, all 64 crew
 seats `crew_brain=deduction` with zero suspicion events -- zero cross-contamination.
-Crew ejects 34/37 correct, solve latency max 26.3 ms with 48 ticks always remaining;
-impostor 28 kills vs the live opponent impostor's 27; crew tasks 476/512 (93%).
+Crew **ballots 11/11 correct** (100% precision at 12% coverage: 11 player-votes vs 81
+skips); solve latency max 26.3 ms with 48 ticks always remaining; impostor 28 kills vs
+the live opponent impostor's 27; crew tasks 476/512 (93%).
 
-The one thing worth acting on: **a false witness pin produced two confidently wrong
-structural ejects** (`p=1.0`) against a crewmate in one episode -- pre-existing, and
-directly relevant to the newly shipped `structural-only` gate. Written up in
-`docs/TODO.md`.
+**Do not use the raw decision stream for precision.** 37 eject *decisions* appear in
+telemetry but 26 (70%) were made by seats that were already dead -- a ghost keeps
+solving and cannot vote. Live decisions are 11, reconciling exactly with the 11 ballots
+in `results.json`. All three wrong ejects in the batch were ghost decisions.
+
+Two things worth acting on, both in `docs/TODO.md`: **a false witness pin** (diagnosed
+as a kill-range boundary / sub-tick timing effect, not occlusion -- the killer was
+visible the whole time at 23.0px against a 20px range while a bystander sat at 16.3px),
+which argues for the `at_least_one` lever before trusting `structural-only`; and the
+**ghost-decision measurement trap** above.
 
 **Rebased onto `crew-signals-v2` @ `ddad0ec`** (per-speaker trust + the
 `structural-only` gate preset). One semantic conflict, resolved deliberately rather
