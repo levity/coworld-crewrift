@@ -29,6 +29,22 @@ class DecisionConfig:
     # and the claim parser drops ~81% of utterances. Set False to gate on the
     # posterior alone; `structural` still short-circuits either way.
     require_support: bool = True
+    # Eject ONLY when the target is structurally implied (a personal witness pin, or
+    # present in every surviving role assignment). Measured over 60 league episodes,
+    # 2026-07-26: structural ejects were 9/9 correct, non-structural 5/19 (26.3%) --
+    # at or below the 28.6% you get voting at random.
+    #
+    # This is a class gate rather than a threshold because the posterior is NOT
+    # informative inside the non-structural class: mean probability 0.786 when right
+    # vs 0.798 when wrong. Raising `base_probability` there only cuts volume at
+    # random, so there is no threshold to tune.
+    #
+    # The cause is roster composition. Non-structural targets rest on the social
+    # channel (other players' claims and votes), and the A/B that validated that
+    # channel ran a homogeneous roster where all six crew seats were this same
+    # policy. In league play five of six crewmates are foreign policies whose
+    # utterances this parser mostly cannot read and whose votes are near-random.
+    require_structural: bool = False
 
 
 @dataclass(frozen=True)
@@ -166,7 +182,7 @@ def decide_from_inference(
         structural
         or not policy.require_support
         or (has_accusation and len(sources) >= policy.min_independent_sources)
-    )
+    ) and (structural or not policy.require_structural)
     has_evidence = bool(
         result.pins
         or result.murder_clears
@@ -201,7 +217,9 @@ def decide_from_inference(
     reason_parts: list[str] = []
     if not has_evidence:
         reason_parts.append("no deduction evidence")
-    if not structural and not has_accusation:
+    if not structural and policy.require_structural:
+        reason_parts.append("target is not structurally implied")
+    elif not structural and not has_accusation:
         reason_parts.append("ballot evidence lacks accusation or structural support")
     elif not has_support:
         reason_parts.append("insufficient independent or structural support")

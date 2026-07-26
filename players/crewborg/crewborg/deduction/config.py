@@ -51,6 +51,25 @@ GATE_PRESETS: dict[str, dict[str, float | int]] = {
         "require_support": False,
         "base_probability": 0.40,
     },
+    # Keeps `loose`'s margin relaxation but ejects ONLY on structural certainty.
+    #
+    # Measured on 60 LEAGUE episodes (2026-07-26), which is the first data we have
+    # from a mixed roster -- every earlier A/B ran six copies of this policy as the
+    # crew, so the social evidence channel was talking to itself. Against real
+    # opponents that channel collapses:
+    #     structural      9/9  = 100%
+    #     non-structural  5/19 =  26%   (random voting is ~29%)
+    # and it is 70% of the ejects `loose` produces, so `loose` as shipped is mostly
+    # casting near-random votes. No probability threshold rescues it -- the posterior
+    # inside that class averages 0.786 when right and 0.798 when wrong -- so the cut
+    # has to be by evidence class.
+    #
+    # NOTE this is STRICTER than the shipped gate, which also allowed
+    # accusation-backed ejects with >=2 independent sources.
+    "structural-only": {
+        "base_margin": 1e-3,
+        "require_structural": True,
+    },
 }
 
 
