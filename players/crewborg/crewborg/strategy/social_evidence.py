@@ -45,9 +45,18 @@ DIRECT_OBSERVATION_CUE = re.compile(
     r"follow(?:ed|ing|s)?|tail(?:ed|ing|s)?|fak(?:e|ed|ing)|lie|lied|lying)\b",
     re.IGNORECASE,
 )
+# NOTE the `?` on the kill suffix. It used to be `kill(?:ed|ing|s)`, requiring an
+# inflection, which combined with `direct_observation_pattern`'s mandatory "i|we"
+# subject to drop the SUBJECT-DROPPED BARE INFINITIVE entirely: "saw pink kill
+# orange" matched no branch and parsed to nothing. Measured over 115 league
+# episodes that is the single largest parser-gap template, and a witnessed kill is
+# the strongest evidence the solver can get. Every other inflection already worked
+# ("pink killed orange", "pink kills orange", "I saw pink kill orange"), which is
+# why it stayed invisible. The victim stays excluded via `_target_is_victim`, whose
+# own pattern already spells the verb `kill(?:ed)?`.
 ACCUSE_PREDICATE = (
     r"sus(?:picious)?|imposter|impostor|threat|lying|liar|deflecting|"
-    r"vent(?:ed|ing|s)?|kill(?:ed|ing|s)|fak(?:e|ed|ing)|"
+    r"vent(?:ed|ing|s)?|kill(?:ed|ing|s)?|fak(?:e|ed|ing)|"
     r"follow(?:ed|ing|s)?|tail(?:ed|ing|s)?"
 )
 SOURCE_TARGET_VERB = (

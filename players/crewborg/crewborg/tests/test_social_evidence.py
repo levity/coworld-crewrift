@@ -6,12 +6,30 @@ offline mirror: suspicion_lab/tools/features.py).
 
 from __future__ import annotations
 
+import pytest
+
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
 from crewborg.strategy.social_evidence import (
     SKIP_VOTE_TARGET,
+    parse_social_claims,
     update_social_evidence,
 )
 from crewborg.types import Belief, ChatEvent, PlayerRecord
+
+_SOLVER_COLORS = {"red", "blue", "green", "yellow", "orange", "pink", "purple", "cyan"}
+
+
+def _accused(text: str, speaker: str = "blue") -> set[str]:
+    return {
+        target
+        for claim in parse_social_claims(
+            ChatEvent(tick=1, speaker_color=speaker, text=text),
+            meeting_id=0,
+            colors=_SOLVER_COLORS,
+        )
+        if claim.stance in ("accuse", "at_least_one")
+        for target in claim.targets
+    }
 
 
 def _belief(**kwargs) -> Belief:
@@ -152,3 +170,49 @@ def test_unknown_caller_name_is_ignored() -> None:
     belief.meeting_call_seen_tick = 600
     update_social_evidence(belief)
     assert all(r.button_calls_made == 0 for r in belief.roster.values())
+
+
+# --- witnessed kill reports (solver claim parser) --------------------------------
+#
+# ACCUSE_PREDICATE spelled the kill verb `kill(?:ed|ing|s)`, requiring a suffix, and
+# `direct_observation_pattern` requires an explicit "i|we" before "saw". Between them
+# the SUBJECT-DROPPED BARE INFINITIVE fell through every branch: "saw pink kill
+# orange" parsed to nothing at all. That is the most common kill report in league
+# chat (measured: the single largest parser-gap template over 115 league episodes),
+# and a witnessed kill is the strongest evidence the solver can receive.
+#
+# Every other inflection already worked -- "pink killed orange", "red kills green",
+# "I saw pink kill orange" -- which is why this stayed invisible.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "saw pink kill orange",
+        "saw pink kill orange, vote pink",
+        "i saw pink kill orange",
+        "pink killed orange",
+        "pink kills orange",
+        "pink was killing orange",
+    ],
+)
+def test_a_witnessed_kill_accuses_the_killer(text: str) -> None:
+    assert "pink" in _accused(text), f"{text!r} -> {_accused(text)}"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "saw pink kill orange",
+        "i saw pink kill orange",
+        "pink killed orange",
+        "pink kills orange",
+    ],
+)
+def test_a_witnessed_kill_never_accuses_the_victim(text: str) -> None:
+    assert "orange" not in _accused(text), f"{text!r} -> {_accused(text)}"
+
+
+def test_a_negated_kill_report_is_not_an_accusation() -> None:
+    # Guards the widened predicate against turning denials into accusations.
+    assert "pink" not in _accused("pink didn't kill orange")
