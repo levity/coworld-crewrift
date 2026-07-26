@@ -144,8 +144,9 @@ on its own.
 
 Pre-registered signals before any hosted arm (plan note Phase B): pins/game sound rate
 must not fall, `at_least_one` constraints > 0/game, and live ballot precision must hold
-at 100%. Note the coverage risk is real — pins drive ~100% of ejects, and this trades 3
-of them for soundness.
+at 100% (apply the liveness filter, or ghost decisions dominate it). Note the coverage
+risk is real — pins drive ~100% of ejects, and this trades 3 of them for soundness.
+Independent of `structural-only`, which is trusted and needs no sequencing against this.
 
 ### The bug this fixes: a false witness pin (2026-07-26)
 
@@ -204,8 +205,9 @@ from frame 2111 that seat could never reach the right answer again. The actual k
 `red` finished at marginal **0.028** -- rated nearly innocent, because the kill that
 should have implicated it was consumed by a pin naming someone else.
 
-This is why `structural-only` (which trusts pins absolutely and removes the accusation
-corroboration that might otherwise object) wants the margin landed first.
+`structural-only` is a **decided** call (Lawrence, 2026-07-26): structural evidence is
+trusted, and this finding is not a reason to gate it. Recorded here as the mechanism
+behind one observed false pin, not as an objection to that preset.
 
 ### MEASUREMENT TRAP: ghost seats keep solving, and inflate any decision-level metric
 

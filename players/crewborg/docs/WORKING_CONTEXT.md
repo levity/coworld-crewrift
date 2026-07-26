@@ -64,8 +64,9 @@ in `results.json`. All three wrong ejects in the batch were ghost decisions.
 Two things worth acting on, both in `docs/TODO.md`: **a false witness pin** (diagnosed
 as a kill-range boundary / sub-tick timing effect, not occlusion -- the killer was
 visible the whole time at 23.0px against a 20px range while a bystander sat at 16.3px),
-which argues for the `at_least_one` lever before trusting `structural-only`; and the
-**ghost-decision measurement trap** above.
+which motivated the `CREWBORG_KILL_WINDOW` fix now implemented (default-off); and the
+**ghost-decision measurement trap** above. `structural-only` is trusted — a decided
+call, not something this finding gates.
 
 **Rebased onto `crew-signals-v2` @ `ddad0ec`** (per-speaker trust + the
 `structural-only` gate preset). One semantic conflict, resolved deliberately rather
