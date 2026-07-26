@@ -1,5 +1,17 @@
 """Crew safety: early safe-distance separation from a lone follower.
 
+RETAINED REJECTED EXPERIMENT -- default-off, on the chopping block (docs/TODO.md),
+kept deliberately. Its hosted A/B was clearly negative (wins 50% -> 30%, all-8
+tasks 89% -> 60%), so this is the strongest null of the six retained behaviours
+and the least likely to come back. But that verdict, like the others, was read off
+team win rate over 100 games, and this behaviour's actual claim is about survival
+GEOMETRY -- separation maintained from a lone follower -- which the eval never
+measured directly. Kept as a reference implementation of the productive-retreat
+design (steer to a real task that widens the gap, rather than blind flight) and as
+a candidate for re-measurement under the finer test regime. See the retention note
+in modes/normal.py for the full reasoning. Reactivation needs a pre-registered
+mechanism hypothesis, not a hunch.
+
 Gated by ``CREWBORG_SELF_PRESERVATION`` (and deduction history). On top of
 ordinary task completion -- including group-tasking cohesion, which is env-gated
 inside :class:`NormalMode` and stays on in this mode -- this adds one behavior:

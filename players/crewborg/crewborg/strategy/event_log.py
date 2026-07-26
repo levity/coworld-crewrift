@@ -42,6 +42,13 @@ TAIL_SELF_RADIUS_SQ = 64**2
 EVENT_MERGE_GRACE_TICKS = 3
 
 
+# RETAINED REJECTED EXPERIMENT (CREWBORG_STICK): default-off, on the chopping block
+# (docs/TODO.md), kept deliberately. Superseded as a movement behaviour, but this is
+# the one retained experiment with a second, subtler job: while stick is active it
+# SUPPRESSES `tailing_self` collection, because the resulting proximity is induced by
+# our own policy rather than chosen by the other player. That "don't let a policy
+# manufacture its own evidence" idea outlives the behaviour and is worth keeping
+# legible. See the retention note in modes/normal.py.
 def _stick_active(belief: Belief) -> bool:
     enabled = os.environ.get("CREWBORG_STICK", "").strip().lower() in {
         "1",

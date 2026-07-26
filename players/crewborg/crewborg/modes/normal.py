@@ -52,6 +52,29 @@ from players.player_sdk import EmptyModeParams, Mode
 # reached at least this — otherwise it's treated as a flicker/occlusion.
 COMPLETION_PROGRESS_PCT = 90
 SWEEP_ARRIVE_RADIUS = 24  # within this of a station center ⇒ count it as checked
+# --- Retained rejected experiments -------------------------------------------
+#
+# The four opt-in behaviours below -- CREWBORG_POST_TASK_LOITER, _ESCORT,
+# CREWBORG_GROUP_TASKING, CREWBORG_WITNESS_TASKING -- are all DEFAULT-OFF and all
+# came back neutral-to-negative on their hosted A/Bs. They are formally on the
+# chopping block (docs/TODO.md) and are kept DELIBERATELY, not by oversight.
+#
+# Why they stay. Every one of those verdicts rests on team WIN RATE over ~100
+# games. That is one bit per game, and underpowered for anything below roughly
+# +15pp -- so a "neutral" result there mostly means the instrument could not see
+# it. We have since learned two things that undercut those nulls: scoring the
+# BELIEF rather than the outcome turns the same 100 games into thousands of
+# labelled rows (tools/decision_quality.py), and the one large win we did find
+# came from a mechanism nobody had predicted (spurious emergency meetings), not
+# from the thing being tested. A behaviour that does not move wins may still move
+# survival geometry, witness coverage, or evidence yield -- none of which the
+# original evals measured at all. A finer-grained test regime is being designed;
+# these stay reactivatable under it, and meanwhile they are a readable record of
+# what was tried, how it was bounded, and which constants were calibrated.
+#
+# Reactivating one is not a hunch: it needs a pre-registered hypothesis about the
+# mechanism it targets, measured on something sharper than win rate.
+
 GROUP_TASK_RADIUS_SQ = 120**2
 GROUP_TASK_FIX_TICKS = 48
 DEFAULT_GROUP_TASK_MAX_DETOUR = 160

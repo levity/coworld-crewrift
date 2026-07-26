@@ -32,6 +32,44 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## Open
 
+### Retained rejected experiments — chopping block, but held on purpose (2026-07-26)
+
+Six default-off behaviours (~700 lines) survive from the survival-via-movement
+direction. All were measured neutral-to-negative and none support the deduction
+path, so they are formally removal candidates — **and are being kept deliberately**,
+by explicit decision, not oversight. Each site carries an inline retention note; the
+canonical version is the block above `GROUP_TASK_RADIUS_SQ` in `modes/normal.py`.
+
+| Flag | Where | Lines | Recorded verdict |
+|---|---|---|---|
+| `CREWBORG_POST_TASK_ESCORT` | `modes/normal.py` | — | neutral |
+| `CREWBORG_POST_TASK_LOITER` | `modes/normal.py` | — | neutral |
+| `CREWBORG_GROUP_TASKING` | `modes/normal.py` | — | neutral |
+| `CREWBORG_WITNESS_TASKING` | `modes/normal.py` | +510 (all four) | catastrophic |
+| `CREWBORG_SELF_PRESERVATION` | `modes/self_preservation.py` + `modes/__init__.py`, `strategy/rule_based.py` | +177 | rejected (win 50%→30%) |
+| `CREWBORG_STICK` | `strategy/event_log.py` | +16 | superseded |
+
+**Why they stay.** Every verdict above rests on team win rate over ~100 games — one
+bit per game, underpowered below roughly +15pp, so most of those "neutral" results
+mean the instrument could not see the effect rather than that there was none. Two
+later findings undercut them further: scoring the belief instead of the outcome turns
+100 games into thousands of labelled rows (`tools/decision_quality.py`), and the one
+large win we did find came from an unpredicted mechanism (spurious emergency
+meetings) rather than the thing under test. These behaviours make claims about
+survival geometry, witness coverage and evidence yield that the original evals never
+measured at all. A finer-grained test regime is in progress; they stay reactivatable
+under it and legible as a record of what was tried and how it was bounded.
+
+**Conditions for acting on this entry.** Reactivate only with a pre-registered
+mechanism hypothesis measured on something sharper than win rate. Delete only once
+the finer regime has actually run and still finds nothing — a null under the coarse
+metric is not sufficient grounds, which is the whole point of this entry.
+
+Note `CREWBORG_SELF_PRESERVATION` is not fully dormant: `strategy/rule_based.py`
+wires it in as selector step 4 and calls `self_preservation_enabled()` every tick for
+every crewmate. Its gate is `CREWBORG_SELF_PRESERVATION and deduction_history_enabled()`,
+so it was built to layer on top of the deduction path.
+
 ### Retire the now write-only meeting ledger (2026-07-26)
 
 Surfaced by `/simplify` after the legacy solver removal and deliberately **not** done
