@@ -753,8 +753,14 @@ def test_margin_makes_the_boundary_kill_ambiguous_instead_of_wrong() -> None:
     assert any({"red"} <= set(h.imposters) for h in result.hypotheses)
 
 
-def test_at_least_one_keeps_the_ambiguous_kill_as_a_sound_constraint() -> None:
-    """The margin stops the lie; at_least_one keeps the truth it implies."""
+def test_at_least_one_widens_the_disjunction_by_whoever_was_not_decoded() -> None:
+    """A frame lists only DECODED players, so the disjunction must include the rest.
+
+    These frames show 3 of 6 players, so `green`/`purple` could equally have been
+    standing there. Narrowing the constraint to the two visible candidates would be
+    unsound -- and a wrong disjunction is worse than a wrong pin, because it can empty
+    the assignment table and silently kill every later solve in the game.
+    """
 
     result = infer(
         _history(*_boundary_kill_frames()),
@@ -762,11 +768,33 @@ def test_at_least_one_keeps_the_ambiguous_kill_as_a_sound_constraint() -> None:
     )
 
     assert "blue" not in result.pins
-    # Every surviving assignment must contain at least one of the two candidates.
+    assert result.hypotheses, "the table must not be emptied"
+    # Undecoded live players stay reachable rather than being excluded.
+    assert any("green" in h.imposters for h in result.hypotheses)
+    assert any("red" in h.imposters for h in result.hypotheses)
+
+
+def test_at_least_one_bites_when_the_frame_accounts_for_everyone() -> None:
+    """With every live player decoded, the disjunction is informative."""
+
+    before, after = _boundary_kill_frames()
+    # Park the remaining roster far away, so they are accounted for but out of range.
+    extras = tuple(
+        ObservedPlayer(color=c, x=900, y=900) for c in ("green", "purple")
+    )
+    before = before.model_copy(update={"players": before.players + extras})
+    after = after.model_copy(update={"players": after.players + extras})
+
+    result = infer(
+        _history(before, after),
+        config=InferenceConfig(kill_range_margin=6, ambiguous_kill_constraints=True),
+    )
+
+    assert "blue" not in result.pins
     assert result.hypotheses
+    # Now only the two in-range candidates can satisfy it.
     for h in result.hypotheses:
         assert {"blue", "red"} & set(h.imposters), h.imposters
-    # And the constraint is sound: the true killer is still reachable.
     assert any("red" in h.imposters for h in result.hypotheses)
 
 
@@ -795,3 +823,42 @@ def test_kill_window_presets_are_separate_from_the_other_arms() -> None:
         {"CREWBORG_KILL_WINDOW": "margin", "CREWBORG_SPEAKER_TRUST": "on"}
     )
     assert mixed["kill_range_margin"] == 6 and mixed["speaker_trust"] is True
+
+
+@pytest.mark.parametrize(
+    ("family", "presets"),
+    [
+        ("gate", "GATE_PRESETS"),
+        ("trust", "TRUST_PRESETS"),
+        ("kill_window", "KILL_WINDOW_PRESETS"),
+    ],
+)
+def test_every_preset_actually_constructs_its_config(family, presets) -> None:
+    """A typo'd FIELD name must fail here, not inside a hosted arm you just launched.
+
+    Presets are splatted into frozen dataclasses (`DecisionConfig(**gate_overrides())`,
+    `InferenceConfig(**inference_overrides())`) in `AttendMeetingMode.__init__`, so a
+    bad key raises TypeError at mode construction -- mid-episode, after the upload.
+    """
+
+    from crewborg.deduction import config as cfg
+    from crewborg.deduction.decision import DecisionConfig
+
+    target = DecisionConfig if family == "gate" else InferenceConfig
+    for overrides in getattr(cfg, presets).values():
+        target(**overrides)  # must not raise
+
+
+def test_inference_lever_families_do_not_collide() -> None:
+    """The two families merge with `.update()`, so overlapping keys would silently win."""
+
+    from crewborg.deduction.config import INFERENCE_FAMILIES
+
+    seen: dict[str, str] = {}
+    for env_var, presets in INFERENCE_FAMILIES:
+        for overrides in presets.values():
+            for key in overrides:
+                assert key not in seen or seen[key] == env_var, (
+                    f"{key} is set by both {seen.get(key)} and {env_var}"
+                )
+                seen[key] = env_var

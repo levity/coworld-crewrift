@@ -70,7 +70,8 @@ from players.player_sdk import EventEmitter, StepContext
 from crewborg.action import BTN_A, BTN_B
 from crewborg.deduction.config import enabled as deduction_flag_set
 from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
-from crewborg.deduction.config import gate_overrides
+from crewborg.deduction.config import gate_overrides, inference_overrides
+from crewborg.envflags import truthy
 from crewborg.perception.constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from crewborg.strategy.commander.trace import CommanderTrace
 from crewborg.strategy.opportunity import has_trackable_victim, kill_urgency_ticks
@@ -155,7 +156,7 @@ class CrewborgEventTracer:
         # the suspicion model on what crewborg actually computes live, closing the
         # train->serve gap (docs/suspicion.md "where it breaks").
         self._emit_suspicion_features: bool = (
-            os.environ.get("CREWBORG_TRACE_SUSPICION_FEATURES", "").strip().lower() in ("1", "true", "yes", "on")
+            truthy("CREWBORG_TRACE_SUSPICION_FEATURES")
         )
 
     def __call__(self, context: StepContext[Belief, ActionState, Intent, Command]) -> None:
@@ -258,7 +259,11 @@ class CrewborgEventTracer:
             "crew_brain_config",
             {
                 "deduction_flag_set": deduction_flag_set(),
+                # EVERY arm-selecting lever, or the event does not do its job: a
+                # mistyped preset degrades to shipped, and without it here a duplicate
+                # control arm reads as a treatment arm.
                 "decision_gate_overrides": gate_overrides() or None,
+                "inference_overrides": inference_overrides() or None,
             },
         )
 
@@ -286,7 +291,6 @@ class CrewborgEventTracer:
                         if deduction_history_enabled(belief.self_role)
                         else "fitted"
                     ),
-                    "deduction_flag_set": deduction_flag_set(),
                 },
             )
 

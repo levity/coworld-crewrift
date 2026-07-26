@@ -381,10 +381,9 @@ def _suspect_points(belief: Belief) -> list[tuple[int, int]]:
     """Last-known positions of alive players the suspicion model rates as likely
     impostors (>= ESCORT_SUSPECT_BAR) -- places a finished escort should not walk toward.
 
-    ALWAYS EMPTY under the deduction brain: ``fold_belief`` clears ``belief.suspicion``
-    when ``CREWBORG_DEDUCTION_HISTORY=1``, so every caller's suspect-avoidance becomes a
-    no-op rather than an error. Reading the deduction marginals here would restore it,
-    but that is a behaviour change and belongs in its own experiment.
+    ALWAYS EMPTY under the deduction brain: no posterior is ever written for that arm
+    (see ``fold_belief`` in ``crewborg/__init__.py``), so every caller's
+    suspect-avoidance becomes a no-op rather than an error.
     """
     points: list[tuple[int, int]] = []
     for color, score in belief.suspicion.items():

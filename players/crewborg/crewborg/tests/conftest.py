@@ -13,7 +13,38 @@ assertion instead.
 
 from __future__ import annotations
 
+import time
+
 import pytest
+
+from crewborg import nlp
+
+# How long to wait for the spaCy model before giving up and letting the claim tests
+# fail loudly. Generous: the cost is paid once per session and only if something is
+# wrong, whereas a short bound would reintroduce the flake on a loaded box.
+_MODEL_WAIT_SECONDS = 60.0
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _spacy_model_ready() -> None:
+    """Block until the claim parser's spaCy model is loaded.
+
+    `strategy/claims.parse_claims` returns `[]` when the model is not yet loaded --
+    correct in production, where it must never block the tick loop, but it makes the
+    claim-dependent tests a race against a background thread. Cold, NINE tests in
+    `test_deduction_history.py` fail (`assert []`, `assert False`, a repeat-decay
+    comparison that collapses to `0.4 > 0.4`); once the model is warm all of them
+    pass. That is worse than a skip: the suite reported 640 passed on one run and 9
+    failures on the next from the same tree.
+
+    So wait here, once per session, and let a genuinely missing model fail the claim
+    tests with their own assertions rather than silently as "asserts nothing".
+    """
+
+    nlp.ensure_loading()
+    deadline = time.monotonic() + _MODEL_WAIT_SECONDS
+    while nlp.state() == "loading" and time.monotonic() < deadline:
+        time.sleep(0.05)
 
 # Substrings matched against the skip reason. Keep this list short and justified.
 ALLOWED_SKIP_REASONS: tuple[str, ...] = (

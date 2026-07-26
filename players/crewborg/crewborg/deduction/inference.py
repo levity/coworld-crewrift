@@ -357,6 +357,12 @@ def build_assignment_table(
     all_pairs = [
         tuple(combo) for combo in combinations(evidence.candidates, imposter_count)
     ]
+    # `(h & possible_killers) - alibied` is set-equal to `h & (possible_killers -
+    # alibied)`, so difference once per constraint rather than once per hypothesis.
+    required = [
+        (constraint.evidence_id, constraint.possible_killers - constraint.alibied)
+        for constraint in evidence.kill_constraints
+    ]
     eligible: list[tuple[str, ...]] = []
     excluded: list[ExcludedPair] = []
     for pair in all_pairs:
@@ -366,10 +372,9 @@ def build_assignment_table(
             reasons.append(f"missing_pin:{color}")
         for color in sorted(hypothesis & evidence.murder_clears):
             reasons.append(f"murder_clear:{color}")
-        for constraint in evidence.kill_constraints:
-            eligible_impostors = hypothesis & constraint.possible_killers
-            if not eligible_impostors - constraint.alibied:
-                reasons.append(f"no_possible_killer:{constraint.evidence_id}")
+        for evidence_id, candidates in required:
+            if hypothesis.isdisjoint(candidates):
+                reasons.append(f"no_possible_killer:{evidence_id}")
         if reasons:
             excluded.append(ExcludedPair(pair, tuple(reasons)))
         else:
@@ -897,6 +902,13 @@ def _witnessed_actions(
 
     candidate_sq = _widened_sq(config.kill_range_sq, config.kill_range_margin)
     constraints: list[DerivedKillConstraint] = []
+    # Deaths learned by a given tick, so an "unaccounted" player never includes a corpse.
+    death_ticks = sorted(
+        (event.tick, event.color)
+        for event in history.events
+        if isinstance(event, DeathObserved)
+    )
+    roster = set(history.game.players)
     worlds = sorted(
         (event for event in history.events if isinstance(event, WorldObserved)),
         key=lambda event: event.tick,
@@ -924,50 +936,52 @@ def _witnessed_actions(
                 if color not in {victim, history.game.self_color}
                 and _distance_sq(position, victim_xy) <= candidate_sq
             }
+            # A frame carries only the players perception DECODED. Anyone live and
+            # not in it could equally have been standing there, so a disjunction built
+            # from `actors` alone can exclude the truth -- and unlike a wrong pin, a
+            # wrong disjunction can empty the assignment table and silently kill every
+            # later solve in the game. Widen it by whoever is unaccounted for.
+            dead_now = {color for tick, color in death_ticks if tick <= previous.tick}
+            unaccounted = (
+                roster
+                - dead_now
+                - previous_players.keys()
+                - {victim, history.game.self_color}
+            )
             evidence_id = f"direct:kill:{current.event_id}:{victim}"
             if len(actors) != 1:
                 # Name the candidates either way: the audit is the instrument for the
                 # offline counterfactual, and dropping them destroyed the information
                 # at source (see the 2026-07-26 plan note).
                 named = (victim, *sorted(actors))
-                if len(actors) >= 2 and config.ambiguous_kill_constraints:
+                keep = len(actors) >= 2 and config.ambiguous_kill_constraints
+                if keep:
                     constraints.append(
                         DerivedKillConstraint(
                             evidence_id=evidence_id,
                             event_id=current.event_id,
                             victim=victim,
                             alibied=frozenset(),
-                            possible_killers=frozenset(actors),
+                            possible_killers=frozenset(actors | unaccounted),
                         )
                     )
                     witnessed_victims.add(victim)
-                    audit.append(
-                        EvidenceAudit(
-                            evidence_id=evidence_id,
-                            event_id=current.event_id,
-                            channel="direct",
-                            status="active",
-                            reason=(
-                                f"at least one of {len(actors)} adjacent actors killed "
-                                f"{victim}"
-                            ),
-                            source=history.game.self_color,
-                            targets=named,
-                            stance="at_least_one",
-                            weight=1.0,
-                        )
-                    )
-                    continue
                 audit.append(
                     EvidenceAudit(
                         evidence_id=evidence_id,
                         event_id=current.event_id,
                         channel="direct",
-                        status="ignored",
+                        status="active" if keep else "ignored",
                         reason=(
-                            f"body transition has {len(actors)} possible nearby actors"
+                            f"at least one of {len(actors)} adjacent actors killed "
+                            f"{victim}"
+                            if keep
+                            else f"body transition has {len(actors)} possible nearby actors"
                         ),
+                        source=history.game.self_color if keep else None,
                         targets=named,
+                        stance="at_least_one" if keep else None,
+                        weight=1.0 if keep else 0.0,
                     )
                 )
                 continue

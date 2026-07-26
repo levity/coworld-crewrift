@@ -1,7 +1,11 @@
 """Crewrift's own rules — the facts both crew brains have to agree about.
 
-These are properties of the *game*, not of any policy: they change only when the
-deployed game changes (pinned in ``tools/build/versions.env``). They live here,
+``KILL_RANGE_SQ``, ``VENT_RANGE_SQ`` and ``effective_imposter_count`` are properties
+of the *game*: they change only when the deployed game changes (pinned in
+``tools/build/versions.env``). ``COPRESENCE_DISTANCE_SQ`` and ``VENT_WALK_MARGIN`` are
+**perception tolerances derived from** a game rule (kill range, and max travel per
+tick), so they can move when decoding changes even though the game has not. They live
+here together anyway,
 with their provenance, because they were previously re-derived in several places
 at once — the fitted path, the deduction path, and the action layer each had their
 own copy of the kill range and the imposter-count rule. Two copies of a game rule
@@ -32,8 +36,10 @@ def effective_imposter_count(total_players: int) -> int:
     """The game's ``effectiveImposterCount`` for a roster of ``total_players``.
 
     Fewer than five players is a degenerate lobby with no imposter. Above that the
-    count grows one per two extra players. Mirrors ``design.md`` §Imposter count and
-    ``docs/suspicion.md`` §3.
+    count grows one per two extra players. Mirrors ``design.md`` §10.1 and
+    ``docs/suspicion.md`` §2 ("The prior — combinatorics"). §2 also states a
+    ``[0, P-1]`` clamp; it is unreachable for ``P >= 5``, so it is deliberately not
+    re-implemented here.
     """
 
     if total_players < 5:

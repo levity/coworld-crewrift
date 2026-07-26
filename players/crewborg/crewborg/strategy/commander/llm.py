@@ -9,6 +9,7 @@ from typing import Any, Callable, NamedTuple, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from crewborg.envflags import TRUTHY
 from crewborg.strategy.commander.prompts import PROMPT_DIR_ENV, system_prompt_for_role
 
 DEFAULT_COMMANDER_MODEL = "claude-haiku-4-5-20251001"
@@ -225,4 +226,4 @@ def _sidecar_bedrock(env: dict[str, str]) -> bool:
 
 
 def _truthy(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return value.strip().lower() in TRUTHY

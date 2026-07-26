@@ -36,14 +36,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import websockets
+from players.player_sdk import TraceOutputs, parse_trace_output_specs
 
 from crewborg import build_runtime
 from crewborg.action import encode_chat, encode_input
 from crewborg.coworld.scene import SceneState
+from crewborg.envflags import TRUTHY, truthy
 from crewborg.map import walkability_matches
 from crewborg.trace import TraceConfig
 from crewborg.types import Observation
-from players.player_sdk import TraceOutputs, parse_trace_output_specs
 
 METRICS_ENV = "CREWBORG_METRICS"
 
@@ -366,11 +367,11 @@ def main() -> None:
 def _metrics_enabled() -> bool:
     trace_level = os.environ.get("CREWBORG_TRACE", "").strip().lower()
     metrics_flag = os.environ.get(METRICS_ENV, "").strip().lower()
-    return trace_level == "debug" or metrics_flag in {"1", "true", "yes", "on"}
+    return trace_level == "debug" or metrics_flag in TRUTHY
 
 
 def _capture_walkability_enabled() -> bool:
-    return os.environ.get("CREWBORG_CAPTURE_WALKABILITY", "").strip().lower() in {"1", "true", "yes", "on"}
+    return truthy("CREWBORG_CAPTURE_WALKABILITY")
 
 
 def _emit_walkability_capture(walkability: Any) -> None:

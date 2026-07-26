@@ -31,6 +31,7 @@ import os
 import sys
 import zipfile
 
+from crewborg.deduction.config import KILL_WINDOW_PRESETS
 from crewborg.deduction.inference import InferenceConfig, infer
 from crewborg.deduction.model import (
     DeductionHistory,
@@ -39,23 +40,25 @@ from crewborg.deduction.model import (
     ObservedPlayer,
     WorldObserved,
 )
+from crewborg.game_rules import effective_imposter_count
 
 COLORS = ["red", "blue", "green", "pink", "orange", "yellow", "purple", "cyan"]
 
+# Derived from the shipped table, never hand-copied: if the default margin ever moves,
+# a copy here would silently keep measuring the old one -- the exact drift this tool
+# exists to catch.
 PRESETS = {
-    "shipped (exact 20px)": InferenceConfig(),
-    "margin 6px": InferenceConfig(kill_range_margin=6),
-    "at_least_one only": InferenceConfig(ambiguous_kill_constraints=True),
-    "both": InferenceConfig(kill_range_margin=6, ambiguous_kill_constraints=True),
+    (name if name != "off" else "shipped (exact radius)"): InferenceConfig(**overrides)
+    for name, overrides in KILL_WINDOW_PRESETS.items()
 }
 
 
-def world_frames(zip_path, self_color):
+def world_frames(zip_path):
     """Reconstruct WorldObserved frames from the seat's per-tick decision snapshots."""
     frames = []
     with zipfile.ZipFile(zip_path) as zf:
         for n in zf.namelist():
-            if not n.endswith(".jsonl"):
+            if not n.endswith("telemetry.jsonl"):
                 continue
             for raw in zf.open(n):
                 if b'"domain.decision_snapshot"' not in raw:
@@ -97,13 +100,14 @@ def main(root):
             if not os.path.exists(z):
                 continue
             me = COLORS[s]
-            frames = world_frames(z, me)
+            frames = world_frames(z)
             if not frames:
                 continue
             seats += 1
             hist = DeductionHistory(
                 game=GameSpec(players=tuple(COLORS), self_color=me,
-                              self_role="crewmate", imposter_count=2),
+                              self_role="crewmate",
+                              imposter_count=effective_imposter_count(len(COLORS))),
                 events=tuple(frames))
             for name, cfg in PRESETS.items():
                 r = infer(hist, config=cfg)

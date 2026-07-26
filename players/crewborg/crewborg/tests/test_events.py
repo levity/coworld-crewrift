@@ -102,11 +102,7 @@ def test_role_resolved_emitted_once() -> None:
     h.step(belief=Belief(self_role="imposter"))
 
     [event] = h.events("domain.role_resolved")
-    assert event.data == {
-        "role": "imposter",
-        "crew_brain": "fitted",
-        "deduction_flag_set": False,
-    }
+    assert event.data == {"role": "imposter", "crew_brain": "fitted"}
 
 
 def test_role_resolved_names_the_crew_brain_that_actually_won_the_fork(monkeypatch) -> None:
@@ -118,14 +114,15 @@ def test_role_resolved_names_the_crew_brain_that_actually_won_the_fork(monkeypat
     crew.step(belief=Belief(self_role="crewmate"))
     [event] = crew.events("domain.role_resolved")
     assert event.data["crew_brain"] == "deduction"
-    assert event.data["deduction_flag_set"] is True
+    # The flag itself is reported by crew_brain_config, which lands even with no role.
+    [cfg] = crew.events("domain.crew_brain_config")
+    assert cfg.data["deduction_flag_set"] is True
 
     # Same flag, impostor seat: the fitted brain is deliberately retained.
     imp = _Harness()
     imp.step(belief=Belief(self_role="imposter"))
     [event] = imp.events("domain.role_resolved")
     assert event.data["crew_brain"] == "fitted"
-    assert event.data["deduction_flag_set"] is True
 
 
 def test_crew_brain_config_is_emitted_once_even_without_a_role(monkeypatch) -> None:
@@ -148,6 +145,8 @@ def test_crew_brain_config_is_emitted_once_even_without_a_role(monkeypatch) -> N
         "base_margin": 1e-3,
         "require_support": False,
     }
+    # Every arm-selecting lever is reported, not just the gate.
+    assert "inference_overrides" in event.data
     assert h.events("domain.role_resolved") == []
 
 

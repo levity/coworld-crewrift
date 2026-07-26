@@ -80,6 +80,66 @@ unnecessary: `_track_meeting_votes` already carries the previous meeting's tick 
 `(tick, speaker, text)` and never needed a meeting id at all. Kept here only as the
 record that the write-only ledger question is closed.
 
+### Deferred by the second 2026-07-26 `/simplify` pass — all measured
+
+**1. `_witnessed_actions` rebuilds every frame's maps twice: ~45 ms of a ~113 ms solve.**
+Each `zip(worlds, worlds[1:])` iteration builds six structures, three of which were
+already built as the *current* side of the previous iteration. Measured at 20k frames /
+7 visible players: **70.73 ms as written vs 25.64 ms** single-pass (2.76x); at 10k,
+28.68 -> 11.79 ms. This is the single largest cost in the solve path and the fix is
+mechanical (carry the previous frame's maps forward).
+
+Deferred **again**, deliberately: four separate changes landed in this function today
+(margin, `at_least_one`, the `unaccounted` widening, the audit collapse). Stacking a
+performance rewrite on the pin logic without an independent correctness gate is the
+ride-along this pass declined for the same function last time — and note the offline
+counterfactual covers only the *direct* channel, not vents, so it would not catch a
+vent-pin regression. Do it as its own change with the synthetic and warehouse suites
+re-run. (Footnote: `sorted()` on the already-ordered worlds list is ~2.8 ms of the 70;
+keep the sort, offline callers may assemble events out of order.)
+
+**2. `history.events` is scanned end-to-end 8 times per solve+decide (~5 ms at 20k).**
+`inference.py` at murder_clears / claims x2 / votes / `_kill_constraints` worlds+deaths /
+`_witnessed_actions` worlds, plus `decision.py` deaths. One filter pass measures 0.64 ms.
+Fix: partition once at the top of `derive_evidence` and thread the lists down — the
+stages are already pure, so this does not weaken the boundary. Same family as item 1;
+do them together.
+
+**3. `collector._append` constructs pydantic models before the dedup check** for
+`DeathObserved` / `UtteranceObserved` / `MeetingObserved` — measured 24.2 us/tick at 9
+dead, 44.8 us/voting-tick at 20 utterances. This pass fixed exactly this for
+`TaskCounterObserved`; the three siblings want the same id-then-check-then-construct
+order. Small (0.06-0.17% of budget) but it is an inconsistency inside one file.
+
+**4. One shared episode/telemetry loader for the tools.** `kill_window_counterfactual.py`
+is now the FIFTH copy of the `<ep>/results.json` + `artifacts/*.zip` walk, and
+`SLOT_COLORS`/`COLORS` is declared five times (`decision_quality`, `sweep_decision_gate`,
+`simulate_tally`, `sweep_speaker_trust`, `kill_window_counterfactual`). Extract
+`tools/_episodes.py` with `SLOT_COLORS`, `iter_episodes(root)` and `seat_records(zip)`.
+Note `decision_quality.py` is the only one that *validates* the slot->colour convention
+and reports violations; the other four would silently mislabel ground truth if it broke.
+
+**5. The two brains share the kill-range CONSTANT but not the kill-range PREDICATE.**
+`inference.py`'s `actors` comprehension asks the same question as
+`suspicion.py:_detect_witnessed_kill`, which uses `occupancy.neighbors_within`. Not a
+drop-in (that takes a `PerceptionFrame`; the deduction path has a plain mapping, and it
+needs two exclusions where `exclude` takes one). Wants a mapping-level core with
+`neighbors_within` delegating — otherwise a fix to one predicate (like today's margin)
+silently does not reach the other, which is the drift `game_rules.py` exists to prevent.
+
+**6. `DerivedKillConstraint`'s two fields collapse to one.** The only consumer computes
+`hypothesis & possible_killers - alibied`; that difference is derivable at derivation
+time (this pass now precomputes it). A single `required: frozenset[str]` meaning "at
+least one of these is an impostor" would make the new direct-constraint producer the
+type's actual job rather than a reuse with an always-empty `alibied`. Do it if the
+kill-window lever survives its first hosted A/B.
+
+**7. Pin completeness.** The `unaccounted` widening this pass added applies only to the
+new `at_least_one` disjunction. The *pin* path still assumes the frame decoded every
+live player — the same assumption, and it is default-ON. Requiring completeness for a
+pin would reduce pins in the shipped config, so it is a behaviour change needing its own
+measurement, not a cleanup.
+
 ### Deferred by the 2026-07-26 `/simplify` pass — measurement-tool duplication
 
 Left undone **on purpose**: these are the instruments the optimisation loop is

@@ -9,6 +9,7 @@ from typing import Any, Callable, NamedTuple, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from crewborg.envflags import truthy
 from crewborg.strategy.meeting.prompts import PROMPT_DIR_ENV, system_prompt_for_context
 from crewborg.strategy.meeting.schema import VOTE_SKIP, MeetingDecision
 
@@ -114,7 +115,7 @@ class AnthropicMeetingClient:
 
 def build_meeting_llm_client_from_env(env: dict[str, str] | None = None) -> MeetingLLMClient:
     env = env or os.environ
-    if env.get("CREWBORG_LLM_MEETINGS", "").strip().lower() not in {"1", "true", "yes", "on"}:
+    if not truthy("CREWBORG_LLM_MEETINGS", env):
         return DisabledMeetingClient("CREWBORG_LLM_MEETINGS is not enabled")
     try:
         helpers = _load_sdk_helpers()
@@ -126,7 +127,7 @@ def build_meeting_llm_client_from_env(env: dict[str, str] | None = None) -> Meet
         use_bedrock = helpers.bedrock_enabled(env) or _sidecar_bedrock(env)
         if not use_bedrock and not env.get("ANTHROPIC_API_KEY"):
             return DisabledMeetingClient("no LLM backend configured")
-        trace_raw = env.get("CREWBORG_LLM_TRACE_RAW", "").strip().lower() in {"1", "true", "yes", "on"}
+        trace_raw = truthy("CREWBORG_LLM_TRACE_RAW", env)
         trace_raw = trace_raw or env.get("CREWBORG_TRACE", "").strip().lower() == "debug"
         timeout_seconds = _env_float(env, "CREWBORG_LLM_TIMEOUT_SECONDS", 3.0)
         config = MeetingLLMConfig(
