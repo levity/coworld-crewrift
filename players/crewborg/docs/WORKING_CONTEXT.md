@@ -45,6 +45,21 @@ the answer -- see the verdict below.
   (served as a hardcoded 0), `Belief.deduction_world_ticks` (a parallel index the event-id
   set already implied), and an unreachable branch in `_fallback_vote_target`.
 
+**Validated hosted: `xreq_51754f1f` (16 episodes, `crewborg-lw:v19`, Crewrift Prime
+v0.4.71).** A sanity check of both roles, not an A/B -- seats and roles are pinned
+(slot 0 crewborg impostor, slots 1-4 crewborg crew, slot 7 opponent impostor), which
+buys guaranteed role coverage at the cost of seat-bias cancellation, so no win-rate
+claim is available from it. 16/16 ops-clean. **80/80 crewborg seats consistent**: all 16
+impostor seats reported `crew_brain=fitted` with zero deduction events, all 64 crew
+seats `crew_brain=deduction` with zero suspicion events -- zero cross-contamination.
+Crew ejects 34/37 correct, solve latency max 26.3 ms with 48 ticks always remaining;
+impostor 28 kills vs the live opponent impostor's 27; crew tasks 476/512 (93%).
+
+The one thing worth acting on: **a false witness pin produced two confidently wrong
+structural ejects** (`p=1.0`) against a crewmate in one episode -- pre-existing, and
+directly relevant to the newly shipped `structural-only` gate. Written up in
+`docs/TODO.md`.
+
 **Rebased onto `crew-signals-v2` @ `ddad0ec`** (per-speaker trust + the
 `structural-only` gate preset). One semantic conflict, resolved deliberately rather
 than textually: the new `decide()` read `CREWBORG_SPEAKER_TRUST` from the environment
