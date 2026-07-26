@@ -73,6 +73,32 @@ GATE_PRESETS: dict[str, dict[str, float | int]] = {
 }
 
 
+TRUST_ENV = "CREWBORG_SPEAKER_TRUST"
+
+# Per-speaker tempering of the claim/vote channels (see inference._speaker_trust).
+# Deliberately a SEPARATE env var from CREWBORG_DECISION_GATE: trust changes the
+# posterior, the gate changes what we do with it, and bundling them would make an
+# A/B uninterpretable. Values are "<prior>" or "<prior>:<k>".
+TRUST_PRESETS: dict[str, dict[str, float | bool]] = {
+    "off": {},
+    "on": {"speaker_trust": True, "speaker_trust_prior": 0.25, "speaker_trust_k": 2.0},
+    "mild": {"speaker_trust": True, "speaker_trust_prior": 0.50, "speaker_trust_k": 2.0},
+}
+
+
+def inference_overrides(
+    env: Mapping[str, str] | None = None,
+) -> dict[str, float | bool]:
+    """`InferenceConfig` field overrides for the selected speaker-trust preset.
+
+    Unset or unrecognised yields no overrides, so the shipped posterior is exactly
+    unchanged unless someone opts in.
+    """
+
+    source = os.environ if env is None else env
+    return dict(TRUST_PRESETS.get(source.get(TRUST_ENV, "").strip().lower(), {}))
+
+
 def gate_overrides(env: Mapping[str, str] | None = None) -> dict[str, float | int]:
     """Return `DecisionConfig` field overrides for the selected preset.
 

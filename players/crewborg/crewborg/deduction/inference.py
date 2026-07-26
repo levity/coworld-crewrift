@@ -52,6 +52,11 @@ class InferenceConfig:
     repeat_decay: float = 0.70
     same_target_decay: float = 0.80
     vote_repeat_decay: float = 0.70
+    # Per-speaker tempering (see `_speaker_trust`). OFF by default: with
+    # speaker_trust=False every weight keeps its shipped value exactly.
+    speaker_trust: bool = False
+    speaker_trust_prior: float = 0.25
+    speaker_trust_k: float = 2.0
     vote_weight: float = 0.35
     reporter_weight: float = 1.15
     bare_weight: float = 0.25
@@ -383,6 +388,7 @@ def score_assignments(
             error=table.error,
         )
 
+    trust = _speaker_trust(evidence, config)
     log_weights: dict[tuple[str, ...], float] = {}
     contribution_table: dict[tuple[str, ...], tuple[Contribution, ...]] = {}
     for pair in table.eligible:
@@ -391,26 +397,28 @@ def score_assignments(
         log_weight = 0.0
         for claim in evidence.claims:
             likelihood = _claim_probability(hypothesis, claim, config)
-            delta = claim.weight * math.log(max(likelihood, 1e-9))
+            weight = claim.weight * trust.get(claim.source, 1.0)
+            delta = weight * math.log(max(likelihood, 1e-9))
             contributions.append(
                 Contribution(
                     evidence_id=claim.evidence_id,
                     channel="claim",
                     likelihood=likelihood,
-                    weight=claim.weight,
+                    weight=weight,
                     delta=delta,
                 )
             )
             log_weight += delta
         for vote in evidence.votes:
             likelihood = _vote_probability(hypothesis, vote, config)
-            delta = vote.weight * math.log(max(likelihood, 1e-9))
+            weight = vote.weight * trust.get(vote.voter, 1.0)
+            delta = weight * math.log(max(likelihood, 1e-9))
             contributions.append(
                 Contribution(
                     evidence_id=vote.evidence_id,
                     channel="vote",
                     likelihood=likelihood,
-                    weight=vote.weight,
+                    weight=weight,
                     delta=delta,
                 )
             )
@@ -969,6 +977,54 @@ def _close_to_self(frame: WorldObserved, color: str) -> bool:
     dx = player.x - frame.self_xy[0]
     dy = player.y - frame.self_xy[1]
     return dx * dx + dy * dy <= COPRESENCE_DISTANCE_SQ
+
+
+def _speaker_trust(
+    evidence: DerivedEvidence, config: InferenceConfig
+) -> dict[str, float]:
+    """Per-speaker tempering factor in [0, 1]; empty (=1.0 everywhere) when disabled.
+
+    WHY. Every likelihood here is keyed to ROLE only -- `crew_accuse_hit=0.58` vs
+    `crew_accuse_miss=0.15` says any crewmate accuses a real impostor ~4x more often
+    than an innocent. That held in every A/B we ran, because all six crew seats were
+    this same policy. It is false in league play: some policies target on 100% of
+    their ballots, so their true ratio is 1.0 and we read pure noise as 4:1 evidence.
+    Measured over 60 league episodes, non-structural ejects were 5/19 correct against
+    ~29% for random voting.
+
+    HOW. `tau` is estimated from how SELECTIVELY a speaker votes, which needs no
+    ground truth and is observable for everyone at every meeting. It is applied as
+    tempering (`weight *= tau`) rather than by rewriting the likelihoods: tau=0
+    exactly reproduces "ignore this speaker", it is monotone, and it cannot
+    manufacture a confidently wrong posterior the way mis-set likelihoods can.
+
+    THE PRIOR IS THE LOAD-BEARING PART. A seat gets ~2.5 meetings per episode and has
+    seen each other player vote exactly ONCE by its first decision, so the estimate is
+    coarse when it matters most. Measured at that first meeting, the shipped posterior
+    is a coin flip (AUC 0.514) and every non-structural eject it casts is wrong (0/5).
+    The fix is not a faster estimator but a lower starting point: shrinking toward
+    `speaker_trust_prior` means strangers are discounted until they demonstrate
+    selectivity. The shipped model is effectively tau=1 -- maximum trust in strangers
+    at the moment it has least basis for it.
+
+    When the platform exposes which policy occupies each seat, `speaker_trust_prior`
+    becomes a per-policy prior carried across games and nothing else here changes.
+    """
+
+    if not config.speaker_trust:
+        return {}
+    ballots: dict[str, list[int]] = {}
+    for vote in evidence.votes:
+        seen = ballots.setdefault(vote.voter, [0, 0])
+        seen[0] += 1
+        if vote.target:
+            seen[1] += 1
+    prior, k = config.speaker_trust_prior, config.speaker_trust_k
+    out: dict[str, float] = {}
+    for speaker, (n, targeted) in ballots.items():
+        raw = 1.0 - (targeted / n if n else 0.0)
+        out[speaker] = (n * raw + k * prior) / (n + k)
+    return out
 
 
 def _claim_probability(

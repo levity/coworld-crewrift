@@ -267,14 +267,38 @@ def _auc(pairs: list[tuple[float, int]]) -> float | None:
     return (wins + 0.5 * ties) / (len(pos) * len(neg))
 
 
+def causal_tau(row: dict, prior: float, k: float) -> dict[str, float]:
+    """tau from ONLY the evidence this decision actually had in hand.
+
+    The episode-level estimator is lookahead: it aggregates every ballot in the
+    episode, including ones cast after the decision being scored, which the policy
+    obviously cannot see. Each decision's own trace is cumulative up to that decision,
+    so estimating from it is exactly what `inference._speaker_trust` does at runtime.
+    """
+    seen: dict[str, list[int]] = {}
+    for ev in row["evidence"]:
+        src = ev.get("source")
+        if not src or ev.get("channel") != "vote":
+            continue
+        c = seen.setdefault(src, [0, 0])
+        c[0] += 1
+        if ev.get("targets"):
+            c[1] += 1
+    return {s: ((n * (1.0 - t / n)) + k * prior) / (n + k)
+            for s, (n, t) in seen.items() if n}
+
+
 def evaluate(rows: list[dict], tau: dict[tuple[str, str], float] | None,
-             base_probability: float, base_margin: float) -> dict[str, Any]:
+             base_probability: float, base_margin: float,
+             causal: tuple[float, float] | None = None) -> dict[str, Any]:
     """Re-score every decision, re-apply the `loose` gate, and score the result."""
     pairs: list[tuple[float, int]] = []
     stats = collections.Counter()
     for row in rows:
         per_speaker = None
-        if tau is not None:
+        if causal is not None:
+            per_speaker = causal_tau(row, *causal)
+        elif tau is not None:
             per_speaker = {s: t for (e, s), t in tau.items() if e == row["episode"]}
         marg = rescore(players_of(row), row["evidence"], row["excluded"], per_speaker)
         live = {c: p for c, p in marg.items() if c in row["alive"]}
