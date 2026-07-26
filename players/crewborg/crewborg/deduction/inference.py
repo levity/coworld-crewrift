@@ -22,8 +22,7 @@ from crewborg.deduction.model import (
     VoteObserved,
     WorldObserved,
 )
-from crewborg.strategy.social_evidence import parse_social_claims
-from crewborg.types import ChatEvent
+from crewborg.strategy.claims import parse_claims
 
 EvidenceStatus = Literal["active", "ignored"]
 ClaimStance = Literal["accuse", "defend", "at_least_one"]
@@ -503,14 +502,12 @@ def _claims(
                 )
             )
             continue
-        parsed = parse_social_claims(
-            ChatEvent(
-                tick=event.tick,
-                speaker_color=event.speaker,
-                text=event.text,
-            ),
-            meeting_id=event.meeting_id,
+        parsed = parse_claims(
+            event.text,
+            speaker_color=event.speaker,
             colors=players,
+            meeting_id=event.meeting_id,
+            tick=event.tick,
         )
         if not parsed:
             audit.append(

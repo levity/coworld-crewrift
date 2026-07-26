@@ -6,7 +6,8 @@ import pytest
 
 from crewborg.modes import AttendMeetingMode
 from crewborg.perception.entities import VoteCandidate, VotingState
-from crewborg.strategy.meeting import chat_nlp, chat_read
+from crewborg import nlp as chat_nlp
+from crewborg.strategy.meeting import chat_read
 from crewborg.types import ActionState, Belief, ChatEvent, PlayerRecord
 
 _COLORS = ("red", "blue", "green", "yellow", "orange", "purple")
