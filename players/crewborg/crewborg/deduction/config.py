@@ -32,7 +32,10 @@ GATE_ENV = "CREWBORG_DECISION_GATE"
 # Measured offline over 476 living-seat decisions from 100 Prime games
 # (`tools/sweep_decision_gate.py`), validated on a 50/50 episode-level held-out split.
 # Untested against the league field -- both halves face the same crewborg-aaln.
-GATE_PRESETS: dict[str, dict[str, float | int]] = {
+Overrides = dict[str, float | bool | int]
+
+
+GATE_PRESETS: dict[str, Overrides] = {
     "shipped": {},
     # The minimal interpretable unit: margin and support are JOINTLY binding --
     # held-out, relaxing either alone moves coverage 16.0% -> 16.0% (nothing), and
@@ -79,7 +82,7 @@ TRUST_ENV = "CREWBORG_SPEAKER_TRUST"
 # Deliberately a SEPARATE env var from CREWBORG_DECISION_GATE: trust changes the
 # posterior, the gate changes what we do with it, and bundling them would make an
 # A/B uninterpretable. Values are "<prior>" or "<prior>:<k>".
-TRUST_PRESETS: dict[str, dict[str, float | bool]] = {
+TRUST_PRESETS: dict[str, Overrides] = {
     "off": {},
     "on": {"speaker_trust": True, "speaker_trust_prior": 0.25, "speaker_trust_k": 2.0},
     "mild": {"speaker_trust": True, "speaker_trust_prior": 0.50, "speaker_trust_k": 2.0},
@@ -103,7 +106,7 @@ KILL_WINDOW_ENV = "CREWBORG_KILL_WINDOW"
 # `at_least_one` is the recovery: once the margin makes such a transition ambiguous, the
 # observation would otherwise be discarded. Emitting it as a hard "at least one of
 # these" constraint keeps it, and it is sound by construction.
-KILL_WINDOW_PRESETS: dict[str, dict[str, float | bool | int]] = {
+KILL_WINDOW_PRESETS: dict[str, Overrides] = {
     "off": {},
     # The fix alone: stop claiming a unique actor at the boundary. Costs coverage --
     # some currently-correct pins become ambiguous and are dropped.
@@ -117,9 +120,25 @@ KILL_WINDOW_PRESETS: dict[str, dict[str, float | bool | int]] = {
 }
 
 
+# Independent lever families that both feed `InferenceConfig`. Separate env vars on
+# purpose (an A/B must move one thing); listed together only so resolution is one loop.
+INFERENCE_FAMILIES: tuple[tuple[str, dict[str, Overrides]], ...] = (
+    (TRUST_ENV, TRUST_PRESETS),
+    (KILL_WINDOW_ENV, KILL_WINDOW_PRESETS),
+)
+
+
+def _preset(presets: dict[str, Overrides], env_var: str,
+            env: Mapping[str, str] | None) -> Overrides:
+    """The named preset, or `{}` — so a typo degrades to shipped, never to something else."""
+
+    source = os.environ if env is None else env
+    return dict(presets.get(source.get(env_var, "").strip().lower(), {}))
+
+
 def inference_overrides(
     env: Mapping[str, str] | None = None,
-) -> dict[str, float | bool | int]:
+) -> Overrides:
     """`InferenceConfig` field overrides from the selected presets.
 
     Merges the independent preset families (speaker trust, kill window). Unset or
@@ -127,21 +146,17 @@ def inference_overrides(
     unchanged unless someone opts in.
     """
 
-    source = os.environ if env is None else env
-    overrides: dict[str, float | bool | int] = {}
-    overrides.update(TRUST_PRESETS.get(source.get(TRUST_ENV, "").strip().lower(), {}))
-    overrides.update(
-        KILL_WINDOW_PRESETS.get(source.get(KILL_WINDOW_ENV, "").strip().lower(), {})
-    )
+    overrides: Overrides = {}
+    for env_var, presets in INFERENCE_FAMILIES:
+        overrides.update(_preset(presets, env_var, env))
     return overrides
 
 
-def gate_overrides(env: Mapping[str, str] | None = None) -> dict[str, float | int]:
+def gate_overrides(env: Mapping[str, str] | None = None) -> Overrides:
     """Return `DecisionConfig` field overrides for the selected preset.
 
     An unknown or unset value yields no overrides, so a typo degrades to the
     shipped gate rather than to something unintended.
     """
 
-    source = os.environ if env is None else env
-    return dict(GATE_PRESETS.get(source.get(GATE_ENV, "").strip().lower(), {}))
+    return _preset(GATE_PRESETS, GATE_ENV, env)

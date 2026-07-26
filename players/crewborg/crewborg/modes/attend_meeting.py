@@ -81,7 +81,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         # (~6 ms at 10k events, ~26 ms at 20k, against a 41.7 ms tick budget) and
         # `decide` runs on EVERY voting tick while solving only twice.
         self._history: DeductionHistory | None = None
-        self._history_event_count = -1
+        self._history_key: tuple | None = None
         # Resolve both env-selected presets once, here at the runtime boundary, so the
         # pure inference and decision stages never read the environment. They are
         # deliberately separate vars: CREWBORG_SPEAKER_TRUST changes the posterior,
@@ -142,10 +142,20 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
     def _current_history(self, belief: Belief) -> DeductionHistory | None:
         """This meeting's frozen history, rebuilt only when the ledger grows."""
 
-        count = len(belief.deduction_events)
-        if self._history is None or count != self._history_event_count:
+        # Key on EVERYTHING `history_from_belief` reads, not just the ledger length:
+        # the roster can still grow from the voting panel during a quiet meeting, and
+        # a count-only key would freeze a too-small `GameSpec.players` for the whole
+        # meeting -- which the old per-tick rebuild picked up.
+        key = (
+            len(belief.deduction_events),
+            len(belief.roster),
+            belief.imposter_count,
+            belief.total_player_count,
+            belief.self_color or belief.voting.self_marker_color,
+        )
+        if self._history is None or key != self._history_key:
             self._history = history_from_belief(belief)
-            self._history_event_count = count
+            self._history_key = key
         return self._history
 
     def _decide_from_deduction_history(self, belief: Belief) -> Intent:
@@ -627,7 +637,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._deduction_early_chat_attempted = False
         self._deduction_finalized = False
         self._history = None
-        self._history_event_count = -1
+        self._history_key = None
 
     def _external_chat_signature(self, belief: Belief) -> tuple[tuple[int, str | None, str], ...]:
         self_color = belief.voting.self_marker_color

@@ -22,12 +22,10 @@ the most-suspicious player currently shadowing us whose posterior is over
 loop at the button; the budget resets at the next game (``Lobby``/``RoleReveal``).
 
 **Priority 3 is dead under the deduction brain.** ``active_tail_suspect`` reads
-``belief.suspicion``, which ``fold_belief`` keeps empty when
-``CREWBORG_DEDUCTION_HISTORY=1`` for a crewmate, so Accuse never fires and the
-emergency button is never spent in that arm. That is currently a *side effect* of
-clearing the legacy posterior rather than a stated policy — see the ``fold_belief``
-docstring in ``crewborg/__init__.py`` for why it matters to the A/B, and
-``tests/test_strategy.py`` for the test that pins it.
+``belief.suspicion``, which is never written for a crewmate under
+``CREWBORG_DEDUCTION_HISTORY=1``, so Accuse never fires and the emergency button is
+never spent in that arm — see the ``fold_belief`` docstring in ``crewborg/__init__.py``
+for why that matters when reading an A/B.
 
 Imposter priority order (design §10):
 

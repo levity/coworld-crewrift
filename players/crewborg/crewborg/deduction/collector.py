@@ -186,7 +186,12 @@ def history_from_belief(belief: Belief) -> DeductionHistory | None:
     count = belief.imposter_count
     if count is None:
         count = effective_imposter_count(max(belief.total_player_count, len(players)))
-    return DeductionHistory(
+    # `model_construct`, not `DeductionHistory(...)`: every event in the ledger is
+    # already a validated model instance (`_append` only ever appends constructed
+    # models), so re-validating the whole discriminated union on each rebuild costs
+    # ~19 ms at 20k events for no new guarantee. The GameSpec below IS validated --
+    # it is built from raw belief fields here.
+    return DeductionHistory.model_construct(
         game=GameSpec(
             players=players,
             self_color=self_color,
@@ -206,9 +211,12 @@ def history_from_belief(belief: Belief) -> DeductionHistory | None:
 
 def _append(belief: Belief, event: DeductionEvent) -> None:
     if isinstance(event, WorldObserved):
-        # One frame per tick in tick order, so the previous tick is the whole dedup
-        # key -- no per-frame id string and no set that grows with the episode.
-        if event.tick == belief.deduction_last_world_tick:
+        # One frame per tick in tick order, so the last tick is the whole dedup key --
+        # no set that grows with the episode. `<=` not `==`: a midgame reconnect can
+        # re-fold ticks we already hold, and duplicate frames would break the
+        # consecutive-frame arithmetic in `_kill_constraints`/`_witnessed_actions`.
+        last = belief.deduction_last_world_tick
+        if last is not None and event.tick <= last:
             return
         belief.deduction_last_world_tick = event.tick
         belief.deduction_events.append(event)

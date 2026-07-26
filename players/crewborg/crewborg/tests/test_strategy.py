@@ -353,10 +353,10 @@ def test_imposter_pretends_when_only_a_teammate_is_visible() -> None:
     assert _select(belief) == "search"
 
 
-def test_deduction_brain_disables_accuse_because_suspicion_is_cleared() -> None:
+def test_deduction_brain_disables_accuse_because_suspicion_is_never_written() -> None:
     """Pin the biggest undocumented consequence of the deduction fork.
 
-    ``fold_belief`` clears ``belief.suspicion`` for a crewmate under
+    ``fold_belief`` never writes ``belief.suspicion`` for a crewmate under
     ``CREWBORG_DEDUCTION_HISTORY=1``, and ``active_tail_suspect`` reads exactly that
     dict, so selector priority 3 (Accuse -> spend the emergency button) can never
     fire in the candidate arm. The 2026-07-25 A/B bundles that loss with the new
@@ -367,7 +367,7 @@ def test_deduction_brain_disables_accuse_because_suspicion_is_cleared() -> None:
     tailed = _crewmate_being_tailed(tick=40, p=0.7)
     assert _select(tailed) == "accuse", "sanity: the fitted arm does accuse"
 
-    # Exactly what fold_belief does when the deduction brain is chosen.
+    # The end state fold_belief leaves for this arm: an empty posterior.
     tailed.suspicion.clear()
     tailed.believed_imposters.clear()
     assert _select(tailed) == "normal"
