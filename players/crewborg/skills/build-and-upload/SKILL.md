@@ -60,19 +60,46 @@ uv run coworld upload-policy crewborg:dev --name crewborg \
   `domain.meeting_llm_decision` (vs `_fallback`); a silent fall-back to deterministic play is the
   common trap. See the Bedrock debugging table in `coworld-platform.md`.
 
-## Step 3 — Versioning (do this on *every* upload)
+## Step 3 — Provenance (NOT optional, and not by hand)
 
-Clear versioning is the whole point of uploading: **map each version → the change it carries**, so you
-(and a future agent) always know what `crewborg:vN` is testing or capable of.
+**Upload with the wrapper. It records the row from the same arguments it uploads with, so
+the log cannot disagree with reality:**
 
-- **Record `vN → its change`** in the player's [`version_log.md`](../../crewborg/version_log.md).
-- **Reconcile** against the live list (there's no `coworld versions` command):
+```bash
+uv run python skills/build-and-upload/scripts/upload_and_log.py \
+    --image crewborg:my-build --name crewborg-lw \
+    --purpose kill-window-league --note "what this version is for, one line" \
+    --secret-env CREWBORG_DEDUCTION_HISTORY=1 --secret-env CREWBORG_KILL_WINDOW=both
+```
 
-  ```bash
-  uv run python skills/build-and-upload/scripts/versions.py --name crewborg   # vN + UUID + created_at
-  ```
-- Key the log on `(name, version)` with the immutable **version UUID** as the canonical id. Use
-  **`--tag KEY=VALUE`** on upload for private bookkeeping (e.g. `--tag purpose=llm-test`).
+It refuses without `--purpose` and `--note`, adds `CREWBORG_METRICS=1` /
+`CREWBORG_TRACE_GROUPS=all` (standing preference), puts the behaviour config in `--tag`s
+*and* in [`version_log.md`](../../crewborg/version_log.md), and stamps the commit, branch
+and image digest. `--dry-run` shows the command and the row without touching anything.
+
+**Why this is mechanical rather than advised.** This step used to say "record `vN → its
+change`" and "use `--tag` for private bookkeeping". On 2026-07-26 `crewborg-lw:v18` was
+uploaded with **no tags and no log row**, was submitted, and became league champion — and
+we then could not answer *what config our own champion runs*. `--secret-env` values are
+not readable back from any API route (by design), and league episodes carry no policy
+artifacts at all, so both the recorded and the observable paths were gone. Recovering it
+took a fresh 6-episode hosted probe plus forensics on the decision weights. Advisory wording did
+not survive contact; the wrapper is the fix.
+
+**Then verify what the platform actually stored** — never trust the log alone (best
+practice: verify a champion's config from a fetched trace, never from the version log):
+
+```bash
+uv run python skills/build-and-upload/scripts/versions.py --name crewborg-lw   # vN + UUID + created_at
+```
+
+**League play cannot explain a version — only an experience request can.** League/
+tournament episodes return `results: false` with no logs and no `policy_artifacts`
+(measured 2026-07-26 on two-minute-old episodes and again on fresh ones: not expiry, not
+lag — that route does not carry them). If a version might ever need explaining, the
+record you write at upload IS the record; the fallback is firing your own experience
+request and reading its traces. (When you do fetch, avoid `fetch.sh` — its `--no-logs`
+also suppresses policy artifacts.)
 
 ## Then what
 
