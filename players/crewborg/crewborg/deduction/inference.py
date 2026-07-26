@@ -64,6 +64,27 @@ class InferenceConfig:
     claimed_vote_weight: float = 0.50
     relay_weight: float = 0.45
     kill_range_sq: int = KILL_RANGE_SQ
+    # Motion tolerance, in pixels, added to the kill radius when deciding WHO COULD
+    # have made a witnessed kill. OFF by default (0 = the shipped exact test).
+    #
+    # WHY. The sim resolves a kill between rendered frames, so the killer's position at
+    # that instant is not in the observation stream at all -- no decoder recovers it.
+    # Comparing frame-sampled positions against an exact 20px threshold therefore
+    # claims a precision the data does not have, and one tick of motion
+    # (MaxSpeed/MotionScale ~= 2.75px) spans the entire decision boundary.
+    #
+    # Measured failure (xreq_51754f1f, ereq_ff5a9fdd, frame 2111): the victim was
+    # walking toward the true killer, whose last sampled distance was 23.0px -- just
+    # outside -- while an innocent bystander sat at 16.3px, just inside. The rule found
+    # exactly one "actor" and pinned a crewmate with p=1.0. A margin of 3px still misses
+    # it (d2=530 vs 529); 4px catches it. Default 6px = two ticks, since both parties
+    # can be closing.
+    kill_range_margin: int = 0
+    # Emit an ambiguous body transition (2+ possible actors) as a HARD
+    # "at least one of these" constraint instead of discarding the observation.
+    # OFF by default. Lever #1 of docs/2026-07-26-constraint-supply-and-the-next-plan.md;
+    # 98 such observations were discarded across that note's 100-game sample.
+    ambiguous_kill_constraints: bool = False
 
 
 @dataclass(frozen=True)
@@ -283,7 +304,7 @@ def derive_evidence(
     player_set = set(players)
     claims, claim_audit = _claims(history, player_set, config)
     votes, vote_audit = _votes(history, player_set, config)
-    pins, direct_audit, witnessed_victims = _witnessed_actions(
+    pins, direct_audit, witnessed_victims, direct_constraints = _witnessed_actions(
         history,
         config=config,
     )
@@ -307,7 +328,7 @@ def derive_evidence(
         candidates=candidates,
         claims=tuple(claims),
         votes=tuple(votes),
-        kill_constraints=tuple(kill_constraints),
+        kill_constraints=tuple(direct_constraints) + tuple(kill_constraints),
         pins=frozenset(pins),
         murder_clears=frozenset(murder_clears),
         audit=tuple(claim_audit + vote_audit + direct_audit + alibi_audit),
@@ -864,9 +885,18 @@ def _witnessed_actions(
     history: DeductionHistory,
     *,
     config: InferenceConfig,
-) -> tuple[set[str], list[EvidenceAudit], set[str]]:
-    """Derive direct-action pins without storing conclusions in history."""
+) -> tuple[set[str], list[EvidenceAudit], set[str], list[DerivedKillConstraint]]:
+    """Derive direct-action pins, and (opt-in) constraints for ambiguous kills.
 
+    A body transition names the killer only when exactly one player could have made
+    it. The candidate window is `kill_range_sq` widened by `kill_range_margin`,
+    because the kill resolves between rendered frames (see `InferenceConfig`).
+    With `ambiguous_kill_constraints`, a 2+-candidate transition becomes a hard
+    "at least one of these" constraint rather than a discarded observation.
+    """
+
+    candidate_sq = _widened_sq(config.kill_range_sq, config.kill_range_margin)
+    constraints: list[DerivedKillConstraint] = []
     worlds = sorted(
         (event for event in history.events if isinstance(event, WorldObserved)),
         key=lambda event: event.tick,
@@ -892,10 +922,42 @@ def _witnessed_actions(
                 color
                 for color, position in previous_players.items()
                 if color not in {victim, history.game.self_color}
-                and _distance_sq(position, victim_xy) <= config.kill_range_sq
+                and _distance_sq(position, victim_xy) <= candidate_sq
             }
             evidence_id = f"direct:kill:{current.event_id}:{victim}"
             if len(actors) != 1:
+                # Name the candidates either way: the audit is the instrument for the
+                # offline counterfactual, and dropping them destroyed the information
+                # at source (see the 2026-07-26 plan note).
+                named = (victim, *sorted(actors))
+                if len(actors) >= 2 and config.ambiguous_kill_constraints:
+                    constraints.append(
+                        DerivedKillConstraint(
+                            evidence_id=evidence_id,
+                            event_id=current.event_id,
+                            victim=victim,
+                            alibied=frozenset(),
+                            possible_killers=frozenset(actors),
+                        )
+                    )
+                    witnessed_victims.add(victim)
+                    audit.append(
+                        EvidenceAudit(
+                            evidence_id=evidence_id,
+                            event_id=current.event_id,
+                            channel="direct",
+                            status="active",
+                            reason=(
+                                f"at least one of {len(actors)} adjacent actors killed "
+                                f"{victim}"
+                            ),
+                            source=history.game.self_color,
+                            targets=named,
+                            stance="at_least_one",
+                            weight=1.0,
+                        )
+                    )
+                    continue
                 audit.append(
                     EvidenceAudit(
                         evidence_id=evidence_id,
@@ -905,7 +967,7 @@ def _witnessed_actions(
                         reason=(
                             f"body transition has {len(actors)} possible nearby actors"
                         ),
-                        targets=(victim,),
+                        targets=named,
                     )
                 )
                 continue
@@ -951,7 +1013,15 @@ def _witnessed_actions(
                     weight=1.0,
                 )
             )
-    return pins, audit, witnessed_victims
+    return pins, audit, witnessed_victims, constraints
+
+
+def _widened_sq(kill_range_sq: int, margin: int) -> int:
+    """`kill_range_sq` grown by `margin` pixels of radius (margin 0 is a no-op)."""
+
+    if margin <= 0:
+        return kill_range_sq
+    return (math.isqrt(kill_range_sq) + margin) ** 2
 
 
 def _distance_sq(

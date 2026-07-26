@@ -5,11 +5,13 @@ from __future__ import annotations
 import random
 
 import pytest
+from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink
 
 from crewborg.deduction.collector import update_deduction_history
 from crewborg.deduction.config import enabled_for_role
 from crewborg.deduction.decision import decide, decide_from_inference
 from crewborg.deduction.inference import (
+    InferenceConfig,
     build_assignment_table,
     derive_evidence,
     infer,
@@ -29,8 +31,8 @@ from crewborg.deduction.model import (
 from crewborg.deduction.synthetic import SyntheticBehavior, generate_game
 from crewborg.modes import AttendMeetingMode
 from crewborg.perception.entities import (
-    ChatLine,
     CensusEntry,
+    ChatLine,
     ResolvedScene,
     VoteCandidate,
     VotingState,
@@ -42,7 +44,6 @@ from crewborg.types import (
     PlayerRecord,
     update_belief,
 )
-from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink
 
 PLAYERS = ("white", "red", "blue", "yellow", "green", "purple")
 
@@ -688,3 +689,109 @@ def test_require_support_false_still_respects_margin_and_probability() -> None:
     cfg = DecisionConfig(require_support=False)
     assert cfg.base_probability == 0.65
     assert cfg.base_margin == 0.10
+
+
+# --- witnessed-kill window: the margin, and at_least_one ---------------------------
+#
+# Regression cover for the hosted failure in xreq_51754f1f / ereq_ff5a9fdd frame 2111,
+# reproduced to the pixel: the true killer's last sampled position was 23.0px from the
+# victim (just outside the 20px KillRange) while an innocent bystander sat at 16.3px
+# (just inside), so the shipped rule found "exactly one actor" and pinned a CREWMATE
+# with p=1.0 -- eliminating the true assignment from the hypothesis space entirely.
+
+
+def _boundary_kill_frames() -> tuple[WorldObserved, WorldObserved]:
+    """The real geometry: victim `yellow`, true killer `red` @23.0px, bystander `blue` @16.3px."""
+
+    before = WorldObserved(
+        event_id="world:2110",
+        tick=2110,
+        self_xy=(500, 500),
+        players=(
+            ObservedPlayer(color="yellow", x=289, y=295),   # victim
+            ObservedPlayer(color="blue", x=305, y=292),     # bystander: d=16.3px
+            ObservedPlayer(color="red", x=270, y=282),      # true killer: d=23.0px
+        ),
+    )
+    after = WorldObserved(
+        event_id="world:2111",
+        tick=2111,
+        self_xy=(500, 500),
+        players=(
+            ObservedPlayer(color="blue", x=302, y=294),
+            ObservedPlayer(color="red", x=270, y=283),
+        ),
+        bodies=(ObservedBody(color="yellow", x=286, y=295),),
+    )
+    return before, after
+
+
+def test_exact_kill_radius_pins_the_wrong_player_at_the_boundary() -> None:
+    """Documents the shipped behaviour this fix exists for (margin off = unchanged)."""
+
+    result = infer(_history(*_boundary_kill_frames()))
+
+    assert result.pins == ("blue",), "shipped rule names the bystander"
+    assert result.marginal("blue") == pytest.approx(1.0)
+    # The damage is not a wrong vote, it is a wrong SPACE: the truth is gone.
+    assert all("blue" in h.imposters for h in result.hypotheses)
+    assert not any({"red", "purple"} == set(h.imposters) for h in result.hypotheses)
+
+
+def test_margin_makes_the_boundary_kill_ambiguous_instead_of_wrong() -> None:
+    """A motion tolerance removes the false certainty. No pin is better than a wrong one."""
+
+    result = infer(
+        _history(*_boundary_kill_frames()),
+        config=InferenceConfig(kill_range_margin=6),
+    )
+
+    assert "blue" not in result.pins
+    assert result.marginal("blue") < 1.0
+    # Without at_least_one the observation is simply dropped, so nothing is excluded
+    # on its account -- but the true assignment is reachable again.
+    assert any({"red"} <= set(h.imposters) for h in result.hypotheses)
+
+
+def test_at_least_one_keeps_the_ambiguous_kill_as_a_sound_constraint() -> None:
+    """The margin stops the lie; at_least_one keeps the truth it implies."""
+
+    result = infer(
+        _history(*_boundary_kill_frames()),
+        config=InferenceConfig(kill_range_margin=6, ambiguous_kill_constraints=True),
+    )
+
+    assert "blue" not in result.pins
+    # Every surviving assignment must contain at least one of the two candidates.
+    assert result.hypotheses
+    for h in result.hypotheses:
+        assert {"blue", "red"} & set(h.imposters), h.imposters
+    # And the constraint is sound: the true killer is still reachable.
+    assert any("red" in h.imposters for h in result.hypotheses)
+
+
+def test_at_least_one_alone_does_not_fire_at_the_boundary() -> None:
+    """Lever #1 without the margin cannot help here: only ONE actor is in exact range."""
+
+    result = infer(
+        _history(*_boundary_kill_frames()),
+        config=InferenceConfig(ambiguous_kill_constraints=True),
+    )
+
+    assert result.pins == ("blue",), "still a unique actor at the exact radius"
+
+
+def test_kill_window_presets_are_separate_from_the_other_arms() -> None:
+    """Three independent env vars, so an A/B moves one thing at a time."""
+
+    from crewborg.deduction.config import inference_overrides
+
+    assert inference_overrides({}) == {}
+    both = inference_overrides({"CREWBORG_KILL_WINDOW": "both"})
+    assert both == {"kill_range_margin": 6, "ambiguous_kill_constraints": True}
+    assert inference_overrides({"CREWBORG_KILL_WINDOW": "typo"}) == {}
+    # Trust and kill-window compose without colliding.
+    mixed = inference_overrides(
+        {"CREWBORG_KILL_WINDOW": "margin", "CREWBORG_SPEAKER_TRUST": "on"}
+    )
+    assert mixed["kill_range_margin"] == 6 and mixed["speaker_trust"] is True

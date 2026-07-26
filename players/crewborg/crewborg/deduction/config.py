@@ -86,17 +86,54 @@ TRUST_PRESETS: dict[str, dict[str, float | bool]] = {
 }
 
 
+KILL_WINDOW_ENV = "CREWBORG_KILL_WINDOW"
+
+# How a witnessed body transition names its killer (see inference._witnessed_actions).
+# A THIRD separate env var, for the same reason trust and the gate are separate: this
+# changes which structural facts exist, trust changes how social evidence is weighed,
+# and the gate changes what is done with the result. Bundling any two makes an A/B
+# uninterpretable.
+#
+# `margin` is the soundness fix: the sim resolves a kill between rendered frames, so an
+# exact 20px test claims precision the observation stream does not have. Measured
+# failure in xreq_51754f1f/ereq_ff5a9fdd -- the true killer's last sampled distance was
+# 23.0px (outside) while a bystander sat at 16.3px (inside), so the rule pinned a
+# CREWMATE with p=1.0 and eliminated the true assignment from the hypothesis space.
+#
+# `at_least_one` is the recovery: once the margin makes such a transition ambiguous, the
+# observation would otherwise be discarded. Emitting it as a hard "at least one of
+# these" constraint keeps it, and it is sound by construction.
+KILL_WINDOW_PRESETS: dict[str, dict[str, float | bool | int]] = {
+    "off": {},
+    # The fix alone: stop claiming a unique actor at the boundary. Costs coverage --
+    # some currently-correct pins become ambiguous and are dropped.
+    "margin": {"kill_range_margin": 6},
+    # Lever #1 alone, at the shipped exact radius: recovers the 2+-actor transitions
+    # that are discarded today (98 per 100 games) without touching the pin test.
+    "at-least-one": {"ambiguous_kill_constraints": True},
+    # Both: the margin makes boundary cases ambiguous, at_least_one keeps them as a
+    # true disjunction instead of dropping them. This is the intended end state.
+    "both": {"kill_range_margin": 6, "ambiguous_kill_constraints": True},
+}
+
+
 def inference_overrides(
     env: Mapping[str, str] | None = None,
-) -> dict[str, float | bool]:
-    """`InferenceConfig` field overrides for the selected speaker-trust preset.
+) -> dict[str, float | bool | int]:
+    """`InferenceConfig` field overrides from the selected presets.
 
-    Unset or unrecognised yields no overrides, so the shipped posterior is exactly
+    Merges the independent preset families (speaker trust, kill window). Unset or
+    unrecognised values yield no overrides, so the shipped posterior is exactly
     unchanged unless someone opts in.
     """
 
     source = os.environ if env is None else env
-    return dict(TRUST_PRESETS.get(source.get(TRUST_ENV, "").strip().lower(), {}))
+    overrides: dict[str, float | bool | int] = {}
+    overrides.update(TRUST_PRESETS.get(source.get(TRUST_ENV, "").strip().lower(), {}))
+    overrides.update(
+        KILL_WINDOW_PRESETS.get(source.get(KILL_WINDOW_ENV, "").strip().lower(), {})
+    )
+    return overrides
 
 
 def gate_overrides(env: Mapping[str, str] | None = None) -> dict[str, float | int]:

@@ -118,7 +118,36 @@ a before/after on the same episodes.
    its colour-map / slot-identity queries duplicate `suss.episode_color_maps` and
    `suss.slot_identity`.
 
-### A false witness pin can produce a confidently wrong structural pin (2026-07-26)
+### IMPLEMENTED (default-off): kill-window margin + at_least_one — 2026-07-26
+
+`CREWBORG_KILL_WINDOW` presets `margin` / `at-least-one` / `both`
+(`deduction/config.py`). A third env var, separate from `CREWBORG_SPEAKER_TRUST` and
+`CREWBORG_DECISION_GATE`, so an A/B still moves one thing at a time.
+
+Offline counterfactual on the 64 crew seats of `xreq_51754f1f`
+(`tools/kill_window_counterfactual.py`, no hosted games bought):
+
+| preset | pins | sound | `at_least_one` constraints | truth kept in space |
+|---|---:|---:|---:|---:|
+| shipped (exact 20px) | 29 | 28/29 (97%) | 0 | 63/64 |
+| `margin` (6px) | 26 | **26/26 (100%)** | 0 | **64/64** |
+| `at-least-one` only | 29 | 28/29 (97%) | 9 | 63/64 |
+| **`both`** | 26 | **26/26 (100%)** | **14** | **64/64** |
+
+Reading, with the sample size stated honestly: the margin removes the one unsound pin
+and restores the one seat whose hypothesis space had lost the truth — so the soundness
+and truth-kept gains each rest on **n=1** and are directional, not established. The
+costs and the recovery are better evidenced: it drops **3 pins** (two of which were
+correct), and `at_least_one` recovers **14** observations that are discarded today.
+`at-least-one` alone leaves pins untouched, confirming it cannot fix the boundary case
+on its own.
+
+Pre-registered signals before any hosted arm (plan note Phase B): pins/game sound rate
+must not fall, `at_least_one` constraints > 0/game, and live ballot precision must hold
+at 100%. Note the coverage risk is real — pins drive ~100% of ejects, and this trades 3
+of them for soundness.
+
+### The bug this fixes: a false witness pin (2026-07-26)
 
 Found by the hosted sanity XP `xreq_51754f1f`. **Diagnosed: this is a kill-range
 boundary / sub-tick timing effect, NOT occlusion.** Not a regression either --
