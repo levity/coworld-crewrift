@@ -1,29 +1,22 @@
-"""Hunt / Search / Pretend / Evade imposter mode tests (design §7.2).
+"""Hunt / Search / Evade imposter mode tests (design §7.2).
 
-NOTE: the Pretend/Search *seeking* tests below are skipped — that logic was retired
-2026-06-24 (cold-stored at ``modes/_deprecated/``) pending the new group-follow →
-peel-off approach. They are kept as a record of the old contract; they will be
-replaced by tests for the new modes, not revived. Hunt/Evade tests stay live.
+The Pretend/Search occupancy-*seeking* tests were deleted 2026-07-26 along with
+``modes/_deprecated/``. They had been permanently skipped since that logic was
+retired 2026-06-24, so they asserted nothing, and they pinned a contract the rebuilt
+``modes/search.py`` deliberately does not honour. Live Search behaviour is covered
+here and in ``test_search_mode.py``; git history holds the old contract.
 """
 
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from crewborg.map.types import MapData, MapPoint, MapRect, Room, TaskStation, Vent
 from crewborg.agent_tracking import OccupancySnapshot, update_agent_tracking
 from crewborg.modes import EvadeMode, HuntMode, SearchMode
-from crewborg.modes._deprecated.pretend import PretendMode  # retired; only the skipped tests use it
 from crewborg.nav import build_nav_graph
-from crewborg.types import ActionState, Belief, BodyEntry, CommanderPriorities, PlayerRecord
+from crewborg.types import ActionState, Belief, CommanderPriorities, PlayerRecord
 from players.player_sdk import EventEmitter, ListTraceSink
-
-# Applied to tests that pin the retired occupancy-seeking Pretend/Search behavior.
-deprecated_seeking = pytest.mark.skip(
-    reason="Pretend/Search occupancy-seeking retired 2026-06-24 (modes/_deprecated/); "
-    "new group-follow→peel-off approach pending. See design.md."
-)
 
 
 def _visible(belief: Belief, object_id: int, xy: tuple[int, int], color: str = "red", tick: int | None = None) -> None:
@@ -208,62 +201,6 @@ def test_hunt_target_player_falls_back_when_not_visible() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@deprecated_seeking
-def test_search_follows_a_visible_target() -> None:
-    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
-    _visible(belief, 1004, (130, 100), color="green")
-    intent = SearchMode().decide(belief, ActionState())
-    assert intent.kind == "navigate_to"
-    assert intent.point == (130, 100)
-    assert intent.reason == "search: following visible target"
-
-
-@deprecated_seeking
-def test_search_follows_a_recently_seen_committed_target() -> None:
-    mode = SearchMode()
-    belief = Belief(self_world_x=100, self_world_y=100, last_tick=5)
-    _visible(belief, 1004, (130, 100), color="green")
-    mode.decide(belief, ActionState())
-
-    belief.last_tick = 10
-    belief.roster["green"].last_seen_tick = 5
-    intent = mode.decide(belief, ActionState())
-    assert intent.kind == "navigate_to"
-    assert intent.point == (130, 100)
-    assert intent.reason == "search: following last-seen target"
-
-
-@deprecated_seeking
-def test_search_moves_through_ranked_occupancy_points() -> None:
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    belief = _belief(map_data, nav, (10, 10), tick=5)
-    update_agent_tracking(belief)
-    substrate = belief.agent_tracking.substrate
-    assert substrate is not None
-    cell_a = next(cell for cell in substrate.cells.values() if cell.label == "A")
-    cell_b = next(cell for cell in substrate.cells.values() if cell.label == "B")
-    belief.agent_tracking.snapshot = OccupancySnapshot(
-        tick=5,
-        expected_by_cell={cell_a.index: 2.0, cell_b.index: 1.0},
-        top_cell=cell_a.index,
-        top_point=cell_a.center,
-        top_expected=2.0,
-        tracked_count=1,
-        support_cell_count=2,
-    )
-
-    mode = SearchMode()
-    first = mode.decide(belief, ActionState())
-    assert first.kind == "navigate_to"
-    assert first.point == cell_a.center
-
-    belief.self_world_x, belief.self_world_y = first.point
-    second = mode.decide(belief, ActionState())
-    assert second.kind == "navigate_to"
-    assert second.point == cell_b.center
-
-
 def test_search_seeks_the_hotter_occupancy_room_not_a_random_one() -> None:
     # _pick_room heads toward best_seek_point (the hottest crew-occupancy cell), not a
     # random room (acquisition fix, James 2026-06-30). FLIP the weights so B is hottest:
@@ -371,157 +308,3 @@ def _shadow_map() -> MapData:
 
 def _belief(map_data: MapData, nav, self_xy: tuple[int, int], tick: int) -> Belief:
     return Belief(map=map_data, nav=nav, self_world_x=self_xy[0], self_world_y=self_xy[1], last_tick=tick)
-
-
-def _see(belief: Belief, object_id: int, xy: tuple[int, int], tick: int | None = None, color: str = "green") -> None:
-    belief.roster[color] = PlayerRecord(
-        object_id=object_id, color=color, facing="left", world_x=xy[0], world_y=xy[1],
-        last_seen_tick=belief.last_tick if tick is None else tick, life_status="alive",
-    )
-
-
-def test_pretend_idles_only_without_a_self_position() -> None:
-    # The one unavoidable idle: camera not up yet (no self position).
-    belief = Belief(map=_shadow_map(), last_tick=0)
-    assert PretendMode().decide(belief, ActionState()).kind == "idle"
-
-
-@deprecated_seeking
-def test_pretend_targets_a_fallback_task_station_not_visible_crew() -> None:
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    belief = _belief(map_data, nav, (10, 10), tick=5)  # we are in the start room
-    _see(belief, 1001, (80, 60))  # a crewmate over in room A
-    intent = PretendMode().decide(belief, ActionState())
-    assert intent.kind == "navigate_to"
-    assert intent.point == (80, 50)  # room A's task station, not the visible crewmate
-
-
-@deprecated_seeking
-def test_pretend_fakes_a_task_at_the_occupancy_selected_station() -> None:
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    belief = _belief(map_data, nav, (110, 60), tick=5)
-    update_agent_tracking(belief)
-    substrate = belief.agent_tracking.substrate
-    assert substrate is not None
-    cell_a = next(cell for cell in substrate.cells.values() if cell.label == "A")
-    belief.agent_tracking.snapshot = OccupancySnapshot(
-        tick=5,
-        expected_by_cell={cell_a.index: 1.0},
-        top_cell=cell_a.index,
-        top_point=cell_a.center,
-        top_expected=1.0,
-        tracked_count=1,
-        support_cell_count=1,
-    )
-    moving = PretendMode().decide(belief, ActionState())
-    assert moving.kind == "navigate_to"
-    assert 70 <= moving.point[0] < 90 and 40 <= moving.point[1] < 60  # room A's station rect
-
-
-@deprecated_seeking
-def test_pretend_starts_fake_task_on_arrival_before_retargeting() -> None:
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    belief = _belief(map_data, nav, (80, 50), tick=20)
-    update_agent_tracking(belief)
-    substrate = belief.agent_tracking.substrate
-    assert substrate is not None
-    cell_b = next(cell for cell in substrate.cells.values() if cell.label == "B")
-    belief.agent_tracking.snapshot = OccupancySnapshot(
-        tick=20,
-        expected_by_cell={cell_b.index: 2.0},
-        top_cell=cell_b.index,
-        top_point=cell_b.center,
-        top_expected=2.0,
-        tracked_count=1,
-        support_cell_count=1,
-    )
-
-    _see(belief, 1001, (90, 50))  # a crewmate is watching ⇒ the fake task is worth holding
-
-    mode = PretendMode()
-    mode._state = "goto_room"
-    mode._target_room_name = "A"
-    mode._goto_point = (80, 50)
-    mode._task_station = (80, 50)
-    mode._room_chosen_tick = 10
-
-    intent = mode.decide(belief, ActionState())
-    assert intent.kind == "idle"
-    assert intent.reason == "faking a task (crew watching)"
-    assert mode._state == "do_task"
-    assert mode._target_room_name == "A"
-    assert mode._hold_until == belief.last_tick + 72
-
-
-@deprecated_seeking
-def test_pretend_does_not_fake_a_task_with_no_crewmate_watching() -> None:
-    # Change 2: arriving at a station with an empty room ⇒ don't idle a fake task; keep
-    # moving so the kill cooldown converts to a real kill sooner.
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    belief = _belief(map_data, nav, (80, 50), tick=20)  # at room A's station, nobody in view
-    mode = PretendMode()
-    mode._state = "do_task"
-    mode._task_station = (80, 50)
-
-    intent = mode.decide(belief, ActionState())
-    assert intent.kind == "navigate_to"  # re-dispatched out, not idling
-    assert mode._hold_until is None  # never started the hold
-
-
-@deprecated_seeking
-def test_pretend_abandons_a_fake_task_when_the_last_crewmate_leaves_view() -> None:
-    # Change 3: a hold already in progress stops the instant no crewmate is visible.
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    belief = _belief(map_data, nav, (80, 50), tick=20)
-    _see(belief, 1001, (90, 50))  # watcher present
-    mode = PretendMode()
-    mode._state = "do_task"
-    mode._task_station = (80, 50)
-
-    watched = mode.decide(belief, ActionState())
-    assert watched.kind == "idle" and watched.reason == "faking a task (crew watching)"
-
-    belief.roster["green"].last_seen_tick = 5  # the watcher is no longer visible this tick
-    abandoned = mode.decide(belief, ActionState())
-    assert abandoned.kind == "navigate_to"  # stopped faking, moving on
-
-
-@deprecated_seeking
-def test_pretend_does_not_fake_a_task_in_the_starting_room() -> None:
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    # In the starting room ⇒ no fake task here; pick a task station elsewhere.
-    belief = _belief(map_data, nav, (10, 60), tick=5)
-    _see(belief, 1001, (25, 60))
-    intent = PretendMode().decide(belief, ActionState())
-    assert intent.kind == "navigate_to"
-    assert intent.point != (25, 60)
-    assert intent.point[0] >= 40
-
-
-@deprecated_seeking
-def test_pretend_wanders_rooms_when_no_crew_is_in_sight() -> None:
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    belief = _belief(map_data, nav, (10, 10), tick=5)  # nobody known/visible
-    intent = PretendMode().decide(belief, ActionState())
-    assert intent.kind == "navigate_to"  # wandering, never idle
-    assert intent.point[0] >= 40  # heading out of the start room toward another room
-
-
-@deprecated_seeking
-def test_pretend_wandering_does_not_switch_to_follow_on_sighting_a_crewmate() -> None:
-    map_data = _shadow_map()
-    nav = build_nav_graph(np.ones((120, 200), dtype=bool), map_data=map_data)
-    belief = _belief(map_data, nav, (10, 10), tick=5)
-    _see(belief, 1001, (80, 60))  # a crewmate appears
-    mode = PretendMode()
-    mode._state, mode._goto_point = "goto_room", (160, 60)  # mid-wander
-    intent = mode.decide(belief, ActionState())
-    assert intent.kind == "navigate_to"
-    assert intent.point == (160, 60)  # Search owns target following, not Pretend

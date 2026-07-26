@@ -1,0 +1,59 @@
+# Test/lint environment for the crewborg player.
+#
+# This file exists so `uv run --group dev pytest` reproduces a GREEN suite from a
+# clean checkout. It is deliberately NOT how the shipped image is built — the image
+# is `crewborg/coworld/Dockerfile`, which installs the player SDK at a pinned ref and
+# stays behavior-neutral. Keep the runtime dependency list here in sync with that
+# Dockerfile; this project is never packaged or published.
+#
+# Why it was added (2026-07-26): the suite reported 15 failures and 8 errors on a
+# clean machine purely because `pytest-asyncio` and `spacy` were absent —
+# `test_bridge.py` needs the former to run its `async def` tests at all, and
+# `test_chat_read.py` imports the latter. Both were present in whatever ad-hoc
+# environment produced the CHANGELOG's historical "603 passed" lines and nowhere
+# else, so every fresh environment inherited a broken window.
+
+[project]
+name = "crewborg"
+version = "0.0.0"
+description = "crewborg Crewrift player (not packaged; this file configures test + lint only)"
+requires-python = ">=3.12"
+
+# Mirrors crewborg/coworld/Dockerfile. `players` (the SDK) is not on PyPI, so it is
+# declared in the dev group below against its source tarball.
+dependencies = [
+    "numpy",
+    "pydantic",
+    "cramjam",
+    "websockets",
+    # Imposter chat NLP (README env table: CREWBORG_CHAT_NLP, on by default). Loaded
+    # lazily off the hot path, but test_chat_read.py imports it eagerly.
+    "spacy>=3.8.0,<3.9.0",
+    "click",
+    "en_core_web_sm",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    # test_bridge.py stands up a real websocket server; without this plugin pytest
+    # collects its `async def` tests and then fails them all with
+    # "async def functions are not natively supported".
+    "pytest-asyncio",
+    "ruff",
+    "players[bedrock]",
+]
+
+[tool.uv.sources]
+# Neither of these is on PyPI. Pin the SDK ref when reproducing a specific image.
+players = { url = "https://github.com/Metta-AI/coworld-tools/archive/main.tar.gz", subdirectory = "players" }
+en_core_web_sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+
+[tool.pytest.ini_options]
+testpaths = ["crewborg/tests"]
+# `crewborg` and `players` both resolve from the player directory.
+pythonpath = ["."]
+# test_bridge.py marks its coroutines explicitly, so strict mode is correct: an
+# unmarked `async def` test should fail loudly rather than be silently skipped.
+asyncio_mode = "strict"
+addopts = "-q"
