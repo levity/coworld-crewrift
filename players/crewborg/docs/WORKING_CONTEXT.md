@@ -9,6 +9,67 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
+## Current update (2026-07-26, `/simplify`: the two crew brains are now separated in the tree)
+
+Active branch/worktree: `crewborg-brain-separation` at
+`.claude/worktrees/crewborg-brain-separation`, branched off `crew-signals-v2` at
+`1d477c5`. `crew-signals-v2` itself is untouched by this pass.
+
+No gameplay change and no new measurement. `uv run --group dev pytest` is 563
+passed / 0 skipped; touched-file Ruff introduces nothing new; the synthetic
+evaluator emits byte-identical metrics at `--games 300 --seed 7` and runs 2.01s ->
+1.39s.
+
+**The structural point.** `deduction/` was already isolated -- it reached into the rest
+of the package four times -- but one of those four was
+`strategy/social_evidence.parse_social_claims`, which had exactly ONE caller
+(`deduction/inference.py`) and which the legacy path never called. The parser is now
+`deduction/claims.py`, so `strategy/` is the fitted brain, `deduction/` is the deduction
+brain, and the only things they share are brain-neutral: `game_rules.py`,
+`perception.entities`, `strategy.occupancy`. This is why a separate player base is NOT
+the answer -- see the verdict below.
+
+- New `crewborg/game_rules.py`: kill range, co-presence distance, vent walk margin and
+  `effective_imposter_count`, each of which both brains had its own copy of. Two copies
+  of a game rule is how the brains silently stop describing the same game.
+- New `crewborg/envflags.py`: one definition of "on" (four modules had their own).
+- `deduction/decision.py` no longer reads `os.environ`. The gate preset resolves once in
+  `AttendMeetingMode.__init__`, so an offline sweep can no longer inherit
+  `CREWBORG_DECISION_GATE` from the shell -- that was a live contamination risk for
+  anything scored offline.
+- Hot path: `history_from_belief` was revalidating the whole event tuple through pydantic
+  on EVERY voting tick (~6 ms at 10k events, ~26 ms at 20k, vs a 41.7 ms tick budget)
+  while solving only twice; it is now cached per meeting. The per-tick task-counter scan
+  over the whole ledger (O(n^2) across an episode) is now an O(1) scalar compare.
+- Dead: `DeductionHistory.through()` (zero callers), `PlayerRecord.tasks_completed_watched`
+  (served as a hardcoded 0), `Belief.deduction_world_ticks` (a parallel index the event-id
+  set already implied), and an unreachable branch in `_fallback_vote_target`.
+
+**Verdict on "should the deduction path get its own player base": NO.** A fork would
+duplicate ~5,500 lines of substrate (perception, action, nav, map, agent_tracking,
+events, coworld) that has nothing to do with the crew brain and is exactly where the
+hard-won fixes live (edge-park freeze, the `(-2,-6)` self-record anchor, the role latch).
+It would also drag the champion impostor policy along, and it would break the
+one-image/two-arms A/B instrument that `GATE_PRESETS` exists to serve -- reintroducing
+the two-image config drift of lesson 4. The coupling a fork would have relieved was one
+mis-filed import.
+
+**Newly legible, and it matters for reading the 2026-07-25 A/B.** Clearing
+`belief.suspicion` also disables **Accuse** (the emergency button -- 80 presses in 40
+games in the fitted arm), escort suspect-avoidance, and the deterministic vote fallback.
+That was an unremarked side effect of a `.clear()`; it is now stated in `fold_belief`, in
+`rule_based.py`, in `docs/deduction-history.md`, and pinned by
+`tests/test_strategy.py::test_deduction_brain_disables_accuse_because_suspicion_is_cleared`.
+The standing next step (decompose that win) is unchanged.
+
+Deferred deliberately, with reasons, in `docs/TODO.md`: the measurement-tool duplication
+(three copies of the hosted-decision loader, and the sweep tools' gate fork **drops
+production's `has_accusation`/`has_evidence` conditions**), four correctness-adjacent
+items (`report_ticks` counts intent ticks not failed presses; `DEDUCTION_EARLY_CHAT_TICKS`
+is absolute so the tick-240 channel never fires without GameInfo; `Intent.reason` prose is
+load-bearing control flow; three `NormalMode` instances), and one measured 52 ms/solve win
+in `_witnessed_actions`.
+
 ## Current update (2026-07-23, safe distance REJECTED; grouping is the direction)
 
 Two hosted A/Bs closed today. **Dynamic group-tasking is validated** as a

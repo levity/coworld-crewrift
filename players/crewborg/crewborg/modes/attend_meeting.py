@@ -9,6 +9,9 @@ from typing import Any
 
 from crewborg.deduction.collector import history_from_belief
 from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
+from crewborg.deduction.config import gate_overrides, inference_overrides
+from crewborg.deduction.decision import DecisionConfig
+from crewborg.deduction.inference import InferenceConfig
 from crewborg.deduction.decision import MeetingDecision as DeductionMeetingDecision
 from crewborg.deduction.decision import decide as decide_from_history
 from crewborg.deduction.model import DeductionHistory
@@ -73,6 +76,19 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._decision_traced = False
         self._deduction_early_chat_attempted = False
         self._deduction_finalized = False
+        # The meeting's history, rebuilt only when the ledger actually grows.
+        # `history_from_belief` revalidates every retained event through pydantic
+        # (~6 ms at 10k events, ~26 ms at 20k, against a 41.7 ms tick budget) and
+        # `decide` runs on EVERY voting tick while solving only twice.
+        self._history: DeductionHistory | None = None
+        self._history_event_count = -1
+        # Resolve both env-selected presets once, here at the runtime boundary, so the
+        # pure inference and decision stages never read the environment. They are
+        # deliberately separate vars: CREWBORG_SPEAKER_TRUST changes the posterior,
+        # CREWBORG_DECISION_GATE changes what we do with it, and bundling them would
+        # make an A/B uninterpretable (see deduction/config.py).
+        self._decision_config = DecisionConfig(**gate_overrides())
+        self._inference_config = InferenceConfig(**inference_overrides())
 
     def is_legal(self, belief: Belief) -> bool:
         return belief.phase == "Voting"
@@ -121,12 +137,21 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._trace_decision(trigger, decision, result)
         return self._apply_decision(belief, decision)
 
-    # --- deterministic fallback ------------------------------------------
+    # --- deduction brain (CREWBORG_DEDUCTION_HISTORY, crew only) -----------
+
+    def _current_history(self, belief: Belief) -> DeductionHistory | None:
+        """This meeting's frozen history, rebuilt only when the ledger grows."""
+
+        count = len(belief.deduction_events)
+        if self._history is None or count != self._history_event_count:
+            self._history = history_from_belief(belief)
+            self._history_event_count = count
+        return self._history
 
     def _decide_from_deduction_history(self, belief: Belief) -> Intent:
         """Use only the append-only history, waiting until the deadline to vote."""
 
-        history = history_from_belief(belief)
+        history = self._current_history(belief)
         if history is None:
             if self._should_auto_submit(belief):
                 self._tentative_vote = VOTE_SKIP
@@ -144,7 +169,12 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         ):
             self._deduction_early_chat_attempted = True
             solve_started = perf_counter()
-            early = decide_from_history(history, live_targets=live_targets)
+            early = decide_from_history(
+                history,
+                live_targets=live_targets,
+                inference_config=self._inference_config,
+                decision_config=self._decision_config,
+            )
             solve_ms = (perf_counter() - solve_started) * 1000
             self.emit.event(
                 "deduction_history_early",
@@ -180,7 +210,12 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             )
 
         solve_started = perf_counter()
-        final = decide_from_history(history, live_targets=live_targets)
+        final = decide_from_history(
+            history,
+            live_targets=live_targets,
+            inference_config=self._inference_config,
+            decision_config=self._decision_config,
+        )
         solve_ms = (perf_counter() - solve_started) * 1000
         self._deduction_finalized = True
         self._tentative_vote = (
@@ -283,6 +318,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         if probability > 0.10:
             return None
         return f"{clear} looks clear from the combined evidence"
+
+    # --- deterministic fallback (fitted posterior; used when the LLM is off) ---
 
     def _decide_deterministic(self, belief: Belief, *, trace_disabled: bool) -> Intent:
         """No default-firing chat; chat and vote are always coupled (accuse exactly who
@@ -589,6 +626,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._decision_traced = False
         self._deduction_early_chat_attempted = False
         self._deduction_finalized = False
+        self._history = None
+        self._history_event_count = -1
 
     def _external_chat_signature(self, belief: Belief) -> tuple[tuple[int, str | None, str], ...]:
         self_color = belief.voting.self_marker_color
@@ -637,11 +676,9 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         return self._fallback_vote_target(belief)
 
     def _fallback_vote_target(self, belief: Belief) -> str:
+        # Under the deduction brain there is nothing to fall back ON: `belief.suspicion`
+        # is empty by construction, and the only caller reaching here has already
+        # rejected `_tentative_vote`. Skipping is the whole fallback.
         if deduction_history_enabled(belief.self_role):
-            target = self._tentative_vote
-            if target is not None and (
-                target == VOTE_SKIP or target in valid_vote_targets(belief)
-            ):
-                return target
             return VOTE_SKIP
         return top_suspect(belief) or VOTE_SKIP

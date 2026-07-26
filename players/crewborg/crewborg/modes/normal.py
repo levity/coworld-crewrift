@@ -40,13 +40,15 @@ behaviour is byte-identical to today.
 from __future__ import annotations
 
 import math
-import os
 
-from crewborg.map.types import Room, TaskStation
+from players.player_sdk import EmptyModeParams, Mode
+
 from crewborg.agent_tracking import ranked_seek_points
+from crewborg.envflags import int_flag
+from crewborg.envflags import truthy as _truthy_env
+from crewborg.map.types import Room, TaskStation
 from crewborg.strategy.commander.bias import commander_of, room_crew_count
 from crewborg.types import ActionState, Belief, Intent
-from players.player_sdk import EmptyModeParams, Mode
 
 # A bubble leaving the signal set counts as completion only if progress recently
 # reached at least this — otherwise it's treated as a flicker/occlusion.
@@ -377,7 +379,13 @@ def _densest_live_crew_cluster(belief: Belief) -> list | None:
 
 def _suspect_points(belief: Belief) -> list[tuple[int, int]]:
     """Last-known positions of alive players the suspicion model rates as likely
-    impostors (>= ESCORT_SUSPECT_BAR) -- places a finished escort should not walk toward."""
+    impostors (>= ESCORT_SUSPECT_BAR) -- places a finished escort should not walk toward.
+
+    ALWAYS EMPTY under the deduction brain: ``fold_belief`` clears ``belief.suspicion``
+    when ``CREWBORG_DEDUCTION_HISTORY=1``, so every caller's suspect-avoidance becomes a
+    no-op rather than an error. Reading the deduction marginals here would restore it,
+    but that is a behaviour change and belongs in its own experiment.
+    """
     points: list[tuple[int, int]] = []
     for color, score in belief.suspicion.items():
         if color == belief.self_color or score < ESCORT_SUSPECT_BAR:
@@ -621,12 +629,7 @@ def _group_task_candidate(
 
 
 def _group_task_max_detour() -> int:
-    raw = os.environ.get("CREWBORG_GROUP_TASK_MAX_DETOUR", "").strip()
-    try:
-        value = int(raw) if raw else DEFAULT_GROUP_TASK_MAX_DETOUR
-    except ValueError:
-        return DEFAULT_GROUP_TASK_MAX_DETOUR
-    return max(0, value)
+    return int_flag("CREWBORG_GROUP_TASK_MAX_DETOUR", DEFAULT_GROUP_TASK_MAX_DETOUR)
 
 
 def _live_crew_near(
@@ -648,12 +651,7 @@ def _live_crew_near(
 
 
 def _witness_task_max_detour() -> int:
-    raw = os.environ.get("CREWBORG_WITNESS_TASK_MAX_DETOUR", "").strip()
-    try:
-        value = int(raw) if raw else DEFAULT_WITNESS_TASK_MAX_DETOUR
-    except ValueError:
-        return DEFAULT_WITNESS_TASK_MAX_DETOUR
-    return max(0, value)
+    return int_flag("CREWBORG_WITNESS_TASK_MAX_DETOUR", DEFAULT_WITNESS_TASK_MAX_DETOUR)
 
 
 def _witness_task_candidate(
@@ -753,7 +751,3 @@ def _defer_isolated_task(
         point=_reachable_point(belief, point),
         reason="witness-tasking: holding with company before an isolated task",
     )
-
-
-def _truthy_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}

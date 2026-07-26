@@ -125,14 +125,38 @@ def build_runtime(
         map_data = load_croatoan_map()
 
     def fold_belief(belief: Belief, percept: Percept) -> None:
-        """Fold perception into either the legacy or append-only evidence path."""
+        """Fold perception into exactly ONE of crewborg's two crew brains.
+
+        This is the only place the choice is made, and it is exclusive: a crewmate
+        runs the append-only deduction path or the fitted-posterior path, never both.
+
+        **What choosing the deduction brain also turns off.** `belief.suspicion` and
+        `belief.believed_imposters` stay empty, and they are the input to three shipped
+        crewmate behaviours, so all three go inert:
+
+        1. **Accuse** (`modes/accuse.py`, selector priority 3) can never fire — no
+           suspect ever crosses `ACCUSE_THRESHOLD`, so the emergency button is never
+           spent. This is a large behavioural difference, not a bookkeeping detail: in
+           the 2026-07-25 A/B the fitted arm pressed the button 80 times in 40 games and
+           abandoned a task each time, and disabling that is the leading explanation for
+           the +21pp win (`docs/experiments/2026-07-25-deduction-architecture-hosted-ab.md`).
+        2. **Escort suspect-avoidance** (`modes/normal.py:_suspect_points`) sees no
+           suspects, so the retained escort/witness experiments stop steering clear.
+        3. **The deterministic meeting fallback** has no `top_suspect` to fall back to,
+           which is why `_fallback_vote_target` just skips.
+
+        Keeping these coupled is deliberate for now — one flag, one arm — but it means
+        the A/B measures the architecture AND the loss of Accuse together. Decomposing
+        that is the standing next step in `HANDOFF.md`.
+        """
 
         update_belief(belief, percept)
         update_agent_tracking(belief)
         if deduction_history_enabled(belief.self_role):
             update_deduction_history(belief, percept)
-            # The new path must not silently consume conclusions from either
-            # legacy evidence pipeline.
+            # Not merely unused: cleared, so the deduction path cannot silently
+            # consume a conclusion from the model it replaces. See the docstring for
+            # the three behaviours this also disables.
             belief.suspicion.clear()
             belief.believed_imposters.clear()
         else:

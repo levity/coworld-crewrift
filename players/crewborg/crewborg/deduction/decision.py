@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from crewborg.deduction.config import gate_overrides, inference_overrides
 from crewborg.deduction.inference import (
     InferenceConfig,
     InferenceResult,
@@ -89,12 +88,7 @@ def decide(
 ) -> MeetingDecision:
     """Infer and choose a vote without mutable or legacy conclusions."""
 
-    # As with the gate: an explicit config always wins (tests, sweeps), otherwise the
-    # preset named by CREWBORG_SPEAKER_TRUST, defaulting to the shipped posterior.
-    result = infer(
-        history,
-        config=inference_config or InferenceConfig(**inference_overrides()),
-    )
+    result = infer(history, config=inference_config)
     return decide_from_inference(
         history,
         result,
@@ -110,11 +104,16 @@ def decide_from_inference(
     live_targets: tuple[str, ...] | None = None,
     decision_config: DecisionConfig | None = None,
 ) -> MeetingDecision:
-    """Layer 5: apply a tunable board policy to one fixed posterior."""
+    """Layer 5: apply a tunable board policy to one fixed posterior.
 
-    # An explicit config always wins (tests, sweeps, synthetic drills); otherwise the
-    # preset named by CREWBORG_DECISION_GATE, defaulting to the shipped values.
-    policy = decision_config or DecisionConfig(**gate_overrides())
+    The config is always the caller's. This stage used to read
+    ``CREWBORG_DECISION_GATE`` from the environment itself, which broke the purity
+    contract in ``docs/deduction-history.md`` and silently gave every offline sweep
+    whatever preset happened to be exported in the shell. The runtime resolves the
+    preset once, at the mode boundary (``modes/attend_meeting.py``).
+    """
+
+    policy = decision_config or DecisionConfig()
     live = (
         tuple(dict.fromkeys(live_targets))
         if live_targets is not None

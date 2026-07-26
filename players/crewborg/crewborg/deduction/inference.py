@@ -22,12 +22,11 @@ from crewborg.deduction.model import (
     VoteObserved,
     WorldObserved,
 )
-from crewborg.strategy.claims import parse_claims
+from crewborg.game_rules import COPRESENCE_DISTANCE_SQ, KILL_RANGE_SQ
+from crewborg.strategy.claims import ClaimStance, parse_claims
 
 EvidenceStatus = Literal["active", "ignored"]
-ClaimStance = Literal["accuse", "defend", "at_least_one"]
 
-COPRESENCE_DISTANCE_SQ = 28**2
 VICTIM_ABSENCE_TICKS = 3
 _WITH_ME = re.compile(r"\bwith\s+me\b", re.IGNORECASE)
 
@@ -64,7 +63,7 @@ class InferenceConfig:
     sighting_weight: float = 0.85
     claimed_vote_weight: float = 0.50
     relay_weight: float = 0.45
-    kill_range_sq: int = 20**2
+    kill_range_sq: int = KILL_RANGE_SQ
 
 
 @dataclass(frozen=True)

@@ -18,6 +18,7 @@ from crewborg.deduction.model import (
     VoteObserved,
     WorldObserved,
 )
+from crewborg.game_rules import VENT_WALK_MARGIN, effective_imposter_count
 from crewborg.perception.entities import SKIP_VOTE_TARGET
 from crewborg.strategy.occupancy import (
     players_in_rect,
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from crewborg.types import Belief, Percept
 
 
-def update_deduction_history(belief: "Belief", percept: "Percept") -> None:
+def update_deduction_history(belief: Belief, percept: Percept) -> None:
     """Append every newly observed solver-relevant fact exactly once."""
 
     resolved = percept.resolved
@@ -72,7 +73,7 @@ def update_deduction_history(belief: "Belief", percept: "Percept") -> None:
                                     vent.y,
                                     vent.w,
                                     vent.h,
-                                    margin=3,
+                                    margin=VENT_WALK_MARGIN,
                                 )
                             )
                         ),
@@ -87,30 +88,25 @@ def update_deduction_history(belief: "Belief", percept: "Percept") -> None:
                         vent.y,
                         vent.w,
                         vent.h,
-                        margin=3,
+                        margin=VENT_WALK_MARGIN,
                     )
                 ),
             ),
         )
 
-    if resolved.crew_tasks_remaining is not None:
-        previous = next(
-            (
-                event.remaining
-                for event in reversed(belief.deduction_events)
-                if isinstance(event, TaskCounterObserved)
+    if (
+        resolved.crew_tasks_remaining is not None
+        and resolved.crew_tasks_remaining != belief.deduction_last_tasks_remaining
+    ):
+        belief.deduction_last_tasks_remaining = resolved.crew_tasks_remaining
+        _append(
+            belief,
+            TaskCounterObserved(
+                event_id=f"task_counter:{percept.tick}:{resolved.crew_tasks_remaining}",
+                tick=percept.tick,
+                remaining=resolved.crew_tasks_remaining,
             ),
-            None,
         )
-        if previous != resolved.crew_tasks_remaining:
-            _append(
-                belief,
-                TaskCounterObserved(
-                    event_id=f"task_counter:{percept.tick}:{resolved.crew_tasks_remaining}",
-                    tick=percept.tick,
-                    remaining=resolved.crew_tasks_remaining,
-                ),
-            )
 
     if belief.phase == "Voting":
         meeting_id = belief.phase_start_tick
@@ -178,7 +174,7 @@ def update_deduction_history(belief: "Belief", percept: "Percept") -> None:
         )
 
 
-def history_from_belief(belief: "Belief") -> DeductionHistory | None:
+def history_from_belief(belief: Belief) -> DeductionHistory | None:
     self_color = belief.self_color or belief.voting.self_marker_color
     if (
         self_color is None
@@ -189,8 +185,7 @@ def history_from_belief(belief: "Belief") -> DeductionHistory | None:
     players = tuple(sorted(set(belief.roster) | {self_color}))
     count = belief.imposter_count
     if count is None:
-        total = max(belief.total_player_count, len(players))
-        count = 0 if total < 5 else max(0, min((total - 3) // 2, total - 1))
+        count = effective_imposter_count(max(belief.total_player_count, len(players)))
     return DeductionHistory(
         game=GameSpec(
             players=players,
@@ -209,11 +204,13 @@ def history_from_belief(belief: "Belief") -> DeductionHistory | None:
     )
 
 
-def _append(belief: "Belief", event: DeductionEvent) -> None:
+def _append(belief: Belief, event: DeductionEvent) -> None:
     if isinstance(event, WorldObserved):
-        if event.tick in belief.deduction_world_ticks:
+        # One frame per tick in tick order, so the previous tick is the whole dedup
+        # key -- no per-frame id string and no set that grows with the episode.
+        if event.tick == belief.deduction_last_world_tick:
             return
-        belief.deduction_world_ticks.add(event.tick)
+        belief.deduction_last_world_tick = event.tick
         belief.deduction_events.append(event)
         return
     if event.event_id in belief.deduction_event_ids:

@@ -134,10 +134,3 @@ class DeductionHistory(BaseModel):
 
     game: GameSpec
     events: tuple[DeductionEvent, ...] = ()
-
-    def through(self, tick: int) -> "DeductionHistory":
-        return self.model_copy(
-            update={
-                "events": tuple(event for event in self.events if event.tick <= tick)
-            }
-        )

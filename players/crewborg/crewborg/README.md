@@ -38,7 +38,7 @@ ACTION LAYER (executor)    Intent → wire Command, stateful over ticks   action
 Every tick the SDK runs one fold (`build_runtime` in `__init__.py` wires it):
 
 ```
-perceive → update_belief (+ agent_tracking + event_log + social_evidence + suspicion)
+perceive → update_belief (+ agent_tracking + ONE crew brain: deduction | fitted)
         → strategy picks mode → mode.decide → resolve_action → wire Command
 ```
 
@@ -68,11 +68,21 @@ crewborg/              package crewborg
   nav.py / navbake.py  pixel-validated A* nav graph over the walkability mask (+ vent-teleport edges)
   perception/          Sprite-v1 scene decoder → resolved (label, world-x/y) entities
   map/                 vendored croatoan.resources + ported parser/bake + the prebaked nav asset
+  game_rules.py        Crewrift's own rules (kill range, imposter count) — the facts BOTH
+                         crew brains must agree about; imports nothing from crewborg
+  envflags.py          the CREWBORG_* env boundary: one definition of "on"
   modes/               behavioral stances —
                          crew:     normal · attend_meeting · report_body · accuse
+                                   · self_preservation (retained, default-off)
                          imposter: search · recon · hunt · evade   (+ idle, imposter_common)
-  strategy/            rule_based.py (mode selector) · suspicion.py (Bayesian P(imposter))
-                         · social_evidence.py (vote/chat evidence) · event_log.py (per-player log)
+  deduction/           CREW BRAIN A (CREWBORG_DEDUCTION_HISTORY=1, crew only) —
+                         model.py (frozen observation ledger) · collector.py (the one impure
+                         step: append) · claims.py (chat → claims) · inference.py (assignment
+                         table → posterior) · decision.py (board policy) · config.py (gates)
+                         · synthetic.py (offline drills).  Pure after the append.
+  strategy/            CREW BRAIN B (default) + the mode selector —
+                         rule_based.py (mode selector) · suspicion.py (fitted P(imposter))
+                         · social_evidence.py (vote/chat counters) · event_log.py (per-player log)
                          · occupancy.py · opportunity.py · trajectory.py · path_prediction.py
   strategy/meeting/    the LLM meeting chat/vote path (+ spaCy chat parsing) — GATED, off by default
   strategy/commander/  the LLM gameplay commander (biases belief priorities) — GATED, off by default
@@ -160,7 +170,8 @@ The cognitive stack is one-responsibility-per-file. Common edits and where they 
 |---|---|---|
 | Imposter **victim choice / kill timing** | `modes/hunt.py`, `strategy/opportunity.py`, `strategy/trajectory.py` | `tests/test_imposter_modes.py`, `tests/test_opportunity.py` |
 | Imposter **seeking** (room watch / follow) | `modes/search.py`, `modes/recon.py`, `strategy/path_prediction.py` | `tests/test_search_mode.py`, `tests/test_recon_mode.py`, `tests/test_path_prediction.py` |
-| Crewmate **who we suspect / vote / accuse** | `strategy/suspicion.py`, `strategy/social_evidence.py`, `modes/accuse.py`, `modes/attend_meeting.py` | `tests/test_suspicion.py`, `tests/test_accusation.py` |
+| Crewmate **who we suspect / vote / accuse** — DEFAULT (fitted) brain | `strategy/suspicion.py`, `strategy/social_evidence.py`, `modes/accuse.py`, `modes/attend_meeting.py` | `tests/test_suspicion.py`, `tests/test_accusation.py` |
+| Crewmate **who we suspect / vote** — DEDUCTION brain (`CREWBORG_DEDUCTION_HISTORY=1`) | `deduction/` (see [`docs/deduction-history.md`](./docs/deduction-history.md)), `modes/attend_meeting.py` | `tests/test_deduction_history.py` |
 | **Meeting chat / LLM votes** | `strategy/meeting/` | `tests/test_meeting_llm.py`, `tests/test_imposter_meeting.py` |
 | **Which mode is selected** (the rules) | `strategy/rule_based.py` | `tests/test_strategy.py` |
 | **How movement / buttons execute** | `action.py` | `tests/test_action.py` |

@@ -148,11 +148,22 @@ def test_two_meetings_accumulate() -> None:
 
 
 def test_global_task_decrement_does_not_identify_another_player() -> None:
+    """A global task decrement never credits a visible player with a completion.
+
+    The runtime detector that tried was removed (392/550 inferred completers were
+    wrong), so the served feature is pinned at zero even though the fitted weights
+    were trained on a real value. Asserted on the feature vector rather than on a
+    counter, because there is no longer a counter to hold it.
+    """
+
+    from crewborg.strategy.suspicion import _fitted_features
+
     belief = _belief(last_tick=1000)
     belief.crew_tasks_remaining = 39
     belief.roster["green"].last_seen_tick = 1000
     update_social_evidence(belief)
-    assert belief.roster["green"].tasks_completed_watched == 0
+    features = _fitted_features(belief, belief.roster["green"])
+    assert features["tasks_completed_watched"] == 0.0
 
 
 # --- meeting caller (MeetingCall interstitial, game 4b9297d) ---------------------

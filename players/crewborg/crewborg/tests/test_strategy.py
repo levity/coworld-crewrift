@@ -351,3 +351,23 @@ def test_imposter_pretends_when_only_a_teammate_is_visible() -> None:
     belief = _imposter_with_visible_target(self_kill_ready=True)
     belief.teammate_colors = {"red"}  # the visible target is red (see helper)
     assert _select(belief) == "search"
+
+
+def test_deduction_brain_disables_accuse_because_suspicion_is_cleared() -> None:
+    """Pin the biggest undocumented consequence of the deduction fork.
+
+    ``fold_belief`` clears ``belief.suspicion`` for a crewmate under
+    ``CREWBORG_DEDUCTION_HISTORY=1``, and ``active_tail_suspect`` reads exactly that
+    dict, so selector priority 3 (Accuse -> spend the emergency button) can never
+    fire in the candidate arm. The 2026-07-25 A/B bundles that loss with the new
+    meeting policy, so if this test ever fails the arm's meaning has changed and
+    the experiment record needs revisiting.
+    """
+
+    tailed = _crewmate_being_tailed(tick=40, p=0.7)
+    assert _select(tailed) == "accuse", "sanity: the fitted arm does accuse"
+
+    # Exactly what fold_belief does when the deduction brain is chosen.
+    tailed.suspicion.clear()
+    tailed.believed_imposters.clear()
+    assert _select(tailed) == "normal"

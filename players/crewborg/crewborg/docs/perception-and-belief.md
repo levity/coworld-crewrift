@@ -36,8 +36,10 @@ covers what crewborg *does* with that wire format.
        ▼
   ┌─────────────────────────────────────────────────────────────┐
   │ fold_belief(belief, percept)                                 │  __init__.py
-  │   update_belief → update_agent_tracking → update_event_log   │  types.py + strategy/
-  │     → update_social_evidence → update_suspicion              │
+  │   update_belief → update_agent_tracking                      │  types.py
+  │   then ONE crew brain, never both:                           │
+  │     deduction:  update_deduction_history                     │  deduction/
+  │     fitted:     event_log → social_evidence → suspicion      │  strategy/
   └─────────────────────────────────────────────────────────────┘
        │  Belief  (the ONLY interface strategy/modes/action see)
        ▼
@@ -272,10 +274,21 @@ runs once per tick, right after `perceive` and before the strategy/modes:
 fold_belief(belief, percept):          # __init__.py
     update_belief(belief, percept)     # types.py        — perception → belief
     update_agent_tracking(belief)      # agent_tracking.py — spatial location belief
-    update_event_log(belief)           # strategy/event_log.py
-    update_social_evidence(belief)     # strategy/social_evidence.py
-    update_suspicion(belief)           # strategy/suspicion.py
+
+    # Then exactly ONE of crewborg's two crew brains (the fork is made only here):
+    if CREWBORG_DEDUCTION_HISTORY and role == crewmate:
+        update_deduction_history(belief, percept)   # deduction/collector.py
+        belief.suspicion.clear()                   # and believed_imposters
+    else:
+        update_event_log(belief)           # strategy/event_log.py
+        update_social_evidence(belief)     # strategy/social_evidence.py
+        update_suspicion(belief)           # strategy/suspicion.py
 ```
+
+The deduction arm appends *observations* and derives everything at meeting time;
+the fitted arm accumulates *conclusions* every tick. Clearing `suspicion` in the
+first arm also disables Accuse and escort suspect-avoidance — see the `fold_belief`
+docstring for why that matters when reading an A/B.
 
 Each step reads the belief the previous step left and mutates it in place. The
 ordering matters: `update_belief` lays down the current roster / bodies / tape /
@@ -420,11 +433,14 @@ before trusting a transition.
   from the resolved scene.
 - `chat_log: list[ChatEvent]` — meeting chat, de-duplicated by `(speaker, text)`
   and cleared when a new meeting opens.
-- `social_claims: list[SocialClaim]` + `meeting_history: list[MeetingRecord]` —
-  episode-persistent relational memory for the opt-in solver. Claims preserve
-  meeting, current speaker, attributed source, direct/relayed provenance, target
-  set, stance, text, and evidence kind; meeting records preserve caller, public
-  voter-to-target edges, and the ejection.
+- `deduction_events: list[DeductionEvent]` — the append-only observation ledger for
+  the deduction brain (`CREWBORG_DEDUCTION_HISTORY`), plus `deduction_event_ids` and
+  the two `deduction_last_*` scalars that make the per-tick append idempotent and
+  O(1). Observations only: claims and suspicion are *derived* each solve and are
+  never stored here. See [`./deduction-history.md`](./deduction-history.md).
+  (The solver-era `social_claims` / `meeting_history` ledgers this section used to
+  document were removed in `29b1e42`; nothing read them once the legacy crew solver
+  was deleted.)
 - `teammate_colors` — imposter teammates from the role-reveal icons, so the
   imposter never targets a teammate (see [`./imposter-play.md`](./imposter-play.md)).
 - the **imposter kill-cooldown timing** fields — `last_kill_tick`,

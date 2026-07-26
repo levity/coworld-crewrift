@@ -20,6 +20,7 @@ point" routine that follows the baked nav route (design §9):
 
 from __future__ import annotations
 
+from crewborg.game_rules import KILL_RANGE_SQ, VENT_RANGE_SQ
 from crewborg.nav import plan_route, plan_route_via_vents
 from crewborg.types import ActionState, Belief, Command, Intent
 
@@ -69,10 +70,6 @@ REPORT_MARGIN_SQ = 144
 # the boundary — even a large localization error can't then strand us out of range.
 REPORT_CLOSE_SQ = 36
 REPORT_REPOSITION_TICKS = 24
-# Kill fires within KillRange = 20px (dist² ≤ 400); vent within VentRange = 16px
-# (dist² ≤ 256) (sim.nim).
-KILL_RANGE_SQ = 400
-VENT_RANGE_SQ = 256
 
 
 def encode_chat(text: str) -> bytes:
