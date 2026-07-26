@@ -120,4 +120,63 @@ either arm.
 
 ## Result
 
-*(pending)*
+Both arms drained 100/100, 0 failed, 0 operational timeouts, 0 vote timeouts.
+Warehouse 200/200 ok, **0 trace_warning**.
+
+**The pre-registered primary did NOT hit.** Landed targeted-vote coverage moved
+14.2 % -> 16.6 % against a predicted ~22 %; Fisher `p = 0.308`. The offline held-out
+estimate (21.8 %) overshot what the change produced in play.
+
+**The co-primary guard passed.** Landed vote precision 100.0 % -> 98.9 % (91/92, one
+wrong eject), far above the 90 % block. `p = 1.000`.
+
+**The secondary is where the effect landed.**
+
+| | control | candidate | test |
+|---|---:|---:|---|
+| meetings | 130 | 141 | — |
+| **impostor ejections** | **2** | **14** | Fisher **`p = 0.0036`** |
+| crew ejections | 0 | 0 | — |
+| crew win | 47 % | 62 % | `p = 0.047`, +15.0 pp [+1.4, +28.6] |
+| win by ejection / maxTicks | 1 % | 6 % | — |
+| crew tasks/game (of 48) | 44.11 | 45.23 | — |
+| impostor kills/game | 3.42 | 3.29 | — |
+
+This is the first time the ejection channel has moved in any of these experiments;
+Phase 0 was 3 vs 3, unchanged. Win rate was pre-registered as a **guard, not a
+promotion criterion**, and at `p = 0.047` with n=100 it should not carry the decision —
+but unlike Phase 0 it is now accompanied by the mechanism moving.
+
+**The flag demonstrably took effect.** Evidence-class mix went from 99.3 % structural
+(control: 270 structural, 2 accusation-backed) to 82.8 % (candidate: 227 structural,
+36 accusation-backed, 11 unsupported) — 47 non-structural ejects versus 2.
+
+### Methodological result worth keeping
+
+The **tally simulation predicted 13 impostor ejections per 100 games; the actual was
+14.** The coverage estimate, by contrast, overshot by roughly 3x. On this one
+comparison the tally simulation was the better-calibrated instrument and it is also
+the cheaper one. Worth re-testing next time rather than assuming.
+
+### Panel (28 signals, both arms)
+
+Notable movements, none of which the gate touches directly:
+
+- `parity_vote_shift` **9.5 -> 40.6 pp**. The candidate now shifts its targeted-vote
+  rate sharply as the board tightens. Read as a side effect: dropping the support
+  requirement lets the existing parity logic express itself, rather than a designed win.
+- `died_while_isolated` 36.3 % -> 28.3 %, `isolation_exposure` 115.4 -> 96.2. The gate
+  touches no movement code, so this is almost certainly downstream of removing
+  impostors earlier.
+- `posterior_auc` 0.801 -> 0.780. The inference machinery is unchanged; treat as
+  game-trajectory drift, not a belief-quality regression.
+
+### Verdict
+
+The change did what it was designed to do, through a smaller coverage shift than
+predicted and a much larger conversion into ejections. Guardrails clean. **Promote the
+`loose` preset within the deduction path.**
+
+Not established: everything here is forced-crew on one pinned roster against
+`crewborg-aaln`. Impostor play is untested, and the league runs a different coworld
+(`cow_191cc191`) than these tests (`cow_0ba5e866`).
