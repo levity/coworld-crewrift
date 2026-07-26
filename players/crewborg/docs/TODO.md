@@ -50,11 +50,22 @@ reads:
 - the `MeetingRecord` model and `Belief.meeting_history` field (`crewborg/types.py:284`, `:430`)
 - the ejection back-fill loop at `crewborg/types.py:749-752`
 
-The single surviving live read is `belief.meeting_history[-1].meeting_id` at
-`social_evidence.py:413`, used to stamp `social_claims` — which
-`strategy/meeting/vote_policy.py:167` genuinely consumes behind `CREWBORG_VOTE_POLICY`.
-So replace the list with a scalar `Belief.last_meeting_id: int | None` set alongside
-`phase_start_tick`, and delete the rest (~45 lines).
+**Provenance:** `MeetingRecord`, `Belief.meeting_history` and `_track_solver_meeting`
+were all introduced by `824eea7` ("add persistent joint meeting inference") — the same
+commit that added `strategy/meeting/solver.py`. `git log -S meeting_history` returns
+solver commits and nothing else, so this structure never had a consumer other than the
+solver, and became write-only the moment it was deleted.
+
+**The fix is smaller than it looks.** `meeting_id` is *always* `belief.phase_start_tick`
+(`social_evidence.py:464` assigns it that way), so the surviving read is not fetching
+anything derived. Its only job is at `social_evidence.py:412`: when chat is parsed
+*outside* the Voting phase, `phase_start_tick` has already moved on to the current
+phase, so it reaches back for the previous meeting's id to keep the attribution right.
+`vote_policy.py:161` needs no such thing — it runs during Voting and just uses
+`belief.phase_start_tick` directly.
+
+So: add a scalar `Belief.last_meeting_id: int | None`, set it when a Voting phase
+begins, use it for that one out-of-phase lookup, and delete the rest (~45 lines).
 
 Note `deduction/inference.py:468` reads `MeetingObserved.call_kind` — a **different**
 type in the deduction package. Do not remove that.
