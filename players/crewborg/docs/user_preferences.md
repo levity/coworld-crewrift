@@ -62,3 +62,10 @@ them here as they come up._
   useful for download-heavy streaming, while sustained full-tick replay expansion
   saturated both CPUs and exceeded load 3 with three workers; use two for that stage.
   Avoid both the previous 16-worker overload and an unnecessarily serial pipeline.
+
+- **Tag every upload, and log it** (Lawrence, 2026-07-26). Uploads go through
+  `skills/build-and-upload/scripts/upload_and_log.py` so the tags, the `--secret-env` set
+  and the `version_log.md` row are written together. Prompted by `crewborg-lw:v18`
+  reaching league champion with no tags and no log row, after which its configuration
+  could only be recovered by a hosted probe. Losing track of what we just shipped is not
+  acceptable.

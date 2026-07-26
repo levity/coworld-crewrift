@@ -130,6 +130,14 @@ Gate-1 local smoke (mixed Prime roster, 2 episodes):
 - **`crewrift-analysis/fetch.sh` passes `--no-logs`, which also suppresses policy
   artifacts.** An empty `policy_artifacts: []` therefore means *your fetch flag*, not a
   version that lacks telemetry. Re-fetch without it when you need traces.
+- **League/tournament episodes carry NO results and NO policy artifacts** — measured
+  2026-07-26 on episodes two minutes old and again on freshly created ones
+  (`results: false`, `policy_artifacts: []`, "no policy logs listed for job"). This is
+  not expiry and not lag, and it supersedes the older "league artifacts are ephemeral
+  (~one round) — harvest promptly" advice elsewhere: harvesting promptly does not help.
+  The only league signal is `episode.json -> policy_results` (per-seat policy, version,
+  reward). To explain a version's behaviour you must fire your own experience request —
+  which is exactly what recovering `crewborg-lw:v18`'s config required.
 - **`xp_py` / `wh_py` are shell functions**, so `timeout xp_py …` fails with "command
   not found". Call them directly, or wrap the inner python.
 - `fetch_artifacts -n` defaults to 10 and caps the TOTAL across multiple `--xreq` —

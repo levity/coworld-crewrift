@@ -9,6 +9,30 @@ This is *not* a log or archive: finished work lives in git history / the
 
 ---
 
+## League state (2026-07-26) — what the champion actually runs
+
+**`crewborg-lw:v18` is the current champion** (Competition division, rank 7, score 1580);
+`v17` also competes. Its configuration was NOT recorded at upload and was recovered by
+forensics on 2026-07-26:
+
+    CREWBORG_DEDUCTION_HISTORY=1  +  CREWBORG_DECISION_GATE=loose  +  CREWBORG_SPEAKER_TRUST=on
+
+Speaker trust is ON deliberately: it was turned on in response to the mixed-field result
+of `v17`, our first league submission. It is not an unproven lever awaiting a decision.
+`structural-only` is the *blunt alternative* to speaker trust for the same problem (both
+respond to the 60-league-episode finding that non-structural ejects are ~random against
+foreign policies) — not a complement, and trusted per Lawrence but not the direction.
+
+The recovery cost a 6-episode probe (`xreq_89cb9d25`) because v18 was uploaded untagged
+and unlogged, and league episodes carry no policy artifacts to fall back on (verified:
+`results: false`, 0 artifacts, on episodes two minutes old — not expiry). Procedures are now mechanical: see
+`skills/build-and-upload/scripts/upload_and_log.py`, `docs/best_practices.md`
+§Provenance, and the rewritten `crewborg/version_log.md` header. **The bare `vN` rows at
+the bottom of version_log.md are a different policy line and are not our builds.**
+
+**Next submission is `crewborg-lw:v20`** (v19 exists, inert), to carry
+`CREWBORG_KILL_WINDOW` on top of v18's config.
+
 ## Current update (2026-07-26, `/simplify`: the two crew brains are now separated in the tree)
 
 Active branch/worktree: `crewborg-brain-separation` at
