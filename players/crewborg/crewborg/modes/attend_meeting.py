@@ -33,7 +33,8 @@ from crewborg.strategy.meeting.imposter import (
     parity_closing_vote_target,
     votes_against,
 )
-from crewborg.strategy.meeting import chat_nlp, chat_read
+from crewborg import nlp as chat_nlp
+from crewborg.strategy.meeting import chat_read
 from crewborg.strategy.suspicion import chat_suspect, top_suspect
 from crewborg.types import ActionState, Belief, ChatEvent, Intent
 from players.player_sdk import EmptyModeParams, Mode

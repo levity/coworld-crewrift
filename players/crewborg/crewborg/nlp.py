@@ -1,4 +1,8 @@
-"""spaCy lifecycle for meeting chat parsing (design §10.5).
+"""spaCy model lifecycle for chat claim parsing (design §10.5).
+
+Lives at the top level, not under `strategy/meeting/`, because BOTH roles parse the
+same utterances through `strategy.claims`: importing it from the crew deduction path
+must not drag in the LLM meeting package.
 
 Loading ``en_core_web_sm`` costs ~0.5 s on a full core — and ~1.5–2 s under the
 hosted ¼-core cap, ~40 frames. So we **never** load it on the gameplay hot path:

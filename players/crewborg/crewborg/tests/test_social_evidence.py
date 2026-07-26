@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import pytest
 
+from crewborg import nlp as chat_nlp
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
+from crewborg.strategy.claims import parse_claims
 from crewborg.strategy.social_evidence import (
     SKIP_VOTE_TARGET,
-    parse_social_claims,
     update_social_evidence,
 )
 from crewborg.types import Belief, ChatEvent, PlayerRecord
@@ -19,13 +20,31 @@ from crewborg.types import Belief, ChatEvent, PlayerRecord
 _SOLVER_COLORS = {"red", "blue", "green", "yellow", "orange", "pink", "purple", "cyan"}
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _nlp_model():
+    """The counters read `strategy.claims`, which needs the real model.
+
+    Autouse and module-scoped: every stance assertion in this file now goes through
+    the one shared parser, so there is no keyword path left to test without it.
+    """
+
+    import spacy
+
+    saved = chat_nlp._model
+    chat_nlp._model = spacy.load("en_core_web_sm", disable=["ner"])
+    yield chat_nlp._model
+    chat_nlp._model = saved
+
+
 def _accused(text: str, speaker: str = "blue") -> set[str]:
     return {
         target
-        for claim in parse_social_claims(
-            ChatEvent(tick=1, speaker_color=speaker, text=text),
-            meeting_id=0,
+        for claim in parse_claims(
+            text,
+            speaker_color=speaker,
             colors=_SOLVER_COLORS,
+            meeting_id=0,
+            tick=1,
         )
         if claim.stance in ("accuse", "at_least_one")
         for target in claim.targets

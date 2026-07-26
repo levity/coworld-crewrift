@@ -38,7 +38,7 @@ from crewborg.strategy.commander.llm import build_commander_client_from_env, com
 from crewborg.strategy.commander.strategy import CommanderStrategy, apply_commander_inferences
 from crewborg.strategy.commander.trace import CommanderTrace
 from crewborg.strategy.commander.worker import CommanderWorker
-from crewborg.strategy.meeting import chat_nlp
+from crewborg import nlp as chat_nlp
 from crewborg.types import (
     ActionState,
     Belief,
