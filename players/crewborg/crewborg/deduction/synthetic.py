@@ -10,7 +10,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from crewborg.deduction.decision import DecisionConfig, decide
+from crewborg.deduction.decision import DecisionConfig, decide_from_inference
 from crewborg.deduction.inference import InferenceConfig, infer
 from crewborg.deduction.model import (
     DeathObserved,
@@ -235,10 +235,12 @@ def evaluate_synthetic(
             if isinstance(event, DeathObserved) and event.source in {"body", "census"}
         }
         murder_clear_failures += sum(result.marginal(color) > 0.0 for color in murdered)
-        decision = decide(
+        # Reuse the posterior just computed: `decide` would re-run `infer` on the
+        # same history and config, exactly doubling the dominant cost per game.
+        decision = decide_from_inference(
             game.history,
+            result,
             live_targets=game.live_targets,
-            inference_config=inference_config,
             decision_config=decision_config,
         )
         if decision.action == "eject" and decision.target is not None:

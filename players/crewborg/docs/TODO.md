@@ -70,47 +70,104 @@ wires it in as selector step 4 and calls `self_preservation_enabled()` every tic
 every crewmate. Its gate is `CREWBORG_SELF_PRESERVATION and deduction_history_enabled()`,
 so it was built to layer on top of the deduction path.
 
-### Retire the now write-only meeting ledger (2026-07-26)
+### ~~Retire the now write-only meeting ledger~~ — DONE (2026-07-26, `29b1e42`)
 
-Surfaced by `/simplify` after the legacy solver removal and deliberately **not** done
-in that change, because it touches live per-tick belief code that the removal itself
-did not, and it deserves its own verification rather than riding along at the end of a
-refactor.
+`MeetingRecord`, `Belief.meeting_history`, `Belief.social_claims`,
+`solver_counted_chats` and `_track_solver_meeting` are all gone; grep confirms no
+readers remain. The proposed `Belief.last_meeting_id` scalar turned out to be
+unnecessary: `_track_meeting_votes` already carries the previous meeting's tick in
+`social_staged_meeting_tick`, and `_count_chat_stances` keys on
+`(tick, speaker, text)` and never needed a meeting id at all. Kept here only as the
+record that the write-only ledger question is closed.
 
-`Belief.meeting_history` is now write-only. `MeetingRecord.caller_color`, `.call_kind`,
-`.votes` and `.ejected_color` have **zero** production readers since
-`strategy/meeting/solver.py` (which consumed them as `SolverEvidence.meetings`) was
-deleted — verified by grep. What still runs every tick to maintain a record nothing
-reads:
+### Deferred by the 2026-07-26 `/simplify` pass — measurement-tool duplication
 
-- `strategy/social_evidence.py:459` `_track_solver_meeting` and its call at `:77`,
-  including the slot→colour vote-tally reconstruction at `:480-486`
-- the `MeetingRecord` model and `Belief.meeting_history` field (`crewborg/types.py:284`, `:430`)
-- the ejection back-fill loop at `crewborg/types.py:749-752`
+Left undone **on purpose**: these are the instruments the optimisation loop is
+measured with, and rewriting them without the warehouse data on hand risks
+silently changing a number rather than a behaviour. Each wants its own change with
+a before/after on the same episodes.
 
-**Provenance:** `MeetingRecord`, `Belief.meeting_history` and `_track_solver_meeting`
-were all introduced by `824eea7` ("add persistent joint meeting inference") — the same
-commit that added `strategy/meeting/solver.py`. `git log -S meeting_history` returns
-solver commits and nothing else, so this structure never had a consumer other than the
-solver, and became write-only the moment it was deleted.
+1. **One hosted-decision loader.** `tools/decision_quality.py`, `sweep_decision_gate.py`
+   and `simulate_tally.py` each walk `<ep>/results.json` + `artifacts/*.zip` +
+   `telemetry.jsonl` and each define their own slot→colour tuple; the two sweep tools
+   additionally re-derive `_required()` and the whole eject gate. **The forks drop
+   production's `has_accusation` and `has_evidence` conditions**, so a preset promoted
+   on sweep evidence was scored by a gate that is not the shipped gate. (For the
+   currently shipped `loose` preset `require_support=False` collapses the difference,
+   so the headline arm is unaffected.) Extract `load_decision_rows(root)` plus a single
+   gate function, or better, rebuild an `InferenceResult` from the recorded
+   `factor_table` and call `decide_from_inference` itself.
+2. **`_evaluate_warehouse` is one 338-line function** (`tools/evaluate_deduction.py:180`)
+   doing reconstruction, scoring, calibration and sampling in one nested loop, which is
+   why the reconstruction is not reusable and (1) exists.
+3. **Four copies of the same four metrics** (`top_target_accuracy`,
+   `true_pair_top_accuracy`, `vote_coverage`, `vote_precision`) across
+   `deduction/synthetic.py`, `evaluate_deduction.py` (twice) and
+   `analyze_deduction_synthetic.py` — and they already differ subtly: `_evaluate_jsonl`
+   counts games where the others count meetings. These numbers get quoted against each
+   other in experiment records.
+4. **Cheap offline wins, measured:** `synthetic.py:214` and `evaluate_deduction.py:150`
+   call `infer()` then `decide()`, and `decide()` re-runs `infer()` — exactly 2× the
+   dominant cost, paid 1000× by the documented `--games 1000` command; use
+   `decide_from_inference`. `sweep_decision_gate.py` re-sorts every row's marginals for
+   each of 55 grid points though the ranking is config-independent (~54× redundant).
+   `analyze_deduction_synthetic.py` rebuilds `_meeting_snapshots` inside the variant
+   loop (4× redundant).
+5. **Warehouse accessors already shipped** by `crewrift_event_warehouse.suss`:
+   `evaluate_deduction.py:648 _event_glob` is byte-identical to `suss._events_glob`, and
+   its colour-map / slot-identity queries duplicate `suss.episode_color_maps` and
+   `suss.slot_identity`.
 
-**The fix is smaller than it looks.** `meeting_id` is *always* `belief.phase_start_tick`
-(`social_evidence.py:464` assigns it that way), so the surviving read is not fetching
-anything derived. Its only job is at `social_evidence.py:412`: when chat is parsed
-*outside* the Voting phase, `phase_start_tick` has already moved on to the current
-phase, so it reaches back for the previous meeting's id to keep the attribution right.
-`vote_policy.py:161` needs no such thing — it runs during Voting and just uses
-`belief.phase_start_tick` directly.
+### Deferred by the same pass — correctness-adjacent, needs a decision not a cleanup
 
-So: add a scalar `Belief.last_meeting_id: int | None`, set it when a Voting phase
-begins, use it for that one out-of-phase lookup, and delete the rest (~45 lines).
+These change behaviour, so they are **not** cleanup. Each is stated with the evidence
+that makes it suspicious.
 
-Note `deduction/inference.py:468` reads `MeetingObserved.call_kind` — a **different**
-type in the deduction package. Do not remove that.
+- **`ActionState.report_ticks` counts the wrong thing.** It is documented and
+  implemented as "consecutive ticks the report *intent* has been resolved", so it
+  increments while merely walking to the body, but both consumers treat it as *failed
+  presses*: `REPORT_REPOSITION_TICKS=24` tightens the press margin and
+  `REPORT_TIMEOUT_TICKS=120` abandons the body. A body across the map takes well over
+  120 ticks to walk to, so it can be abandoned before a single press — the opposite of
+  the edge-park freeze this was added to fix. Increment inside the in-range press
+  branch instead.
+- **`DEDUCTION_EARLY_CHAT_TICKS = 240` is an absolute age** in the same branch that
+  learned the meeting length from GameInfo. Hosted advertises `VOTE TIMER 1200T`, but
+  the no-GameInfo fallback is 240 and auto-submit fires at 48 remaining (age 192), so on
+  any server without the interstitial the documented tick-240 provisional-chat channel
+  **never fires**. Express it in `_remaining_ticks` terms like
+  `DEADLINE_LLM_REMAINING_TICKS`, or as a fraction of `effective_vote_timer_ticks`.
+- **Intent `reason` prose is load-bearing.** `modes/normal.py:_revalidate_group_target`
+  branches on `current_reason.startswith("group-aware tasking:")` and `events.py`
+  classifies the self-preservation stage by `intent.reason.startswith("self preservation
+  (safe distance)")`. Editing a human-readable string for clarity silently changes
+  behaviour in one place and drops a metric in the other. `Intent` should carry a
+  structured tag alongside the prose.
+- **Three `NormalMode` instances.** `modes/report_body.py` and
+  `modes/self_preservation.py` each construct their own private `NormalMode()`
+  delegate, so tasking latches (`_target`, `_max_progress`, `_swept`) live on shadow
+  objects, and with `CREWBORG_SELF_PRESERVATION=1` the *registered* `NormalMode` is
+  never selected at all. Delegates are also never wired by the registry, so they get no
+  `emit` and no `on_enter` — latent today because `NormalMode` emits nothing.
+- **Restoring Accuse under the deduction brain.** See `docs/deduction-history.md`
+  "What the flag also switches off". Decomposing the 2026-07-25 A/B needs the fitted
+  arm with Accuse disabled, which is the one-flag test `HANDOFF.md` already names.
+- **`tasks_completed_watched` train/serve skew.** The fitted weights were trained with
+  a real value for this feature (the strongest single weight at -10.8) but it is served
+  as a hardcoded `0.0`, because the runtime detector that produced it was removed after
+  replay showed 392/550 inferred completers were wrong. A zeroed strong-negative
+  feature is a candidate explanation for that path's measured AUC of 0.355 and is worth
+  checking before any further work on the fitted model.
 
-If `CREWBORG_VOTE_POLICY` is also retired (it was rejected — see
-`~/.claude/.../crewborg-vote-policy-rejected`), then `social_claims` and
-`solver_counted_chats` become dead too and the whole social-claim ledger can go.
+### Deferred by the same pass — one measured hot-path item left alone
+
+`deduction/inference.py:_witnessed_actions` is ~83 ms of a ~113 ms solve at 20k
+frames: it rebuilds each frame's player/body/vent maps twice (every frame is built
+once as `current` and again as `previous`) and calls `sorted()` on two
+almost-always-empty sets per frame. A single forward pass carrying the previous
+frame's maps measured **31 ms vs 83 ms**. Not done here because it is the most
+correctness-sensitive function in the new brain and deserves its own change with the
+synthetic and warehouse suites re-run, not a ride-along in a cleanup pass.
 
 ### Test sustained pursuit as solver evidence (2026-07-22)
 

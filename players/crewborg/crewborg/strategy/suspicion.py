@@ -79,7 +79,12 @@ import math
 import os
 from pathlib import Path
 
-from crewborg.action import KILL_RANGE_SQ
+from crewborg.game_rules import (
+    COPRESENCE_DISTANCE_SQ,
+    KILL_RANGE_SQ,
+    VENT_WALK_MARGIN,
+    effective_imposter_count,
+)
 from crewborg.strategy.occupancy import (
     neighbors_within,
     players_in_rect,
@@ -158,9 +163,6 @@ CHAT_SUSPECT_MIN_P = 0.4
 # Clamp the prior away from 0/1 so its log-odds stays finite.
 PRIOR_MIN, PRIOR_MAX = 1e-3, 0.99
 
-# Max distance a player can walk in one tick (MaxSpeed/MotionScale = 704/256 ≈ 2.75,
-# rounded up): a player materialising inside a vent from beyond this vented.
-VENT_WALK_MARGIN = 3
 
 
 # --- fitted weights (the learned model; suspicion_lab/README.md) ----
@@ -201,8 +203,6 @@ WEIGHTS_VOTE_PROBABILITY = _env_float("CREWBORG_WEIGHTS_VOTE_P", 0.9)
 # Offline features count expander samples (one per `snapshot-every` ticks); runtime
 # durations divide by this to land in the same unit. Read from the weights file.
 DEFAULT_SAMPLE_UNIT_TICKS = 24
-# The offline copresence gate (kill_range + 8 px), mirrored on tailing_self min_dist.
-COPRESENCE_DIST_SQ = 28**2
 
 
 def _load_weights() -> dict | None:
@@ -261,7 +261,7 @@ def _fitted_features(belief: Belief, record: PlayerRecord) -> dict[str, float]:
                 near_bodies.add(event.target_color)
         elif event.kind == "tailing_self":
             tail_durations.append(event.duration_ticks)
-            if event.min_dist is not None and event.min_dist**2 <= COPRESENCE_DIST_SQ:
+            if event.min_dist is not None and event.min_dist**2 <= COPRESENCE_DISTANCE_SQ:
                 copresence_ticks += event.duration_ticks
         elif event.kind == "task":
             task_ticks += event.duration_ticks
@@ -290,7 +290,16 @@ def _fitted_features(belief: Belief, record: PlayerRecord) -> dict[str, float]:
         "observed_samples": record.seen_ticks / unit,
         # public / social counters (strategy.social_evidence; offline names differ
         # only in the observer suffix)
-        "tasks_completed_watched": float(record.tasks_completed_watched),
+        #
+        # TRAIN/SERVE SKEW, deliberately left visible: the fitted weights were
+        # trained with a real `tasks_completed_watched` (still computed offline at
+        # suspicion_lab/tools/features.py:232, and the strongest single feature at
+        # -10.8), but the runtime detector that produced it was removed after replay
+        # showed 392/550 inferred completers were wrong. The feature is held at zero
+        # rather than dropped so the served vector still matches the trained schema.
+        # A zeroed strong-negative feature is a candidate explanation for this path's
+        # measured AUC of 0.355 -- see docs/TODO.md.
+        "tasks_completed_watched": 0.0,
         "accusations_made": float(record.accusations_made),
         "times_accused": float(record.times_accused),
         "times_defended": float(record.times_defended),
@@ -354,8 +363,7 @@ def update_suspicion(belief: Belief) -> None:
 def _imposter_count(belief: Belief) -> int:
     if belief.imposter_count is not None:
         return belief.imposter_count
-    total = belief.total_player_count
-    return 0 if total < 5 else max(0, min((total - 3) // 2, total - 1))
+    return effective_imposter_count(belief.total_player_count)
 
 
 def _prior_imposter_p(belief: Belief) -> float:

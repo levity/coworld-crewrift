@@ -37,9 +37,10 @@ rather than fleeing blindly.
 
 from __future__ import annotations
 
-import os
+from players.player_sdk import Mode
 
-from crewborg.deduction.config import enabled as deduction_history_enabled
+from crewborg.deduction.config import enabled as deduction_flag_set
+from crewborg.envflags import truthy as _truthy_env
 from crewborg.modes.imposter_common import dist2, task_point
 from crewborg.modes.normal import NormalMode
 from crewborg.types import (
@@ -51,7 +52,6 @@ from crewborg.types import (
     Intent,
     PlayerRecord,
 )
-from players.player_sdk import Mode
 
 # React while a single companion sits within this radius. Larger than the 64px
 # danger radius on purpose: opening distance before the follower reaches kill
@@ -63,7 +63,7 @@ REACTION_TICKS = 12
 
 
 def enabled() -> bool:
-    return _truthy_env("CREWBORG_SELF_PRESERVATION") and deduction_history_enabled()
+    return _truthy_env("CREWBORG_SELF_PRESERVATION") and deduction_flag_set()
 
 
 class SelfPreservationMode(Mode[Belief, ActionState, Intent]):
@@ -183,7 +183,3 @@ def _matches_self_sprite(
         record.last_seen_tick == belief.last_tick
         and dist2(expected, (record.world_x, record.world_y)) <= SELF_SPRITE_MATCH_SQ
     )
-
-
-def _truthy_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}

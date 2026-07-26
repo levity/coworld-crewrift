@@ -23,9 +23,9 @@ Design choices:
 from __future__ import annotations
 
 import math
-import os
 
-from crewborg.action import KILL_RANGE_SQ
+from crewborg.envflags import truthy
+from crewborg.game_rules import KILL_RANGE_SQ
 from crewborg.types import Belief, PlayerEvent, PlayerEventKind, PlayerRecord
 
 # A player within this distance of a discovered body is logged as "near" it.
@@ -50,13 +50,7 @@ EVENT_MERGE_GRACE_TICKS = 3
 # manufacture its own evidence" idea outlives the behaviour and is worth keeping
 # legible. See the retention note in modes/normal.py.
 def _stick_active(belief: Belief) -> bool:
-    enabled = os.environ.get("CREWBORG_STICK", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    return enabled and belief.self_role == "crewmate" and belief.self_alive
+    return truthy("CREWBORG_STICK") and belief.self_role == "crewmate" and belief.self_alive
 
 
 def update_event_log(belief: Belief) -> None:
@@ -69,6 +63,7 @@ def update_event_log(belief: Belief) -> None:
     visible = [r for r in belief.roster.values() if r.last_seen_tick == tick and r.life_status != "dead"]
     if not visible:
         return
+    stick_active = _stick_active(belief)  # loop-invariant; reads the environment
 
     rooms = belief.map.rooms if belief.map is not None else ()
     tasks = belief.map.tasks if belief.map is not None else ()
@@ -107,7 +102,7 @@ def update_event_log(belief: Belief) -> None:
         # Never log it for our *own* sprite: we are trivially always at our own spot, so
         # this would make us "tail" ourselves and suspect/vote ourself.
         if (
-            not _stick_active(belief)
+            not stick_active
             and self_xy is not None
             and record.color != belief.self_color
         ):

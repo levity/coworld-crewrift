@@ -25,7 +25,7 @@ exists.
 
 from __future__ import annotations
 
-from crewborg.action import KILL_RANGE_SQ
+from crewborg.game_rules import KILL_RANGE_SQ
 from crewborg.modes import imposter_common as ic
 from crewborg.nav import plan_route
 from crewborg.strategy.commander.bias import commander_of

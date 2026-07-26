@@ -12,7 +12,6 @@ from typing import Any
 
 from crewborg.deduction.decision import (
     DecisionConfig,
-    decide,
     decide_from_inference,
 )
 from crewborg.deduction.inference import InferenceConfig, infer
@@ -160,10 +159,12 @@ def _evaluate_jsonl(
         pair_top += bool(
             result.hypotheses and set(result.hypotheses[0].imposters) == truth
         )
-        decision = decide(
+        # Reuse the posterior just computed: `decide` would re-run `infer` on the
+        # same history and config, doubling the dominant cost of every row.
+        decision = decide_from_inference(
             history,
+            result,
             live_targets=live or None,
-            inference_config=inference_config,
         )
         if decision.action == "eject" and decision.target is not None:
             votes += 1

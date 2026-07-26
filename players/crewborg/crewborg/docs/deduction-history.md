@@ -29,7 +29,10 @@ DeductionHistory
 
 `infer()` and `decide()` remain convenience wrappers around those explicit
 stages. No stage accepts `Belief`, a suspicion value, a previous solver result,
-or a cached conclusion. Rerunning after a parser or likelihood change
+or a cached conclusion — **and no stage reads the environment.** Both configs are
+the caller's; the runtime resolves `CREWBORG_DECISION_GATE` once in
+`modes/attend_meeting.py`, so an offline sweep cannot silently inherit a preset
+from the shell. Rerunning after a parser or likelihood change
 reinterprets the complete original input. A likelihood-only sweep can reuse an
 assignment table; evidence-weight or correlation changes rerun the cheap
 derivation stage from exact history.
@@ -42,6 +45,37 @@ For a crewmate with the flag enabled, the runtime:
 - does not run the legacy player event log, alibi accumulator, social counters,
   or suspicion model; and
 - routes crew meetings around both the meeting LLM and old solver.
+
+### What the flag also switches off
+
+Clearing `belief.suspicion` is not only bookkeeping: three shipped crewmate
+behaviours read that dict and therefore go inert in this arm. Two of them are
+easy to miss when reading an A/B result.
+
+| Behaviour | Site | Effect with the flag on |
+|---|---|---|
+| **Accuse** (selector priority 3) | `modes/accuse.py`, `strategy/rule_based.py` | Never fires; the one emergency-button call is never spent. In the 2026-07-25 A/B the fitted arm pressed the button **80 times in 40 games**, abandoning a task each time, so this is the leading explanation for that arm's +21pp — bundled with the new meeting policy. |
+| **Escort suspect-avoidance** | `modes/normal.py:_suspect_points` | Returns an empty list, so the retained escort/witness experiments no longer steer clear of suspects. |
+| **Deterministic vote fallback** | `modes/attend_meeting.py:_fallback_vote_target` | No `top_suspect` to fall back to, so the fallback is simply `skip`. |
+
+`tests/test_strategy.py::test_deduction_brain_disables_accuse_because_suspicion_is_cleared`
+pins the first one. Restoring any of them on the deduction marginals is a
+behaviour change and needs its own experiment — see `docs/TODO.md`.
+
+### Module boundary
+
+The path is self-contained except for shared, brain-neutral primitives:
+
+```text
+deduction/  ->  game_rules.py            (kill range, co-presence, imposter count)
+            ->  perception.entities      (the skip-vote sentinel)
+            ->  strategy.occupancy       (pure rect/visibility helpers)
+```
+
+It imports nothing from the fitted brain (`strategy/suspicion.py`,
+`strategy/social_evidence.py`, `suspicion_lab/`). The chat parser used to live in
+`strategy/social_evidence.py`, which made the legacy path look like a dependency;
+it is now `deduction/claims.py` and takes an `UtteranceObserved` directly.
 
 The flag is deliberately role-scoped. Impostors retain the complete legacy
 event, suspicion, movement, and meeting path, which prevents a crew-solver
@@ -61,8 +95,11 @@ experiment from changing both role policies. The unflagged path is unchanged.
 | `MeetingObserved` | meeting identity, caller, and body/button kind |
 | `DeathObserved` | color, learned tick, body/census/ejection source, and body position when available |
 
-The ledger stores observations, not `SocialClaim`, `KillAlibi`, witnessed-action
-pins, or player suspicion. Those are conclusions and are rebuilt each solve.
+The ledger stores observations, not claims, alibis, witnessed-action pins, or
+player suspicion. Those are conclusions and are rebuilt each solve. `SocialClaim`
+(`deduction/claims.py`) is one such conclusion: it carries only what inference
+reads, and deliberately *not* the meeting, tick, or exact text, which stay on the
+`UtteranceObserved` it was derived from.
 Continuous world frames are retained because absence and co-presence are
 meaningful only across an unbroken observation window.
 

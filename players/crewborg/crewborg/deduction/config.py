@@ -5,13 +5,13 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
+from crewborg.envflags import truthy
+
 FEATURE_ENV = "CREWBORG_DEDUCTION_HISTORY"
-_TRUTHY = {"1", "true", "yes", "on"}
 
 
 def enabled(env: Mapping[str, str] | None = None) -> bool:
-    source = os.environ if env is None else env
-    return source.get(FEATURE_ENV, "").strip().lower() in _TRUTHY
+    return truthy(FEATURE_ENV, env)
 
 
 def enabled_for_role(

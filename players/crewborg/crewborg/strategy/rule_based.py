@@ -21,6 +21,14 @@ the most-suspicious player currently shadowing us whose posterior is over
 (``buttonCalls = 1``), so once we've spent the call we fall back to tasks rather than
 loop at the button; the budget resets at the next game (``Lobby``/``RoleReveal``).
 
+**Priority 3 is dead under the deduction brain.** ``active_tail_suspect`` reads
+``belief.suspicion``, which ``fold_belief`` keeps empty when
+``CREWBORG_DEDUCTION_HISTORY=1`` for a crewmate, so Accuse never fires and the
+emergency button is never spent in that arm. That is currently a *side effect* of
+clearing the legacy posterior rather than a stated policy — see the ``fold_belief``
+docstring in ``crewborg/__init__.py`` for why it matters to the A/B, and
+``tests/test_strategy.py`` for the test that pins it.
+
 Imposter priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
@@ -58,6 +66,7 @@ from crewborg.strategy.opportunity import (
     ticks_until_kill_ready,
 )
 from crewborg.strategy.suspicion import active_tail_suspect
+from crewborg.envflags import truthy as _truthy_env
 from crewborg.types import ActionState, Belief
 from players.player_sdk import ModeDirective
 from players.player_sdk.types import BeliefSnapshot
@@ -118,6 +127,11 @@ class RuleBasedStrategy:
                     self._button_call_spent = True  # the A-press at the button fires this tick
                 return ModeDirective(mode="accuse", source="strategy", reason="being tailed: call a meeting")
             self._accuse_target = None
+            # Deferred on purpose: importing this at module scope would close the cycle
+            # crewborg.strategy -> modes.self_preservation -> modes.normal ->
+            # strategy.commander.bias -> crewborg.strategy (still initialising).
+            # The selector needs a mode's gate, so the gate is what should move out of
+            # the mode; until then, keep the import here and the cycle documented.
             from crewborg.modes.self_preservation import (
                 enabled as self_preservation_enabled,
             )
@@ -226,7 +240,3 @@ def _recent_self_kill(belief: Belief) -> bool:
 
 def _be_dumb_enabled() -> bool:
     return _truthy_env("CREWBORG_BE_DUMB") or _truthy_env("BE_DUMB")
-
-
-def _truthy_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}

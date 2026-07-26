@@ -180,10 +180,7 @@ class PlayerRecord(BaseModel):
 
     # Cumulative social/public-evidence counters for the fitted suspicion model,
     # maintained by ``strategy.social_evidence`` (whole-episode, never reset):
-    # chat stances and attributed meeting votes. ``tasks_completed_watched`` is
-    # retained at zero for compatibility with the fitted-model feature schema;
-    # the client has no direct signal tying a global task decrement to another
-    # visible player's completion.
+    # chat stances and attributed meeting votes.
     accusations_made: int = 0
     times_accused: int = 0
     times_defended: int = 0
@@ -191,7 +188,6 @@ class PlayerRecord(BaseModel):
     votes_skipped: int = 0
     voted_against_me: int = 0
     vote_agreed_with_me: int = 0
-    tasks_completed_watched: int = 0
     reported_bodies: int = 0
     button_calls_made: int = 0
 
@@ -255,29 +251,6 @@ class ChatEvent(BaseModel):
 
     tick: int
     speaker_color: str | None
-    text: str
-
-
-SolverClaimStance = Literal["accuse", "defend", "at_least_one"]
-SolverEvidenceKind = Literal["bare", "body", "vent", "sighting", "vote"]
-SolverClaimProvenance = Literal["direct", "relayed"]
-
-
-class SocialClaim(BaseModel):
-    """A structured meeting assertion retained for whole-game solver inference."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    meeting_id: int
-    tick: int
-    speaker_color: str | None
-    targets: tuple[str, ...]
-    stance: SolverClaimStance
-    # The player to whom the assertion is attributed. This differs from the
-    # speaker for relays such as "Yellow saw cyan vent."
-    source_color: str | None = None
-    provenance: SolverClaimProvenance = "direct"
-    evidence_kind: SolverEvidenceKind = "bare"
     text: str
 
 
@@ -409,16 +382,23 @@ class Belief(BaseModel):
     # reasoning will consume.
     chat_log: list[ChatEvent] = Field(default_factory=list)
 
-
-    # New deduction path: exact semantic observations in append-only order.
-    # Conclusions are deliberately absent; every solve rebuilds from this ledger.
+    # DEDUCTION PATH (CREWBORG_DEDUCTION_HISTORY): exact semantic observations in
+    # append-only order. Conclusions are deliberately absent; every solve rebuilds
+    # from this ledger. ``deduction_event_ids`` makes the append idempotent, and the
+    # two scalars below are O(1) caches of facts the ledger already implies, so the
+    # per-tick collector never has to scan it (see ``deduction/collector.py``).
     deduction_events: list[DeductionEvent] = Field(default_factory=list)
     deduction_event_ids: set[str] = Field(default_factory=set)
-    deduction_world_ticks: set[int] = Field(default_factory=set)
+    # Last appended world frame's tick. World frames arrive one per tick in tick
+    # order, so the previous tick is the whole dedup key.
+    deduction_last_world_tick: int | None = None
+    # Last appended TaskCounterObserved value, so a change is a scalar comparison.
+    deduction_last_tasks_remaining: int | None = None
 
-    # Bookkeeping for ``strategy.social_evidence`` (cumulative public-evidence
-    # counters on PlayerRecord): chat lines already counted (keys survive the
-    # per-meeting chat_log clear), the staged/banked meeting vote tallies, and the
+    # LEGACY FITTED PATH — bookkeeping for ``strategy.social_evidence`` (cumulative
+    # public-evidence counters on PlayerRecord): chat lines already counted (keys
+    # survive the per-meeting chat_log clear), plus the staged/banked meeting vote
+    # tallies and the slot->color map they are attributed through.
     social_counted_chats: set[tuple[int, str, str]] = Field(default_factory=set)
     social_staged_votes: set[tuple[int, int]] = Field(default_factory=set)
     social_staged_slots: dict[int, str] = Field(default_factory=dict)

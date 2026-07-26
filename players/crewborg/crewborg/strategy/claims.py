@@ -57,15 +57,38 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 from crewborg import nlp as chat_nlp
-from crewborg.types import (
-    SocialClaim,
-    SolverClaimProvenance,
-    SolverClaimStance,
-    SolverEvidenceKind,
-)
+
+# The claim vocabulary lives HERE, with the only code that produces it, rather than
+# in `types.py`. It used to sit there under `Solver*` names -- inherited from
+# `strategy/meeting/solver.py`, which was deleted on 2026-07-26 -- so the names
+# outlived the component they were named for and the god-module carried types only
+# this parser and its consumers ever touch.
+ClaimStance = Literal["accuse", "defend", "at_least_one"]
+EvidenceKind = Literal["bare", "body", "vent", "sighting", "vote"]
+ClaimProvenance = Literal["direct", "relayed"]
+
+
+class SocialClaim(BaseModel):
+    """One relational assertion parsed out of a single public utterance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    meeting_id: int
+    tick: int
+    speaker_color: str | None
+    targets: tuple[str, ...]
+    stance: ClaimStance
+    # The player the assertion is attributed to. Differs from the speaker for
+    # relays such as "Yellow saw cyan vent."
+    source_color: str | None = None
+    provenance: ClaimProvenance = "direct"
+    evidence_kind: EvidenceKind = "bare"
+    text: str
 
 # --- vocabulary ---------------------------------------------------------------
 # Surface forms as well as lemmas throughout, because the lemma cannot be trusted
@@ -117,7 +140,7 @@ NEG_WORDS = frozenset({
 DISJUNCTION = frozenset({"either", "or"})
 
 # Cue -> evidence strength, mirroring the solver's weight table.
-_KIND_CUES: tuple[tuple[SolverEvidenceKind, frozenset[str]], ...] = (
+_KIND_CUES: tuple[tuple[EvidenceKind, frozenset[str]], ...] = (
     ("vent", frozenset({"vent", "vents", "vented", "venting"})),
     ("body", KILL_FORMS | frozenset({"body", "bodies", "dead", "died", "report",
                                      "reported", "corpse"})),
@@ -265,7 +288,7 @@ def _victims(doc: Any, colors: frozenset[str]) -> set[str]:
     return victims
 
 
-def _evidence_kind(text: str) -> SolverEvidenceKind:
+def _evidence_kind(text: str) -> EvidenceKind:
     lowered = set(re.findall(r"[a-z']+", text.lower()))
     for kind, cues in _KIND_CUES:
         if lowered & cues:
@@ -295,12 +318,12 @@ def _accusations(
     doc: Any,
     colors: frozenset[str],
     speaker: str | None,
-) -> list[tuple[str | None, str, SolverClaimProvenance]]:
+) -> list[tuple[str | None, str, ClaimProvenance]]:
     """``(source, target, provenance)`` for every accusation in the sentence."""
 
     killers, _ = _kill_roles(doc, colors)
     victims = _victims(doc, colors)
-    found: list[tuple[str | None, str, SolverClaimProvenance]] = []
+    found: list[tuple[str | None, str, ClaimProvenance]] = []
     attributed: set[str] = set()
     # Span-relative, for the same reason `_kill_roles` materialises its tokens.
     tokens = list(doc)
@@ -393,8 +416,8 @@ def _parse(text: str, speaker: str | None, colors: frozenset[str]):
     model = _pipeline(model)
     doc = model(normalize(text))
 
-    out: list[tuple[SolverClaimStance, str | None, tuple[str, ...],
-                    SolverEvidenceKind, SolverClaimProvenance]] = []
+    out: list[tuple[ClaimStance, str | None, tuple[str, ...],
+                    EvidenceKind, ClaimProvenance]] = []
     for sent in doc.sents:
         named = [t.lower_ for t in sent if t.lower_ in colors]
         if not named:
