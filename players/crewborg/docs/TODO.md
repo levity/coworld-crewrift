@@ -32,6 +32,37 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## Open
 
+### Retire the now write-only meeting ledger (2026-07-26)
+
+Surfaced by `/simplify` after the legacy solver removal and deliberately **not** done
+in that change, because it touches live per-tick belief code that the removal itself
+did not, and it deserves its own verification rather than riding along at the end of a
+refactor.
+
+`Belief.meeting_history` is now write-only. `MeetingRecord.caller_color`, `.call_kind`,
+`.votes` and `.ejected_color` have **zero** production readers since
+`strategy/meeting/solver.py` (which consumed them as `SolverEvidence.meetings`) was
+deleted — verified by grep. What still runs every tick to maintain a record nothing
+reads:
+
+- `strategy/social_evidence.py:459` `_track_solver_meeting` and its call at `:77`,
+  including the slot→colour vote-tally reconstruction at `:480-486`
+- the `MeetingRecord` model and `Belief.meeting_history` field (`crewborg/types.py:284`, `:430`)
+- the ejection back-fill loop at `crewborg/types.py:749-752`
+
+The single surviving live read is `belief.meeting_history[-1].meeting_id` at
+`social_evidence.py:413`, used to stamp `social_claims` — which
+`strategy/meeting/vote_policy.py:167` genuinely consumes behind `CREWBORG_VOTE_POLICY`.
+So replace the list with a scalar `Belief.last_meeting_id: int | None` set alongside
+`phase_start_tick`, and delete the rest (~45 lines).
+
+Note `deduction/inference.py:468` reads `MeetingObserved.call_kind` — a **different**
+type in the deduction package. Do not remove that.
+
+If `CREWBORG_VOTE_POLICY` is also retired (it was rejected — see
+`~/.claude/.../crewborg-vote-policy-rejected`), then `social_claims` and
+`solver_counted_chats` become dead too and the whole social-claim ledger can go.
+
 ### Test sustained pursuit as solver evidence (2026-07-22)
 
 The memoryless repulsion controller records continuous one-on-one exposure and
