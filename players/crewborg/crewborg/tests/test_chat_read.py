@@ -92,6 +92,54 @@ def test_non_accusation_chatter_is_filtered_by_the_gate(nlp_model) -> None:
     assert chat_read.chat_accusers(_belief_with_chat([("blue", "gg everyone nice game")])) == {}
 
 
+# --- the victim of a reported kill is never the suspect ----------------------
+#
+# VICTIM_WORDS carried the past tense "killed" but not the bare infinitive "kill",
+# so "saw red kill green" left green failing the victim test while "kill" and "saw"
+# both sat in SUS_WORDS and supplied a cue for its clause. green -- the one player
+# the sentence exonerates -- was returned as a suspect and fed the bandwagon.
+# "saw <killer> kill <victim>" is the single most common kill report in league
+# chat, so this was not an edge case.
+
+
+def test_the_victim_of_a_kill_report_is_not_accused(nlp_model) -> None:
+    belief = _belief_with_chat([("blue", "saw red kill green")])
+    assert chat_read.chat_accusers(belief) == {"red": 1}
+
+
+def test_victim_is_not_accused_across_kill_inflections(nlp_model) -> None:
+    for text in (
+        "saw red kill green",
+        "i saw red kill green",
+        "red killed green",
+        "red kills green",
+        "red is killing green",
+    ):
+        accused = chat_read.chat_accusers(_belief_with_chat([("blue", text)]))
+        assert "green" not in accused, f"victim accused in {text!r}: {accused}"
+
+
+def test_the_killer_is_still_accused(nlp_model) -> None:
+    # Guard the fix against over-correction: suppressing the victim must not
+    # suppress the killer too, or kill reports stop being a signal at all.
+    # "red killed green" returned {} before the fix -- both colors sat within two
+    # tokens of "killed", so the proximity test ate the killer as well.
+    for text in ("saw red kill green", "red killed green"):
+        assert "red" in chat_read.chat_accusers(_belief_with_chat([("blue", text)])), text
+
+
+def test_passive_kill_report_inverts_the_roles(nlp_model) -> None:
+    accused = chat_read.chat_accusers(_belief_with_chat([("blue", "green was killed by red")]))
+    assert "green" not in accused, accused
+    assert "red" in accused, accused
+
+
+def test_a_negated_kill_report_accuses_nobody(nlp_model) -> None:
+    # Being named as a killer overrides the victim tests, but must NOT override
+    # negation scope, or "red didn't kill green" becomes an accusation.
+    assert chat_read.chat_accusers(_belief_with_chat([("blue", "red didn't kill green")])) == {}
+
+
 # --- end-to-end: chat suss drives the imposter bandwagon --------------------
 
 
