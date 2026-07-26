@@ -1,26 +1,10 @@
 #!/usr/bin/env python3
 """Upload a policy version AND record its provenance, as one step.
 
-WHY THIS EXISTS. On 2026-07-26 we could not answer "what config is our own league
-champion running". `crewborg-lw:v18` was submitted, became champion, and:
-
-  * `version_log.md` had no row for it (the log stopped at v14),
-  * the upload carried no `--tag` (v16/v17 had `purpose`/`arm`; v18 had none),
-  * `--secret-env` values are NOT readable back from any API route -- by design, and
-  * league/tournament episodes carry NO policy artifacts (measured: `results: false`,
-    zero artifacts, on episodes two minutes old), so there were no traces to fall back
-    on either -- only an experience request you fire yourself produces them.
-
-Recovering it took a fresh 6-episode hosted probe and forensics on decision weights
-(vote weights were the shipped products scaled by exactly 1/6 and 1/8, which is the
-signature of `CREWBORG_SPEAKER_TRUST=on`). That is an absurd cost for a fact we had at
-upload time and simply did not write down.
-
-The skill already *said* to record and tag. Advisory wording did not survive contact,
-so this script makes it mechanical: it refuses to upload without a purpose and a note,
-it puts the config in the tags where the API will hand it back, and it appends the
-version-log row itself from the same arguments it uploaded with -- so the log cannot
-disagree with the upload.
+A version's configuration lives in `--secret-env`, which no API route hands back. The
+`--tag`s and the `version_log.md` row are therefore the only records of what a version
+runs, and this writes both from the same arguments it uploads with, so they cannot
+disagree. It refuses without a purpose and a note.
 
     uv run python upload_and_log.py --image crewborg:brainsep3 --name crewborg-lw \\
         --purpose kill-window-league --note "margin+at_least_one on, first league run" \\

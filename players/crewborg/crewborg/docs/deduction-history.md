@@ -57,9 +57,7 @@ tick: `update_event_log` and `update_social_evidence` accumulate observations on
 feature depends on them running from tick 0), while `update_suspicion` -- the only
 conclusion-former, and a pure recompute from those accumulators -- waits until the
 role is known. That is why a flagged crewmate simply never has a posterior
-written. Until 2026-07-26 this ran the fitted model pre-reveal and then cleared
-its output; the discarded values were only flat priors (measured: a uniform 0.452
-with an empty `believed_imposters`), but the shape read as "used, then deleted".
+written.
 
 ### What the flag also switches off
 
@@ -70,7 +68,7 @@ easy to miss when reading an A/B result.
 | Behaviour | Site | Effect with the flag on |
 |---|---|---|
 | **Accuse** (selector priority 3) | `modes/accuse.py`, `strategy/rule_based.py` | Never fires; the one emergency-button call is never spent. In the 2026-07-25 A/B the fitted arm pressed the button **80 times in 40 games**, abandoning a task each time, so this is the leading explanation for that arm's +21pp — bundled with the new meeting policy. |
-| **Escort suspect-avoidance** | `modes/normal.py:_suspect_points` | Returns an empty list, so the retained escort/witness experiments no longer steer clear of suspects. |
+| **Escort suspect-avoidance** | `modes/normal.py:_suspect_points` | Returns an empty list, so the retained escort/witness experiments do not steer clear of suspects. |
 | **Deterministic vote fallback** | `modes/attend_meeting.py:_fallback_vote_target` | No `top_suspect` to fall back to, so the fallback is simply `skip`. |
 
 `tests/test_strategy.py::test_deduction_brain_disables_accuse_because_suspicion_is_cleared`
@@ -90,9 +88,7 @@ deduction/  ->  game_rules.py            (kill range, co-presence, imposter coun
 It imports nothing from the fitted brain (`strategy/suspicion.py`,
 `strategy/social_evidence.py`, `suspicion_lab/`). It does import
 `strategy/claims.py` -- the single spaCy claim parser shared by BOTH roles, which is
-why that module is not under `deduction/`. It replaced three drifting
-implementations, one of which used to live inside `social_evidence.py` and made the
-legacy path look like a dependency of this one.
+why that module is not under `deduction/`.
 
 The flag is deliberately role-scoped. Impostors retain the complete legacy
 event, suspicion, movement, and meeting path, which prevents a crew-solver

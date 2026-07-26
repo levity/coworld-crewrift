@@ -67,13 +67,10 @@ rather than as the model.
   `strategy/meeting/solver.py`, `strategy/alibi.py`, `vote_policy.py`, the
   `MeetingRecord` / `meeting_history` / `social_claims` ledger, `modes/_deprecated/`,
   and their tests. ~4,400 lines, all superseded by `deduction/`.
-- **Claim parsing, 2026-07-26 (two passes, converged):** `/simplify` first pulled the
-  regex parser out of `strategy/social_evidence.py`; the spaCy rewrite then replaced all
-  three parsers with the single `crewborg/strategy/claims.py`. That module is now the one
-  parser for BOTH roles, so it is deliberately not under `deduction/` (crew-only).
-  `strategy/social_evidence.py` is left with only the legacy fitted counters. The claim
-  types moved out of `types.py` into `strategy/claims.py` beside their producer, and lost
-  the `Solver*` prefix they inherited from the deleted `strategy/meeting/solver.py`.
+- **Claim parsing:** `crewborg/strategy/claims.py` is the single spaCy claim parser, used
+  by BOTH roles — which is why it is not under `deduction/` (crew-only).
+  `strategy/social_evidence.py` holds only the fitted model's public counters. The claim
+  types live in `strategy/claims.py` beside their producer.
 - **Retained rejected experiments (~700 lines, all default-off):** `POST_TASK_ESCORT`,
   `POST_TASK_LOITER`, `GROUP_TASKING`, `WITNESS_TASKING`, `SELF_PRESERVATION`, `STICK`.
   Kept **deliberately** — see the retention note above `GROUP_TASK_RADIUS_SQ` in
@@ -130,14 +127,10 @@ Gate-1 local smoke (mixed Prime roster, 2 episodes):
 - **`crewrift-analysis/fetch.sh` passes `--no-logs`, which also suppresses policy
   artifacts.** An empty `policy_artifacts: []` therefore means *your fetch flag*, not a
   version that lacks telemetry. Re-fetch without it when you need traces.
-- **League/tournament episodes carry NO results and NO policy artifacts** — measured
-  2026-07-26 on episodes two minutes old and again on freshly created ones
-  (`results: false`, `policy_artifacts: []`, "no policy logs listed for job"). This is
-  not expiry and not lag, and it supersedes the older "league artifacts are ephemeral
-  (~one round) — harvest promptly" advice elsewhere: harvesting promptly does not help.
-  The only league signal is `episode.json -> policy_results` (per-seat policy, version,
-  reward). To explain a version's behaviour you must fire your own experience request —
-  which is exactly what recovering `crewborg-lw:v18`'s config required.
+- **League/tournament episodes carry NO results and NO policy artifacts**
+  (`results: false`, `policy_artifacts: []`, "no policy logs listed for job"). The only
+  league signal is `episode.json -> policy_results` (per-seat policy, version, reward).
+  To explain a version's behaviour, fire your own experience request and read its traces.
 - **`xp_py` / `wh_py` are shell functions**, so `timeout xp_py …` fails with "command
   not found". Call them directly, or wrap the inner python.
 - `fetch_artifacts -n` defaults to 10 and caps the TOTAL across multiple `--xreq` —

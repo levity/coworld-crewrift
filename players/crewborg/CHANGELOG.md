@@ -1,5 +1,71 @@
 # Changelog
 
+## 2026-07-26 - Crew-brain separation, kill window, and upload provenance
+
+- Separate the two crewmate brains in the tree. The claim parser moved out of
+  `strategy/social_evidence.py`, which had made the fitted path look like a
+  dependency of the deduction path; after the spaCy rewrite the single parser is
+  `strategy/claims.py`, shared by both roles. `social_evidence.py` keeps only the
+  fitted model's public counters. The claim types moved from `types.py` to
+  `strategy/claims.py` and lost the `Solver*` prefix they inherited from the deleted
+  `strategy/meeting/solver.py`.
+- Add `game_rules.py` and `envflags.py` as single homes for facts both brains had
+  duplicated: kill range, co-presence distance, vent walk margin, the imposter-count
+  rule, and env truthiness.
+- Fork the crew brains by kind of work rather than by tick. `update_event_log` and
+  `update_social_evidence` accumulate observations on their old schedule;
+  `update_suspicion`, the only conclusion-former, waits until the role latches. A
+  flagged crewmate therefore never has a posterior written. Previously the fitted
+  model ran on pre-reveal ticks and its output was cleared once the role resolved;
+  the discarded values were uniform flat priors, so behaviour is unchanged for both
+  roles.
+- Remove dead state: `DeductionHistory.through()`, `PlayerRecord.tasks_completed_watched`
+  (served as a hardcoded zero), `Belief.deduction_world_ticks`, and an unreachable
+  branch in `_fallback_vote_target`.
+- Move `CREWBORG_DECISION_GATE` and `CREWBORG_SPEAKER_TRUST` resolution out of the pure
+  inference/decision stages and into `AttendMeetingMode.__init__`. Offline sweeps had
+  been silently inheriting whichever preset was exported in the shell.
+- Cache the meeting history per meeting and build it with `model_construct`; the
+  previous rebuild revalidated an already-validated ledger on every voting tick
+  (19.21 ms -> 0.0024 ms at 20k events). Replace a per-tick reverse scan for the task
+  counter with an O(1) scalar (up to 2.6 ms/tick at a 20k-frame tail).
+- Add `CREWBORG_KILL_WINDOW` (`margin` / `at-least-one` / `both`, default off). An
+  exact 20px kill test claimed precision the observation stream does not have: the sim
+  resolves a kill between rendered frames. Measured in `xreq_51754f1f`, a victim
+  walking toward the true killer left it at 23.0px on the last sampled frame, just
+  outside, while a bystander sat at 16.3px inside — so the rule pinned a crewmate at
+  p=1.0 and eliminated the true assignment from the hypothesis space. Offline over 64
+  seats: pins 28/29 -> 26/26 sound, truth kept 63/64 -> 64/64, 14 discarded
+  observations recovered, 3 pins lost.
+- Trace the arm. `crew_brain_config` reports the deduction flag and both override
+  families on the first tick; `role_resolved` names the live brain. Before this, a
+  missed RoleReveal latch silently ran the fitted brain in an arm meant to test
+  deduction, with nothing in the trace to show it.
+- Establish that league/tournament episodes carry no results and no policy artifacts:
+  `results: false`, zero artifacts, on episodes two minutes old and again on freshly
+  created ones. The same version through an experience request returns both. Earlier
+  advice held that league artifacts were ephemeral and should be harvested promptly;
+  that was wrong, and harvesting promptly does not help. The only league signal is
+  `episode.json -> policy_results`.
+- Recover `crewborg-lw:v18`'s configuration, which had been uploaded untagged and
+  unlogged while becoming league champion:
+  `CREWBORG_DEDUCTION_HISTORY=1 + CREWBORG_DECISION_GATE=loose + CREWBORG_SPEAKER_TRUST=on`.
+  Established by probe `xreq_89cb9d25`: 60 deduction decisions and zero suspicion
+  snapshots; an eject at margin 0.0646 below the shipped 0.10 floor with
+  `required_probability` only ever {0.65, 0.80, 0.51}; six non-structural ejects; and
+  vote weights of the shipped products times exactly 1/6 and 1/8, the tempering of a
+  speaker who targeted on every ballot at prior 0.25 / k 2.
+- Make upload provenance mechanical. `skills/build-and-upload/scripts/upload_and_log.py`
+  uploads and records in one step, refusing without a purpose and a note. `version_log.md`
+  previously interleaved two policy lines whose version numbers collide, so a bare `vN`
+  row could be mistaken for ours; the `crewborg-lw` line is now the only maintained table
+  and the older `crewborg` rows are a separate archive. v15-v19 recorded.
+- Fix a nondeterministic suite. The claim tests raced the background spaCy load and the
+  same tree reported either 640 passed or 9 failures; `tests/conftest.py` now waits for
+  the model once per session.
+- Submit `crewborg-lw:v20` (v18's config plus `CREWBORG_KILL_WINDOW=both`) to Crewrift
+  Prime; qualified and promoted to champion under `--auto-champion lineage`.
+
 ## 2026-07-23 - Isolated proactive group tasking
 
 - The 100/arm hosted result is neutral: subject-clean murders are 52/99 control

@@ -1,26 +1,23 @@
 # Crewborg version log — the `crewborg-lw` line
 
 **This log covers the policy line we upload and submit: `crewborg-lw`, policy id
-`99826f22-e46c-4595-aa57-9bb7aacde200`.** It maps each uploaded version to the exact
-code and runtime configuration it carries.
+`99826f22-e46c-4595-aa57-9bb7aacde200`.** It maps each uploaded version to the exact code
+and runtime configuration it carries.
 
-**Read this before grepping.** Version numbers are per *policy name*, and the archived
-`crewborg` line at the bottom of this file reuses the same numbers for entirely
-different builds — its `v18` is a June upload by someone else and has nothing to do
-with ours. A bare `| vN |` row is NOT ours. Ours are keyed `**\`crewborg-lw:vN\`**`.
+**Version numbers are per policy name.** The archived `crewborg` line at the bottom of
+this file reuses the same numbers for unrelated builds. Ours are keyed
+`` **`crewborg-lw:vN`** ``; a bare `| vN |` row is not ours.
 
-**`--secret-env` values cannot be read back from any API route.** If the row is missing
-or wrong, the only way to recover a version's config is a fresh experience request plus
-trace forensics — **league episodes carry no policy artifacts**, so league play cannot
-answer it. That is not hypothetical: it is what v18 cost us on 2026-07-26. Upload via
-`skills/build-and-upload/scripts/upload_and_log.py`, which writes the row from the same
-arguments it uploads with, so the two cannot disagree.
+**`--secret-env` is not readable back from any API route**, and league episodes carry no
+policy artifacts, so this table and the version's `--tag`s are the only records of what a
+version runs. Upload through `skills/build-and-upload/scripts/upload_and_log.py`, which
+writes the row from the same arguments it uploads with.
 
 | Version | Policy version ID | Uploaded at (UTC) | Source | Runtime config | Notes |
 | --- | --- | --- | --- | --- | --- |
 | **`crewborg-lw:v20`** | `9a30196e-93c5-4bba-a661-b27d6b49aa33` | 2026-07-26T21:40Z | branch `crewborg-brain-separation` @ `635bffe`; image `crewborg:v20-killwindow` (`sha256:656106590fdc…`) | **`CREWBORG_DEDUCTION_HISTORY=1`, `CREWBORG_DECISION_GATE=loose`, `CREWBORG_SPEAKER_TRUST=on`, `CREWBORG_KILL_WINDOW=both`** (+ `CREWBORG_METRICS=1`, `CREWBORG_TRACE_GROUPS=all`) | v18's config + CREWBORG_KILL_WINDOW=both (kill-range motion margin + at_least_one hard constraints). Gate-1 clean: 12/12 seats on the correct brain, 4 active at_least_one constraints, solve max 39.7ms, 0 ops timeouts. Offline counterfactual on 64 real seats: pins 28/29 -> 26/26 sound, truth-kept 63/64 -> 64/64, 14 observations recovered, -3 pins. **SUBMITTED to Crewrift Prime 2026-07-26** (`sub_3178148f-c42a-46ab-addd-e5b52474fbd8`, `--auto-champion lineage`) on Lawrence's go-ahead. One variable vs the v18 champion: the kill window. |
 | **`crewborg-lw:v19`** | `053ed9f5-3d79-483c-88f8-1c0f8b0b40f0` | 2026-07-26T15:51Z | branch `crewborg-brain-separation` @ `5c68bbf`; image `crewborg:brainsep2` | **`CREWBORG_DEDUCTION_HISTORY=1`** (+ `CREWBORG_METRICS=1`, `CREWBORG_TRACE_GROUPS=all`) | Sanity-check upload for the two-brain separation. Hosted `xreq_51754f1f` (16 eps, roles pinned): 80/80 seats on the correct brain, 0 cross-contamination, live ballots 11/11 correct. **Inert — never submitted.** |
-| **`crewborg-lw:v18`** | `0b3d8ca3-889b-4f79-8281-977959723308` | 2026-07-26T15:03Z | not recorded at upload; post-hoc bracket = `crew-signals-v2` at/after `ddad0ec` (14:57Z) and before `aa7a961` (19:10Z) | **`CREWBORG_DEDUCTION_HISTORY=1` + `CREWBORG_DECISION_GATE=loose` + `CREWBORG_SPEAKER_TRUST=on`** — **RECOVERED BY FORENSICS, not recorded.** See note. | **CURRENT LEAGUE CHAMPION** (Competition division, rank 7, score 1580). Speaker trust was turned on in response to v17's mixed-field league result. Config recovered 2026-07-26 via probe `xreq_89cb9d25` (6 eps, v18 in all six crew seats): 60 `deduction_history_decision` and zero `suspicion_snapshot` ⇒ deduction brain; an eject at margin 0.0646 (< the shipped 0.10 floor) with `required_probability` only ever {0.65, 0.80, 0.51} ⇒ `loose`, not `loose+p40`; six non-structural ejects and no "target is not structurally implied" ⇒ not `structural-only`; vote weights {0.030625, 0.04375, 0.058333} = the shipped products × exactly 1/6 and 1/8 (τ for a speaker who targeted on every ballot, prior 0.25 / k 2) versus {0.1715, 0.245, 0.35} in known-trust-off v19 ⇒ `SPEAKER_TRUST=on`. Uploaded with **no tags**, which is why this cost a hosted probe. |
+| **`crewborg-lw:v18`** | `0b3d8ca3-889b-4f79-8281-977959723308` | 2026-07-26T15:03Z | `crew-signals-v2` at/after `ddad0ec`, before `aa7a961` | **`CREWBORG_DEDUCTION_HISTORY=1` + `CREWBORG_DECISION_GATE=loose` + `CREWBORG_SPEAKER_TRUST=on`** | Second league submission; champion until v20. Speaker trust is on in response to v17's mixed-field league result. Configuration established from traces (`xreq_89cb9d25`), not from the upload. |
 | **`crewborg-lw:v17`** | `20cd2cc0-2aac-4270-afdf-5c603e28fe0a` | 2026-07-26T05:39Z | image `crewborg:gate-ab2` | base + **`CREWBORG_DECISION_GATE=loose`** (tags `purpose=gate-ab`, `arm=candidate`) | **Decision-gate A/B candidate (`xreq_94b472f6`) and our FIRST league submission.** Drops the two jointly-binding hacks (`base_margin` floor, `require_support`). Pre-registered primary missed: landed coverage 14.2% → 16.6% vs ~22% predicted (`p=0.308`); guard passed (precision 100% → 98.9%). Its mixed-field league result is what motivated speaker trust. `docs/experiments/2026-07-26-decision-gate-hosted-ab.md`. |
 | **`crewborg-lw:v16`** | `6a7444c3-1aa6-42de-8c56-786408d263d2` | 2026-07-26T05:39Z | image `crewborg:gate-ab2` | base, **no gate preset** (tags `purpose=gate-ab`, `arm=control`) | Decision-gate A/B control (`xreq_20c0564c`). |
 | **`crewborg-lw:v15`** | _(not recorded)_ | 2026-07-26T04:39Z | superseded image | _(not recorded)_ | Uploaded from a superseded image and **used by neither gate-A/B arm**; noted in the gate-A/B writeup. Kept here so the numbering has no silent gap. |

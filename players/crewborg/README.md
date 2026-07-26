@@ -65,6 +65,9 @@ wire by `coworld/`.
 
 ## Knowledge & process — `docs/`
 
+- **[`docs/improvement-loop.md`](docs/improvement-loop.md)** — the runnable checklist for one
+  full pass: get data → diagnose → propose three → build → prove offline → Gate 1 → upload →
+  hosted A/B → ship or retry, with a "done when" per step
 - **[`docs/best_practices.md`](docs/best_practices.md)** — the battle-tested disciplines for the loop
   (measurement rigor, diagnosis, hypotheses, the gates, working-with-the-human). **Read on startup;
   treat as defaults.**

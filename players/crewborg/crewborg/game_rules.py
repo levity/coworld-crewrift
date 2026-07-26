@@ -4,12 +4,10 @@
 of the *game*: they change only when the deployed game changes (pinned in
 ``tools/build/versions.env``). ``COPRESENCE_DISTANCE_SQ`` and ``VENT_WALK_MARGIN`` are
 **perception tolerances derived from** a game rule (kill range, and max travel per
-tick), so they can move when decoding changes even though the game has not. They live
-here together anyway,
-with their provenance, because they were previously re-derived in several places
-at once — the fitted path, the deduction path, and the action layer each had their
-own copy of the kill range and the imposter-count rule. Two copies of a game rule
-is how the two brains silently stop describing the same game.
+tick), so they can move when decoding changes even though the game has not.
+
+They live here, once, because two copies of a game rule is how the two crew brains
+silently stop describing the same game.
 
 Nothing here imports from ``crewborg``, so either brain can depend on it without
 depending on the other.

@@ -70,17 +70,7 @@ wires it in as selector step 4 and calls `self_preservation_enabled()` every tic
 every crewmate. Its gate is `CREWBORG_SELF_PRESERVATION and deduction_history_enabled()`,
 so it was built to layer on top of the deduction path.
 
-### ~~Retire the now write-only meeting ledger~~ — DONE (2026-07-26, `29b1e42`)
-
-`MeetingRecord`, `Belief.meeting_history`, `Belief.social_claims`,
-`solver_counted_chats` and `_track_solver_meeting` are all gone; grep confirms no
-readers remain. The proposed `Belief.last_meeting_id` scalar turned out to be
-unnecessary: `_track_meeting_votes` already carries the previous meeting's tick in
-`social_staged_meeting_tick`, and `_count_chat_stances` keys on
-`(tick, speaker, text)` and never needed a meeting id at all. Kept here only as the
-record that the write-only ledger question is closed.
-
-### Deferred by the second 2026-07-26 `/simplify` pass — all measured
+### Measured performance work in the deduction path
 
 **1. `_witnessed_actions` rebuilds every frame's maps twice: ~45 ms of a ~113 ms solve.**
 Each `zip(worlds, worlds[1:])` iteration builds six structures, three of which were
@@ -89,13 +79,9 @@ already built as the *current* side of the previous iteration. Measured at 20k f
 28.68 -> 11.79 ms. This is the single largest cost in the solve path and the fix is
 mechanical (carry the previous frame's maps forward).
 
-Deferred **again**, deliberately: four separate changes landed in this function today
-(margin, `at_least_one`, the `unaccounted` widening, the audit collapse). Stacking a
-performance rewrite on the pin logic without an independent correctness gate is the
-ride-along this pass declined for the same function last time — and note the offline
-counterfactual covers only the *direct* channel, not vents, so it would not catch a
-vent-pin regression. Do it as its own change with the synthetic and warehouse suites
-re-run. (Footnote: `sorted()` on the already-ordered worlds list is ~2.8 ms of the 70;
+Do it as its own change, with the synthetic and warehouse suites re-run: this is the pin
+logic, and the offline counterfactual covers only the *direct* channel, not vents, so it
+would not catch a vent-pin regression. (Footnote: `sorted()` on the already-ordered worlds list is ~2.8 ms of the 70;
 keep the sort, offline callers may assemble events out of order.)
 
 **2. `history.events` is scanned end-to-end 8 times per solve+decide (~5 ms at 20k).**
@@ -107,12 +93,11 @@ do them together.
 
 **3. `collector._append` constructs pydantic models before the dedup check** for
 `DeathObserved` / `UtteranceObserved` / `MeetingObserved` — measured 24.2 us/tick at 9
-dead, 44.8 us/voting-tick at 20 utterances. This pass fixed exactly this for
-`TaskCounterObserved`; the three siblings want the same id-then-check-then-construct
-order. Small (0.06-0.17% of budget) but it is an inconsistency inside one file.
+dead, 44.8 us/voting-tick at 20 utterances. `TaskCounterObserved` already uses the id-then-check-then-construct order; the three
+siblings want the same. Small (0.06-0.17% of budget), but an inconsistency inside one file.
 
 **4. One shared episode/telemetry loader for the tools.** `kill_window_counterfactual.py`
-is now the FIFTH copy of the `<ep>/results.json` + `artifacts/*.zip` walk, and
+is the fifth copy of the `<ep>/results.json` + `artifacts/*.zip` walk, and
 `SLOT_COLORS`/`COLORS` is declared five times (`decision_quality`, `sweep_decision_gate`,
 `simulate_tally`, `sweep_speaker_trust`, `kill_window_counterfactual`). Extract
 `tools/_episodes.py` with `SLOT_COLORS`, `iter_episodes(root)` and `seat_records(zip)`.
@@ -129,18 +114,18 @@ silently does not reach the other, which is the drift `game_rules.py` exists to 
 
 **6. `DerivedKillConstraint`'s two fields collapse to one.** The only consumer computes
 `hypothesis & possible_killers - alibied`; that difference is derivable at derivation
-time (this pass now precomputes it). A single `required: frozenset[str]` meaning "at
+time. A single `required: frozenset[str]` meaning "at
 least one of these is an impostor" would make the new direct-constraint producer the
 type's actual job rather than a reuse with an always-empty `alibied`. Do it if the
 kill-window lever survives its first hosted A/B.
 
-**7. Pin completeness.** The `unaccounted` widening this pass added applies only to the
-new `at_least_one` disjunction. The *pin* path still assumes the frame decoded every
+**7. Pin completeness.** The `unaccounted` widening applies only to the `at_least_one`
+disjunction. The *pin* path still assumes the frame decoded every
 live player — the same assumption, and it is default-ON. Requiring completeness for a
 pin would reduce pins in the shipped config, so it is a behaviour change needing its own
 measurement, not a cleanup.
 
-### Deferred by the 2026-07-26 `/simplify` pass — measurement-tool duplication
+### One shared episode/telemetry loader for the offline tools
 
 Left undone **on purpose**: these are the instruments the optimisation loop is
 measured with, and rewriting them without the warehouse data on hand risks
@@ -178,7 +163,7 @@ a before/after on the same episodes.
    its colour-map / slot-identity queries duplicate `suss.episode_color_maps` and
    `suss.slot_identity`.
 
-### IMPLEMENTED (default-off): kill-window margin + at_least_one — 2026-07-26
+### Kill window (`CREWBORG_KILL_WINDOW`) — implemented, default off
 
 `CREWBORG_KILL_WINDOW` presets `margin` / `at-least-one` / `both`
 (`deduction/config.py`). A third env var, separate from `CREWBORG_SPEAKER_TRUST` and
@@ -208,7 +193,7 @@ at 100% (apply the liveness filter, or ghost decisions dominate it). Note the co
 risk is real — pins drive ~100% of ejects, and this trades 3 of them for soundness.
 Independent of `structural-only`, which is trusted and needs no sequencing against this.
 
-### The bug this fixes: a false witness pin (2026-07-26)
+### False witness pins
 
 Found by the hosted sanity XP `xreq_51754f1f`. **Diagnosed: this is a kill-range
 boundary / sub-tick timing effect, NOT occlusion.** Not a regression either --
@@ -269,7 +254,7 @@ should have implicated it was consumed by a pin naming someone else.
 trusted, and this finding is not a reason to gate it. Recorded here as the mechanism
 behind one observed false pin, not as an objection to that preset.
 
-### MEASUREMENT TRAP: ghost seats keep solving, and inflate any decision-level metric
+### Ghost seats inflate any decision-level metric
 
 A dead crewborg seat still runs the deduction solve every meeting and still emits
 `domain.deduction_history_decision` with `action="eject"`. Those decisions are never
@@ -294,7 +279,7 @@ cheapest reliable liveness signal is the seat's own `domain.player_died` event f
 own colour (note `self` is null in `decision_snapshot` during **every** Voting phase,
 dead or alive, so it is NOT a liveness signal).
 
-### Deferred by the same pass — correctness-adjacent, needs a decision not a cleanup
+### Correctness-adjacent — each needs a decision, not a cleanup
 
 These change behaviour, so they are **not** cleanup. Each is stated with the evidence
 that makes it suspicious.
@@ -335,7 +320,7 @@ that makes it suspicious.
   feature is a candidate explanation for that path's measured AUC of 0.355 and is worth
   checking before any further work on the fitted model.
 
-### Deferred by the same pass — one measured hot-path item left alone
+### Single-pass rewrite of `_witnessed_actions`
 
 `deduction/inference.py:_witnessed_actions` is ~83 ms of a ~113 ms solve at 20k
 frames: it rebuilds each frame's player/body/vent maps twice (every frame is built

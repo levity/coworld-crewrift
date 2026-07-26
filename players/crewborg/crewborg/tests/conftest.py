@@ -29,16 +29,11 @@ _MODEL_WAIT_SECONDS = 60.0
 def _spacy_model_ready() -> None:
     """Block until the claim parser's spaCy model is loaded.
 
-    `strategy/claims.parse_claims` returns `[]` when the model is not yet loaded --
-    correct in production, where it must never block the tick loop, but it makes the
-    claim-dependent tests a race against a background thread. Cold, NINE tests in
-    `test_deduction_history.py` fail (`assert []`, `assert False`, a repeat-decay
-    comparison that collapses to `0.4 > 0.4`); once the model is warm all of them
-    pass. That is worse than a skip: the suite reported 640 passed on one run and 9
-    failures on the next from the same tree.
-
-    So wait here, once per session, and let a genuinely missing model fail the claim
-    tests with their own assertions rather than silently as "asserts nothing".
+    `strategy/claims.parse_claims` returns `[]` while the model is still loading --
+    correct in production, where it must never block the tick loop, but it would make
+    every claim-dependent test a race against a background thread. Waiting once per
+    session makes the suite deterministic; a genuinely missing model then fails those
+    tests on their own assertions rather than silently returning "asserts nothing".
     """
 
     nlp.ensure_loading()

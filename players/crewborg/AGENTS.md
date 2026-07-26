@@ -30,11 +30,14 @@ plenty:** surface decision-ready forks, present hypotheses and experiment design
 
 ## The optimization loop
 
-**evaluate → diagnose → experiment → improve → re-measure → (gated) submit.** Concretely:
+**evaluate → diagnose → experiment → improve → re-measure → (gated) submit.**
+**[`docs/improvement-loop.md`](docs/improvement-loop.md) is the runnable checklist** — one
+pass end to end, with a "done when" per step. Concretely:
 
-1. **See where crewborg stands.** Run experience requests on a flat/representative field
-   (**`coworld-experience-requests`**) *or* pull the latest tournament round's games
-   (**`coworld-episode-artifacts`**), then turn the batch into a fast overview with **`crewrift-survey`**
+1. **See where crewborg stands.** Run an experience request on a flat/representative field
+   (**`coworld-experience-requests`**) — league/tournament episodes carry no results and no
+   policy artifacts, so they give rank but never behaviour. Turn the batch into a fast
+   overview with **`crewrift-survey`**
    (per-policy role-split table + win heat map + flagged episodes). Decompose by role — crewmate and
    imposter are effectively two policies.
 2. **Diagnose.** Turn the signals into a few *varied, mechanistic* hypotheses for where it falls short
@@ -90,6 +93,18 @@ but **not submitting** until the player is better and the human approves.
 - **`lessons-review`** — cluster recurring lessons across session buffers → graduate keepers to
   best_practices → [skill](skills/lessons-review/SKILL.md).
 
+## The analysis repo (separate checkout)
+
+`~/projects/softmax/crewrift-analysis` holds the measurement tooling and is **not** part of
+this package. Read its README. It provides the **signals panel** (`crew_play_signals.py`,
+22 own-seat signals), `normalize_selfplay.py` (free local games into the same panel),
+`ab_analysis.py`, `selfplay.sh`, and `env.sh`.
+
+```bash
+export CREWBORG_WT=/path/to/this/worktree    # env.sh REFUSES to guess and will error out
+cd ~/projects/softmax/crewrift-analysis && source ./env.sh
+```
+
 ## Tools — the scripts behind the skills (each is self-documented)
 
 - **`tools/build/`** — building the player: `build_player.sh` (crewborg amd64 image), `nav_bake.py`
@@ -120,6 +135,18 @@ but **not submitting** until the player is better and the human approves.
 
 **On wrap-up of a thread:** capture every tentative lesson, reconcile WORKING_CONTEXT (prune stale
 detail, update the active version), and propose the next step — don't auto-chain.
+
+## Writing docs and comments — state what is true
+
+**Docs and comments describe the present. When you find something wrong or outdated,
+delete it and write what is correct — do not narrate the correction.** No "this used to",
+"previously", "now fixed", "supersedes the old advice". A reader wants to know what is
+true, not the history of what was believed. Keep the *evidence* for a current choice (a
+measurement that justifies a threshold); drop the story of what it replaced.
+
+**`CHANGELOG.md` is the only place history lives.** Put the before/after there —
+including corrections to earlier claims — and nowhere else. `crewborg/version_log.md` is
+the equivalent record for uploaded versions.
 
 ## Disciplines (full set in `docs/best_practices.md` — read it)
 
