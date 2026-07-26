@@ -102,7 +102,53 @@ def test_role_resolved_emitted_once() -> None:
     h.step(belief=Belief(self_role="imposter"))
 
     [event] = h.events("domain.role_resolved")
-    assert event.data == {"role": "imposter"}
+    assert event.data == {
+        "role": "imposter",
+        "crew_brain": "fitted",
+        "deduction_flag_set": False,
+    }
+
+
+def test_role_resolved_names_the_crew_brain_that_actually_won_the_fork(monkeypatch) -> None:
+    """The flag alone does not decide the brain -- the role does, and only crew gets it."""
+
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+
+    crew = _Harness()
+    crew.step(belief=Belief(self_role="crewmate"))
+    [event] = crew.events("domain.role_resolved")
+    assert event.data["crew_brain"] == "deduction"
+    assert event.data["deduction_flag_set"] is True
+
+    # Same flag, impostor seat: the fitted brain is deliberately retained.
+    imp = _Harness()
+    imp.step(belief=Belief(self_role="imposter"))
+    [event] = imp.events("domain.role_resolved")
+    assert event.data["crew_brain"] == "fitted"
+    assert event.data["deduction_flag_set"] is True
+
+
+def test_crew_brain_config_is_emitted_once_even_without_a_role(monkeypatch) -> None:
+    """The signature of a missed RoleReveal latch: config present, role_resolved absent.
+
+    Without this event a missed latch is undetectable -- the fork silently takes the
+    fitted branch and no trace names the arm's intent.
+    """
+
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    monkeypatch.setenv("CREWBORG_DECISION_GATE", "loose")
+
+    h = _Harness()
+    h.step(belief=Belief(self_role=None))
+    h.step(belief=Belief(self_role=None))
+
+    [event] = h.events("domain.crew_brain_config")
+    assert event.data["deduction_flag_set"] is True
+    assert event.data["decision_gate_overrides"] == {
+        "base_margin": 1e-3,
+        "require_support": False,
+    }
+    assert h.events("domain.role_resolved") == []
 
 
 def test_body_sighted_once_per_body_with_counter() -> None:

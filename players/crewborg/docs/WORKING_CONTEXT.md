@@ -45,6 +45,30 @@ the answer -- see the verdict below.
   (served as a hardcoded 0), `Belief.deduction_world_ticks` (a parallel index the event-id
   set already implied), and an unreachable branch in `_fallback_vote_target`.
 
+**Follow-up the same day: the fork moved, and the `.clear()` is gone.** The pivot used
+to run the fitted model on every pre-reveal tick and then `belief.suspicion.clear()`
+once the role latched to crewmate -- "use the old brain, then delete the evidence".
+The fork keys on `self_role`, which is `None` until the RoleReveal text, so *something*
+has to run first; the fix was to split by kind of work instead of by tick.
+`update_event_log` / `update_social_evidence` accumulate observations onto
+`PlayerRecord` and keep their exact old schedule (the impostor's fitted
+`observed_samples` counts ticks from 0); `update_suspicion` is the only
+conclusion-former and is a pure recompute from those accumulators, so it now waits for
+the role. A flagged crewmate therefore never has a posterior written -- the invariant
+holds by construction rather than by scrubbing. Free for both roles: the discarded
+pre-reveal values were flat priors (uniform 0.452, empty `believed_imposters`), and
+`test_deferring_the_posterior_does_not_change_the_impostor` pins the fitted arm.
+
+**And the arm is now identifiable from a trace.** `role_resolved` carries
+`crew_brain: deduction|fitted` plus `deduction_flag_set`, and a new unconditional
+first-tick `crew_brain_config` event carries the flag and the resolved
+`CREWBORG_DECISION_GATE` overrides. This closes a real A/B-integrity hole: because the
+fork keys on `self_role`, a missed RoleReveal text latch made the flagged arm play the
+**fitted** brain for the whole game, detectable before only by the ABSENCE of later
+meeting events -- and not at all in a game with no meetings. The signature to grep for
+is `crew_brain_config{deduction_flag_set: true}` with no `role_resolved`. Directly
+serves lesson 4 (verify a champion's config from a fetched trace, never the version log).
+
 **Verdict on "should the deduction path get its own player base": NO.** A fork would
 duplicate ~5,500 lines of substrate (perception, action, nav, map, agent_tracking,
 events, coworld) that has nothing to do with the crew brain and is exactly where the

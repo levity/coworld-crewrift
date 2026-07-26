@@ -148,21 +148,39 @@ def build_runtime(
         Keeping these coupled is deliberate for now — one flag, one arm — but it means
         the A/B measures the architecture AND the loss of Accuse together. Decomposing
         that is the standing next step in `HANDOFF.md`.
+
+        **Why the conclusion stage waits for the role.** The fork keys on
+        `belief.self_role`, which is `None` until the RoleReveal interstitial renders
+        `IMPS`/`CREWMATE` — so the pre-reveal ticks cannot know which brain they belong
+        to. The split below is by *kind of work* rather than by tick:
+
+        - `update_event_log` / `update_social_evidence` **accumulate observations** onto
+          `PlayerRecord` (proximity, dwell, `seen_ticks`, chat stances, ballots). The
+          impostor's fitted `observed_samples` feature depends on these running from
+          tick 0, so they keep exactly their old schedule.
+        - `update_suspicion` is the only **conclusion-former** (the posterior and
+          `believed_imposters`), and it is a *pure recompute* from those accumulators
+          every tick — it holds no state of its own. So deferring it until the role is
+          known costs nothing: the first post-reveal posterior is rebuilt identically.
+
+        That deferral is what lets a flagged crewmate simply never have a suspicion dict
+        written. This used to run the fitted model pre-reveal and then `.clear()` its
+        output — which discarded only flat priors (measured: a uniform 0.452 with an
+        empty `believed_imposters`), but read as "we used the old brain, then deleted the
+        evidence." Not writing it is the same behaviour and an honest one.
         """
 
         update_belief(belief, percept)
         update_agent_tracking(belief)
         if deduction_history_enabled(belief.self_role):
             update_deduction_history(belief, percept)
-            # Not merely unused: cleared, so the deduction path cannot silently
-            # consume a conclusion from the model it replaces. See the docstring for
-            # the three behaviours this also disables.
-            belief.suspicion.clear()
-            belief.believed_imposters.clear()
         else:
             update_event_log(belief)
             update_social_evidence(belief)
-            update_suspicion(belief)
+            # Nothing reads the posterior before the role is known (the selector idles
+            # outside Playing/Voting), and it is a pure recompute, so waiting is free.
+            if belief.self_role is not None:
+                update_suspicion(belief)
 
     commander_trace = CommanderTrace()
     feature_on = commander_feature_enabled(dict(os.environ))

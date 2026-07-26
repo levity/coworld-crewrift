@@ -65,7 +65,12 @@ import math
 import os
 from typing import Any
 
+from players.player_sdk import EventEmitter, StepContext
+
 from crewborg.action import BTN_A, BTN_B
+from crewborg.deduction.config import enabled as deduction_flag_set
+from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
+from crewborg.deduction.config import gate_overrides
 from crewborg.perception.constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from crewborg.strategy.commander.trace import CommanderTrace
 from crewborg.strategy.opportunity import has_trackable_victim, kill_urgency_ticks
@@ -78,8 +83,14 @@ from crewborg.strategy.suspicion import (
     witnessed_imposters,
 )
 from crewborg.trace import TraceConfig
-from crewborg.types import ActionState, Belief, Command, CommanderPriorities, Intent, PlayerRecord
-from players.player_sdk import EventEmitter, StepContext
+from crewborg.types import (
+    ActionState,
+    Belief,
+    Command,
+    CommanderPriorities,
+    Intent,
+    PlayerRecord,
+)
 
 
 class CrewborgEventTracer:
@@ -100,6 +111,7 @@ class CrewborgEventTracer:
         # Belief default so the first real transition (unknown → …) is reported.
         self._phase: str = "unknown"
         self._role: str | None = None
+        self._config_traced: bool = False
         self._seen_body_ids: set[int] = set()
         self._completed_task_indices: set[int] = set()
         self._last_kill_tick: int | None = None
@@ -149,6 +161,7 @@ class CrewborgEventTracer:
     def __call__(self, context: StepContext[Belief, ActionState, Intent, Command]) -> None:
         belief = context.belief
         emit = context.emit
+        self._observe_config(emit)
         if self._emit_commander:
             self._observe_commander_trace(emit)
         self._observe_phase(belief, emit)
@@ -226,6 +239,29 @@ class CrewborgEventTracer:
 
     # --- state-transition / outcome events (belief & action-state deltas) ---
 
+    def _observe_config(self, emit: EventEmitter) -> None:
+        """Emit the crew-brain configuration once, unconditionally, on the first tick.
+
+        Deliberately independent of the role: it must land even when the RoleReveal
+        text latch never fires, which is the failure that would silently run the
+        fitted brain in an arm meant to test `deduction`. Seeing
+        `deduction_flag_set: true` here with no later `role_resolved` event is the
+        signature of that degradation. Also records the decision-gate preset, so an
+        arm's configuration is verifiable from a fetched trace rather than from the
+        version log (see `HANDOFF.md` lesson 4).
+        """
+
+        if self._config_traced:
+            return
+        self._config_traced = True
+        emit.event(
+            "crew_brain_config",
+            {
+                "deduction_flag_set": deduction_flag_set(),
+                "decision_gate_overrides": gate_overrides() or None,
+            },
+        )
+
     def _observe_phase(self, belief: Belief, emit: EventEmitter) -> None:
         if belief.phase != self._phase:
             emit.event("phase_change", {"from": self._phase, "to": belief.phase})
@@ -234,7 +270,25 @@ class CrewborgEventTracer:
     def _observe_role(self, belief: Belief, emit: EventEmitter) -> None:
         if self._role is None and belief.self_role is not None:
             self._role = belief.self_role
-            emit.event("role_resolved", {"role": belief.self_role})
+            # The role latch is also the moment crewborg's crew-brain fork becomes
+            # decidable, so name the brain that actually won it. Without this, a
+            # missed RoleReveal text latch leaves `self_role` None, the fork silently
+            # takes the fitted branch, and an arm you believe is testing `deduction`
+            # is really running `fitted` -- detectable today only by the ABSENCE of
+            # later meeting events, and not at all in a game with no meetings.
+            # (Lesson 4: verify a champion's config from a fetched trace.)
+            emit.event(
+                "role_resolved",
+                {
+                    "role": belief.self_role,
+                    "crew_brain": (
+                        "deduction"
+                        if deduction_history_enabled(belief.self_role)
+                        else "fitted"
+                    ),
+                    "deduction_flag_set": deduction_flag_set(),
+                },
+            )
 
     def _observe_bodies(self, belief: Belief, emit: EventEmitter) -> None:
         for body_id in sorted(belief.bodies.keys() - self._seen_body_ids):
