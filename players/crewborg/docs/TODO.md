@@ -155,12 +155,28 @@ against this case: a 3px margin (one tick of `MaxSpeed/MotionScale ≈ 2.75`) st
 it by one unit (d²=530 vs threshold 529); 4px or more makes it ambiguous. Two ticks (~6px)
 is the defensible choice, since both parties can be closing.
 
-Crucially, "ambiguous" is not a loss of information -- it is exactly the
-`at_least_one {blue, red}` hard constraint that
-`docs/2026-07-26-constraint-supply-and-the-next-plan.md` ranks as **lever #1**. That
-lever would convert this false certainty into a true disjunction. This episode is
-evidence for implementing it, and evidence that `structural-only` (which trusts pins
-absolutely and removes the corroboration that might otherwise object) needs it first.
+**The margin and lever #1 are complementary, and the margin is the load-bearing one.**
+`at_least_one` (lever #1 in `docs/2026-07-26-constraint-supply-and-the-next-plan.md`)
+fires only when >=2 actors are in range -- here exactly ONE was, so on its own it would
+never have triggered and this pin would still be cast. The margin is what makes the
+observation ambiguous; `at_least_one` is what stops the (now ambiguous) observation from
+being discarded. Measured on this episode's real hypothesis space, after murder clears
+left 10 candidates:
+
+| treatment | survivors | truth `{red,cyan}` survives? |
+|---|---|---|
+| today: pin `{blue}` | 4 | **no -- eliminated** |
+| margin only (observation dropped) | 10 | yes, but the kill teaches nothing |
+| margin + `at_least_one{blue,red}` | 7 | yes, prunes 30% soundly |
+
+**Severity is worse than "a wrong vote".** A false pin does not add noise, it REMOVES
+THE TRUTH from the hypothesis space: `{red,cyan}` was not among the four survivors, so
+from frame 2111 that seat could never reach the right answer again. The actual killer
+`red` finished at marginal **0.028** -- rated nearly innocent, because the kill that
+should have implicated it was consumed by a pin naming someone else.
+
+This is why `structural-only` (which trusts pins absolutely and removes the accusation
+corroboration that might otherwise object) wants the margin landed first.
 
 ### MEASUREMENT TRAP: ghost seats keep solving, and inflate any decision-level metric
 
