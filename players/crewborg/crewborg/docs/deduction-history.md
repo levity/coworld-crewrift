@@ -41,10 +41,23 @@ For a crewmate with the flag enabled, the runtime:
 
 - continues ordinary perception and agent-location tracking;
 - appends the new history;
-- clears `belief.suspicion` and `belief.believed_imposters`;
+- never writes `belief.suspicion` or `belief.believed_imposters` (they stay empty
+  by construction -- see below);
 - does not run the legacy player event log, alibi accumulator, social counters,
   or suspicion model; and
 - routes crew meetings around both the meeting LLM and old solver.
+
+The fork keys on `belief.self_role`, which is `None` until the RoleReveal
+interstitial renders `IMPS`/`CREWMATE`, so the pre-reveal ticks cannot know which
+brain they belong to. `fold_belief` therefore splits by *kind of work*, not by
+tick: `update_event_log` and `update_social_evidence` accumulate observations onto
+`PlayerRecord` on their old schedule (the impostor's fitted `observed_samples`
+feature depends on them running from tick 0), while `update_suspicion` -- the only
+conclusion-former, and a pure recompute from those accumulators -- waits until the
+role is known. That is why a flagged crewmate simply never has a posterior
+written. Until 2026-07-26 this ran the fitted model pre-reveal and then cleared
+its output; the discarded values were only flat priors (measured: a uniform 0.452
+with an empty `believed_imposters`), but the shape read as "used, then deleted".
 
 ### What the flag also switches off
 

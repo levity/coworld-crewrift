@@ -24,8 +24,8 @@ crewborg has two crewmate brains, and **the good one is now the direction**:
 | **AUC** | **0.355 — worse than random** | **0.83** |
 | votes at | ~13 ticks into Voting | ~1153 (deadline backstop) |
 
-They do not compose for crew: the flag clears `belief.suspicion` and routes the ballot
-through `deduction/decision.py`. The fitted posterior is **still live for the impostor
+They do not compose for crew: under the flag a crewmate never has `belief.suspicion`
+written at all, and the ballot routes through `deduction/decision.py`. The fitted posterior is **still live for the impostor
 role** (deflection targeting via `top_suspect`), so do not delete it.
 
 **Hosted A/B (homogeneous roster, 6 subject crew + 2 aaln impostors, 100/arm):** team

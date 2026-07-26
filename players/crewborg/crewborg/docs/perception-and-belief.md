@@ -39,7 +39,8 @@ covers what crewborg *does* with that wire format.
   │   update_belief → update_agent_tracking                      │  types.py
   │   then ONE crew brain, never both:                           │
   │     deduction:  update_deduction_history                     │  deduction/
-  │     fitted:     event_log → social_evidence → suspicion      │  strategy/
+  │     fitted:     event_log → social_evidence → suspicion*     │  strategy/
+  │     (*posterior deferred until the role latches)             │
   └─────────────────────────────────────────────────────────────┘
        │  Belief  (the ONLY interface strategy/modes/action see)
        ▼
@@ -278,16 +279,21 @@ fold_belief(belief, percept):          # __init__.py
     # Then exactly ONE of crewborg's two crew brains (the fork is made only here):
     if CREWBORG_DEDUCTION_HISTORY and role == crewmate:
         update_deduction_history(belief, percept)   # deduction/collector.py
-        belief.suspicion.clear()                   # and believed_imposters
     else:
-        update_event_log(belief)           # strategy/event_log.py
-        update_social_evidence(belief)     # strategy/social_evidence.py
-        update_suspicion(belief)           # strategy/suspicion.py
+        update_event_log(belief)           # strategy/event_log.py  — observations
+        update_social_evidence(belief)     # strategy/social_evidence.py — observations
+        if role is not None:               # the ONE conclusion-former, deferred
+            update_suspicion(belief)       # strategy/suspicion.py
 ```
 
+`self_role` is `None` until RoleReveal, so the split is by *kind of work* rather
+than by tick. The two accumulators keep their old schedule (the impostor's fitted
+exposure feature counts ticks from 0); the posterior is a pure recompute from them,
+so deferring it is free and means a flagged crewmate never has one written.
+
 The deduction arm appends *observations* and derives everything at meeting time;
-the fitted arm accumulates *conclusions* every tick. Clearing `suspicion` in the
-first arm also disables Accuse and escort suspect-avoidance — see the `fold_belief`
+the fitted arm forms its posterior every tick. An empty `suspicion` in the first
+arm also disables Accuse and escort suspect-avoidance — see the `fold_belief`
 docstring for why that matters when reading an A/B.
 
 Each step reads the belief the previous step left and mutates it in place. The

@@ -371,3 +371,99 @@ def test_deduction_brain_disables_accuse_because_suspicion_is_cleared() -> None:
     tailed.suspicion.clear()
     tailed.believed_imposters.clear()
     assert _select(tailed) == "normal"
+
+
+# --- the crew-brain fork in build_runtime's fold (crewborg/__init__.py) -------------
+
+
+def _roster_belief(role: str | None) -> Belief:
+    belief = Belief(self_role=role, self_color="red", self_alive=True, last_tick=5)
+    belief.total_player_count = 8
+    belief.imposter_count = 2
+    for color in ("blue", "green", "pink", "orange", "yellow", "purple", "cyan"):
+        belief.roster[color] = PlayerRecord(color=color, world_x=10, world_y=10, last_seen_tick=5)
+    return belief
+
+
+def _stepped_runtime_belief(role: str) -> Belief:
+    """Step the real assembled runtime once and return its folded belief."""
+
+    from crewborg import build_runtime
+    from crewborg.coworld.scene import SceneState
+    from crewborg.tests import sprite_wire as w
+    from crewborg.types import Observation
+
+    runtime = build_runtime()
+    try:
+        seeded = _roster_belief(role)
+        runtime.belief.self_role = seeded.self_role
+        runtime.belief.self_color = seeded.self_color
+        runtime.belief.total_player_count = seeded.total_player_count
+        runtime.belief.imposter_count = seeded.imposter_count
+        runtime.belief.roster.update(seeded.roster)
+
+        scene = SceneState()
+        scene.apply(w.clear_objects())
+        scene.tick += 1
+        runtime.step(Observation(scene=scene, tick=scene.tick))
+        return runtime.belief
+    finally:
+        runtime.close()
+
+
+def test_fitted_brain_writes_a_posterior_once_the_role_is_known() -> None:
+    """Control for the test below: the default arm does populate suspicion."""
+
+    assert _stepped_runtime_belief("crewmate").suspicion
+
+
+def test_flagged_crewmate_never_has_a_posterior_written(monkeypatch) -> None:
+    """No clear needed: the conclusion-former simply never runs for this arm.
+
+    The fork keys on `self_role`, which is None until RoleReveal, so this used to run
+    the fitted model pre-reveal and then `.clear()` its output. Deferring the (pure)
+    recompute until the role is known means the dict is never populated at all -- so
+    "the deduction brain does not use the fitted posterior" is now true by
+    construction rather than true by scrubbing.
+    """
+
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    belief = _stepped_runtime_belief("crewmate")
+    assert belief.suspicion == {}
+    assert belief.believed_imposters == set()
+
+
+def test_what_the_pre_reveal_fitted_tick_used_to_discard() -> None:
+    """Pins the claim that the old clear threw away nothing of value: flat priors."""
+
+    from crewborg.strategy.suspicion import update_suspicion
+
+    would_have = _roster_belief(None)
+    update_suspicion(would_have)
+    assert would_have.suspicion, "pre-reveal suspicion used to be populated"
+    assert len(set(would_have.suspicion.values())) == 1, "uniform -- i.e. flat priors"
+    assert would_have.believed_imposters == set()
+
+
+def test_deferring_the_posterior_does_not_change_the_impostor() -> None:
+    """The fitted arm must be unchanged: suspicion is a pure per-tick recompute.
+
+    Its accumulating state lives on PlayerRecord (event_log / social_evidence), which
+    still run on their old schedule, so skipping the pre-reveal recompute cannot move
+    the first post-reveal posterior.
+    """
+
+    from crewborg.strategy.suspicion import update_suspicion
+
+    # Old shape: recompute every tick, including while the role was unknown.
+    old = _roster_belief(None)
+    update_suspicion(old)          # pre-reveal tick
+    old.self_role = "imposter"
+    update_suspicion(old)          # first post-reveal tick
+
+    # New shape: skip the pre-reveal recompute entirely.
+    new = _roster_belief("imposter")
+    update_suspicion(new)
+
+    assert old.suspicion == new.suspicion
+    assert old.believed_imposters == new.believed_imposters
