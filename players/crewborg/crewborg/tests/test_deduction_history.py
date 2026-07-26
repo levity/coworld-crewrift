@@ -629,3 +629,36 @@ def test_meeting_switch_never_falls_back_to_legacy_suspicion(monkeypatch) -> Non
 
     assert vote.kind == "vote"
     assert vote.target_color is None
+
+
+def test_gate_presets_select_decision_config_fields() -> None:
+    """CREWBORG_DECISION_GATE picks a DecisionConfig preset, and only that."""
+
+    from crewborg.deduction.config import gate_overrides
+    from crewborg.deduction.decision import DecisionConfig
+
+    assert gate_overrides({}) == {}
+    shipped = DecisionConfig(**gate_overrides({}))
+    assert shipped == DecisionConfig()
+
+    loose = DecisionConfig(**gate_overrides({"CREWBORG_DECISION_GATE": "loose"}))
+    assert loose.base_probability == 0.40
+    assert loose.base_margin == 0.0
+    assert loose.min_independent_sources == 1
+    # The parity machinery must not move with the gate preset.
+    assert loose.parity_risk_cutoff == shipped.parity_risk_cutoff
+    assert loose.forced_vote_probability == shipped.forced_vote_probability
+    assert (
+        loose.dangerous_wrong_eject_probability
+        == shipped.dangerous_wrong_eject_probability
+    )
+
+
+def test_unknown_gate_preset_degrades_to_shipped() -> None:
+    """A typo must not silently produce a third, unintended configuration."""
+
+    from crewborg.deduction.config import gate_overrides
+    from crewborg.deduction.decision import DecisionConfig
+
+    assert gate_overrides({"CREWBORG_DECISION_GATE": "lose"}) == {}
+    assert DecisionConfig(**gate_overrides({"CREWBORG_DECISION_GATE": ""})) == DecisionConfig()
