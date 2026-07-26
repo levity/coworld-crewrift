@@ -76,25 +76,20 @@ warning episode, but event-derived behavior must exclude its partial timeline.
 
 ## Same-history comparison
 
-Run both implementations at the same standard tick-1152 cutoff. `--details`
-can be large, so redirect it to JSON:
+The legacy side of this comparison is gone: `tools/analyze_solver_history.py` and
+`tools/compare_deduction_decisions.py` were deleted 2026-07-26 with the legacy
+crew-side solver they replayed (see `docs/2026-07-25-crew-plan-deduction-first.md`).
+There is now one crew implementation, so evaluate it directly:
 
 ```sh
-python players/crewborg/tools/analyze_solver_history.py \
-  /tmp/<arm>-warehouse --details --early-chat \
-  --out /tmp/<arm>-legacy.json
-
 python players/crewborg/tools/evaluate_deduction.py \
   --warehouse /tmp/<arm>-warehouse --details \
   > /tmp/<arm>-deduction.json
-
-python players/crewborg/tools/compare_deduction_decisions.py \
-  /tmp/<arm>-legacy.json /tmp/<arm>-deduction.json \
-  > /tmp/<arm>-comparison.json
-
-jq 'del(.disagreements)' /tmp/<arm>-comparison.json
-jq '.disagreements' /tmp/<arm>-comparison.json
 ```
+
+To compare two *arms* of a hosted A/B rather than two implementations, use
+`tools/decision_quality.py`, which scores each arm's own emitted posterior against
+ground truth (Brier / log-loss / AUC / calibration, cluster-bootstrapped by episode).
 
 Analyze each hosted arm separately before pooling because treatment and control
 produce different game trajectories. The join key is `(episode_id,
