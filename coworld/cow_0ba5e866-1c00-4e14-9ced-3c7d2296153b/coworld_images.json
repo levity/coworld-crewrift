@@ -1,0 +1,19 @@
+{
+  "coworld_id": "cow_0ba5e866-1c00-4e14-9ced-3c7d2296153b",
+  "name": "crewrift_prime",
+  "version": "0.4.69",
+  "images": [
+    {
+      "public_image_uri": "public.ecr.aws/q5f4m8t9/cogames@sha256:2ec3e6f6cd57c4477284c7c5f4af1cb54d015a0a56e831fe7792f057b65ecf85",
+      "local_image": "coworld/cow_0ba5e866-1c00-4e14-9ced-3c7d2296153b/crewrift_prime-0.4.69-0:downloaded"
+    },
+    {
+      "public_image_uri": "public.ecr.aws/q5f4m8t9/cogames@sha256:bbea501eb35b51b6ee2e418850f320ab823cc9d965d727c0199faf19cce10c56",
+      "local_image": "coworld/cow_0ba5e866-1c00-4e14-9ced-3c7d2296153b/crewrift_prime-0.4.69-1:downloaded"
+    },
+    {
+      "public_image_uri": "public.ecr.aws/q5f4m8t9/cogames@sha256:de2f0c0559a777fdb24af87fb83966223634fb6428502bbe8a77194097603319",
+      "local_image": "coworld/cow_0ba5e866-1c00-4e14-9ced-3c7d2296153b/crewrift_prime-0.4.69-2:downloaded"
+    }
+  ]
+}
