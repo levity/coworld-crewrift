@@ -118,34 +118,74 @@ a before/after on the same episodes.
    its colour-map / slot-identity queries duplicate `suss.episode_color_maps` and
    `suss.slot_identity`.
 
-### A false witness pin can produce a CONFIDENTLY WRONG structural eject (2026-07-26)
+### A false witness pin can produce a confidently wrong structural pin (2026-07-26)
 
-Found by the hosted sanity XP `xreq_51754f1f` (16 episodes, `crewborg-lw:v19`, pinned
-roles, live opponents). Not a regression: `_witnessed_actions` is byte-identical to
-`crew-signals-v2`, and the kill-range/co-presence constants are numerically unchanged
-(400 / 784) after being moved to `game_rules.py`.
+Found by the hosted sanity XP `xreq_51754f1f`. **Diagnosed: this is a kill-range
+boundary / sub-tick timing effect, NOT occlusion.** Not a regression either --
+`_witnessed_actions` is byte-identical to `crew-signals-v2` and the relocated constants
+are numerically unchanged (400 / 784).
 
-In episode `ereq_ff5a9fdd`, true impostors were `red` and `cyan`. A crewborg crew seat
-recorded `direct | unique actor adjacent when pink became a body -> pins {blue}`, where
-`blue` was a **crewmate**. That single false pin produced `structural=True, p=1.0`,
-`reason="personally witnessed impostor action"`, and two ejects against a teammate. A
-true impostor (`red`) was simultaneously claiming and voting against `blue`, but the pin
-did **not** depend on that -- it came from crewborg's own `direct` channel.
+**What happened** (episode `ereq_ff5a9fdd`, true impostors `red` + `cyan`). At world
+frame 2111 the `pink` seat observed its own death and recorded
+`direct | unique actor adjacent when pink became a body -> pins {blue}`, where `blue`
+is a crewmate. The real killer was `red`, whose own telemetry shows
+`kill_attempted @2110` and `kill_landed @2111` -- the exact frame.
 
-**Why it matters now.** `crew-signals-v2` just shipped the `structural-only` gate
-(`deduction/config.py`) on the measurement that structural ejects were 9/9 correct in
-league play. This is a mechanism by which a structural eject can be confidently wrong,
-and `structural-only` has no defence against it -- it *removes* the accusation/source
-corroboration that would otherwise be a second opinion. Over this run structural was
-32/34; a small sample, so it does not overturn 9/9, but it does show the failure mode is
-reachable.
+`red` was **fully visible in both frames** (2110 and 2111); nothing was occluded or
+off-camera. The geometry, using the production rule's previous-frame positions:
 
-**Likely cause to check first.** `_witnessed_actions` requires consecutive frames
-(`current.tick == previous.tick + 1`) and exactly one player within `kill_range_sq` of
-the victim's previous position. If the real killer vents or leaves the frame between the
-two ticks, an innocent bystander becomes the "unique adjacent actor". The audit record
-already names the actor, so this is testable offline against recorded histories: re-run
-`infer()` over the retained ledgers and count pins whose actor is not a true impostor.
+| actor | distance to victim's previous position | vs 20px KillRange |
+|---|---|---|
+| blue (crewmate) | 16.3px (d²=265) | inside |
+| red (true killer) | 23.0px (d²=530) | **3px outside** |
+
+So the rule found exactly one in-range actor and pinned the wrong one. The victim was
+walking *toward* the killer at ~3px/tick (x: 300→297→295→292→289→body@286), so between
+the last rendered frame and the sim instant of the kill the gap closed under 20px. The
+rule compares frame-sampled positions against an exact threshold, and one tick of motion
+spans the entire decision boundary.
+
+**Impact in this run: none.** The pin was made at the moment of the seat's own death, so
+both resulting ejects were cast as a ghost and never became ballots (see the ghost trap
+below). But a live witness standing where `pink` stood would have produced the same pin.
+
+**Fix direction, and it is already on the roadmap.** The unique-actor test needs a motion
+tolerance, because "unique within exactly 20px at a sampled frame" is not sound. Measured
+against this case: a 3px margin (one tick of `MaxSpeed/MotionScale ≈ 2.75`) still misses
+it by one unit (d²=530 vs threshold 529); 4px or more makes it ambiguous. Two ticks (~6px)
+is the defensible choice, since both parties can be closing.
+
+Crucially, "ambiguous" is not a loss of information -- it is exactly the
+`at_least_one {blue, red}` hard constraint that
+`docs/2026-07-26-constraint-supply-and-the-next-plan.md` ranks as **lever #1**. That
+lever would convert this false certainty into a true disjunction. This episode is
+evidence for implementing it, and evidence that `structural-only` (which trusts pins
+absolutely and removes the corroboration that might otherwise object) needs it first.
+
+### MEASUREMENT TRAP: ghost seats keep solving, and inflate any decision-level metric
+
+A dead crewborg seat still runs the deduction solve every meeting and still emits
+`domain.deduction_history_decision` with `action="eject"`. Those decisions are never
+cast -- a ghost cannot vote -- but they look identical in telemetry.
+
+Measured over `xreq_51754f1f` (16 episodes, crewborg crew seats):
+
+| | count |
+|---|---|
+| eject **decisions** in telemetry | 37 |
+| of those, made **after the seat's own death** | **26 (70%)** |
+| eject decisions from **live** seats | 11 |
+| player-ballots actually cast (`results.json.vote_players`) | **11 — reconciles exactly** |
+
+All **three** wrong ejects in this batch were ghost decisions. Live ballot precision was
+**11/11**. Reading the decision stream without a liveness filter reports 34/37 and three
+failures that never happened.
+
+`tools/decision_quality.py` and the signals panel already restrict *belief* metrics to
+living seats; the same filter has to be applied to *decision* and *eject* counts. The
+cheapest reliable liveness signal is the seat's own `domain.player_died` event for its
+own colour (note `self` is null in `decision_snapshot` during **every** Voting phase,
+dead or alive, so it is NOT a liveness signal).
 
 ### Deferred by the same pass — correctness-adjacent, needs a decision not a cleanup
 
