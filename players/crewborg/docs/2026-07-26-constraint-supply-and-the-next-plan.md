@@ -56,7 +56,7 @@ evidence, by reason:
 | 98 | `direct: body transition has 2 possible nearby actors` | **yes — and this is the new one** |
 | 39 | `direct: body transition has 0 possible nearby actors` | no (killer never visible) |
 
-## 2. The missed direction: partial identification is thrown away
+## 2. The candidate lever: partial identification is thrown away
 
 `inference.py:894`:
 
@@ -78,7 +78,7 @@ But "a body appeared and only A and B were in kill range" is a sound, proof-stre
 statement: **at least one of {A, B} is an impostor.** That is precisely the input a joint
 enumerator exists to consume.
 
-**Size of the opportunity** (an upper bound on reach, not a claimed effect) (distinct observations, not repeated decisions):
+**Size of the opportunity** — distinct observations, not repeated decisions. This bounds *reach*; it is not a claimed effect:
 
 | | per 100 games | per game |
 |---|---:|---:|
@@ -119,7 +119,8 @@ near-omniscient seat targets 51 points more often. The headroom is in *acting*, 
 
 ## 4. Revised ranking
 
-The old §4 order was built before we knew the solver was starved. Revised:
+The old §4 order predates the discard measurements above. Revised — note this reranks by
+*cost to falsify*, not by expected size:
 
 | # | change | why it moved | cost |
 |---|---|---|---|
