@@ -106,11 +106,9 @@ def decide_from_inference(
 ) -> MeetingDecision:
     """Layer 5: apply a tunable board policy to one fixed posterior.
 
-    The config is always the caller's. This stage used to read
-    ``CREWBORG_DECISION_GATE`` from the environment itself, which broke the purity
-    contract in ``docs/deduction-history.md`` and silently gave every offline sweep
-    whatever preset happened to be exported in the shell. The runtime resolves the
-    preset once, at the mode boundary (``modes/attend_meeting.py``).
+    The config is always the caller's; this stage never reads the environment. The
+    runtime resolves the preset once, at the mode boundary
+    (``modes/attend_meeting.py``), so an offline sweep cannot inherit one from the shell.
     """
 
     policy = decision_config or DecisionConfig()

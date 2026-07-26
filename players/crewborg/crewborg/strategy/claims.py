@@ -63,11 +63,7 @@ from pydantic import BaseModel, ConfigDict
 
 from crewborg import nlp as chat_nlp
 
-# The claim vocabulary lives HERE, with the only code that produces it, rather than
-# in `types.py`. It used to sit there under `Solver*` names -- inherited from
-# `strategy/meeting/solver.py`, which was deleted on 2026-07-26 -- so the names
-# outlived the component they were named for and the god-module carried types only
-# this parser and its consumers ever touch.
+# The claim vocabulary lives here, with the only code that produces it.
 ClaimStance = Literal["accuse", "defend", "at_least_one"]
 EvidenceKind = Literal["bare", "body", "vent", "sighting", "vote"]
 ClaimProvenance = Literal["direct", "relayed"]

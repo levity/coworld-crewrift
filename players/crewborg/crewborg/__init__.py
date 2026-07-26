@@ -164,10 +164,7 @@ def build_runtime(
           known costs nothing: the first post-reveal posterior is rebuilt identically.
 
         That deferral is what lets a flagged crewmate simply never have a suspicion dict
-        written. This used to run the fitted model pre-reveal and then `.clear()` its
-        output — which discarded only flat priors (measured: a uniform 0.452 with an
-        empty `believed_imposters`), but read as "we used the old brain, then deleted the
-        evidence." Not writing it is the same behaviour and an honest one.
+        written.
         """
 
         update_belief(belief, percept)

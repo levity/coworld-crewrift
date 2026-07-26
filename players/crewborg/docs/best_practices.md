@@ -201,27 +201,23 @@ These layer on Part 1; they're the failure modes of *this* game. Add to this par
 
 ## Provenance: a version you cannot explain is a version you cannot use
 
-- **Record an upload's config AT UPLOAD TIME, mechanically.** Use
-  `skills/build-and-upload/scripts/upload_and_log.py`; it writes the `version_log.md` row
-  from the same arguments it uploads with, tags the version with its behaviour env, and
-  refuses without a purpose and a note.
-- **`--secret-env` is not readable back.** No API route returns it — by design. The log and
-  the tags are the only records that survive.
-- **You cannot reconstruct behaviour from league play at all — run your own experience
-  request.** League/tournament episodes come back with `results: false`, no logs and no
-  `policy_artifacts` (the job reports "no policy logs listed for job"). Measured
-  2026-07-26 on episodes **two minutes old**, and again 90 minutes later on freshly
-  created ones: still empty. So this is not expiry and not an upload lag — that route
-  does not carry them. The **same policy version** run through an experience request the
-  same day returned `results: true` and a policy artifact per seat. The only league
-  signal available is `episode.json -> policy_results` (per-seat policy, version, reward).
-  (This supersedes the older "league artifacts are ephemeral, ~one round, harvest
-  promptly" note in `HANDOFF.md` — harvesting promptly would not have helped.)
-- **Version numbers are per policy NAME and collide across lines.** A bare `vN` in
-  `version_log.md` belongs to the archived `crewborg` line, not to `crewborg-lw`.
-- **Why this is a rule and not a preference.** `crewborg-lw:v18` was uploaded untagged and
-  unlogged on 2026-07-26, submitted, and became league champion. We then could not say what
-  config our own champion ran. Recovering it took a fresh 6-episode hosted probe plus
-  forensics on decision weights (vote weights were the shipped products scaled by exactly
-  1/6 and 1/8 — the signature of `CREWBORG_SPEAKER_TRUST=on`). Every input to that recovery
-  was free at upload time and cost hours afterwards.
+- **Upload through `skills/build-and-upload/scripts/upload_and_log.py`.** It writes the
+  `version_log.md` row from the same arguments it uploads with, tags the version with its
+  behaviour env, and refuses without a purpose and a note.
+- **`--secret-env` is not readable back from any API route.** The tags and the log row are
+  the only records of a version's configuration.
+- **League/tournament episodes carry no results and no policy artifacts** (`results: false`,
+  empty `policy_artifacts`). The only league signal is `episode.json -> policy_results`
+  (per-seat policy, version, reward). To explain a version's *behaviour*, fire your own
+  experience request and read its traces.
+- **When fetching, avoid `fetch.sh`** — its `--no-logs` also suppresses policy artifacts.
+- **Version numbers are per policy NAME and collide across lines.** In `version_log.md`,
+  ours are keyed `` `crewborg-lw:vN` ``; a bare `| vN |` row belongs to the archived
+  `crewborg` line.
+
+## Writing docs and comments
+
+- **State what is true; delete what is not.** Do not narrate corrections ("used to",
+  "previously", "now fixed", "supersedes"). Keep a measurement that justifies a current
+  value; drop the story of what it replaced.
+- **`CHANGELOG.md` is the only home for history**, including corrections to earlier claims.

@@ -26,8 +26,7 @@ SKIP_VOTE_TARGET = -2  # perception.entities.VoteDot sentinel
 def update_social_evidence(belief: Belief) -> None:
     """Fold this tick's public/social observations into the roster counters.
 
-    Runs in the fast loop after ``update_event_log`` (it reads the task-dwell
-    intervals that logger maintains) and before ``update_suspicion``.
+    Runs in the fast loop between ``update_event_log`` and ``update_suspicion``.
     """
 
     _count_chat_stances(belief)
@@ -41,12 +40,9 @@ def update_social_evidence(belief: Belief) -> None:
 def _count_chat_stances(belief: Belief) -> None:
     """Bump the roster counters from parsed claims.
 
-    This used to run its own ACCUSE_HINT / DEFEND_HINT keyword match -- a third
-    reading of the same chat, alongside the crew solver's regex parser and the
-    imposter bandwagon's spaCy one, each with its own idea of what an accusation
-    is. They are one parser now (``strategy.claims``) and this is a projection of
-    it: stance ``accuse`` credits the speaker and debits the target, ``defend``
-    credits the target.
+    A projection of the one parser both roles share (``strategy.claims``): stance
+    ``accuse`` credits the speaker and debits the target, ``defend`` credits the
+    target.
 
     Parses are memoized in ``strategy.claims``, which matters here specifically --
     this runs every tick over the whole chat log.
