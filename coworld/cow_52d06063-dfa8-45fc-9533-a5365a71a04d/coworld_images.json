@@ -1,0 +1,23 @@
+{
+  "coworld_id": "cow_52d06063-dfa8-45fc-9533-a5365a71a04d",
+  "name": "crewrift",
+  "version": "0.1.59",
+  "images": [
+    {
+      "public_image_uri": "public.ecr.aws/q5f4m8t9/cogames@sha256:862359446ff1bf3885bf238c95ac8a41a7b7e01210ee55546d704e5ca7e8d32e",
+      "local_image": "coworld/cow_52d06063-dfa8-45fc-9533-a5365a71a04d/crewrift-0.1.59-0:downloaded"
+    },
+    {
+      "public_image_uri": "public.ecr.aws/q5f4m8t9/cogames@sha256:8d442f925c506370865bcfcb7f03be49b66207693a5e7cfefb9af915f8a70b5f",
+      "local_image": "coworld/cow_52d06063-dfa8-45fc-9533-a5365a71a04d/crewrift-0.1.59-1:downloaded"
+    },
+    {
+      "public_image_uri": "public.ecr.aws/q5f4m8t9/cogames@sha256:b6b8ed321efd81b7cec57ad32489a5bc86bf2c9162a8f7130cbd92d833789c42",
+      "local_image": "coworld/cow_52d06063-dfa8-45fc-9533-a5365a71a04d/crewrift-0.1.59-2:downloaded"
+    },
+    {
+      "public_image_uri": "public.ecr.aws/q5f4m8t9/cogames@sha256:dcab8583da074953654de5659bce64c8184ee2d10d974c0bbe8b97f6f92cc32b",
+      "local_image": "coworld/cow_52d06063-dfa8-45fc-9533-a5365a71a04d/crewrift-0.1.59-3:downloaded"
+    }
+  ]
+}

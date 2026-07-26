@@ -1,0 +1,21 @@
+{
+  "target": {"coworld_id": "cow_0ba5e866-1c00-4e14-9ced-3c7d2296153b"},
+  "roster": [
+    {"player": {"policy_ref": "crewborg-lw:v3"}},
+    {"player": {"policy_ref": "4e65356f-9a2c-4e6b-af27-bdb43515547b"}},
+    {"player": {"policy_ref": "48df5a11-9d8b-4aa2-b0fb-5d5de149ce5d"}},
+    {"player": {"policy_ref": "4e65356f-9a2c-4e6b-af27-bdb43515547b"}},
+    {"player": {"policy_ref": "48df5a11-9d8b-4aa2-b0fb-5d5de149ce5d"}},
+    {"player": {"policy_ref": "4e65356f-9a2c-4e6b-af27-bdb43515547b"}},
+    {"player": {"policy_ref": "48df5a11-9d8b-4aa2-b0fb-5d5de149ce5d"}, "slot": 6},
+    {"player": {"policy_ref": "4e65356f-9a2c-4e6b-af27-bdb43515547b"}, "slot": 7}
+  ],
+  "game_config_overrides": {
+    "slots": [
+      {"role": "crew"}, {"role": "crew"}, {"role": "crew"}, {"role": "crew"},
+      {"role": "crew"}, {"role": "crew"}, {"role": "imposter"}, {"role": "imposter"}
+    ]
+  },
+  "num_episodes": 100,
+  "notes": "Prime group-tasking A/B candidate; subject crewborg-lw:v3 (group-tasking on) forced-crew vs league fillers on crewrift_prime cow_0ba5e866"
+}

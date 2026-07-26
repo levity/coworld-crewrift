@@ -1,5 +1,13 @@
 # Dynamic group-supported tasking hosted A/B
 
+> ⚠️ **Wrong target — results not valid for Crewrift Prime.** This experiment ran
+> Experience Requests against plain `crewrift:0.1.59` (`cow_52d06063`), NOT the Crewrift
+> **Prime** coworld the crewborg champion actually competes on (`crewrift_prime`, live
+> `cow_0ba5e866`, resolve via `coworld leagues league_a12f5172 --json`). Prime is the same
+> sim engine but a forked coworld with different scenario params + opponents, so treat the
+> geometry/murder numbers below as suspect until re-measured on Prime.
+
+
 ## Question
 
 Does revalidating group support while traveling make proactive group tasking
