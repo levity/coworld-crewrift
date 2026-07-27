@@ -76,7 +76,7 @@ All default off. One env var per lever, so an A/B moves one thing.
 | `CREWBORG_DECISION_GATE` | `shipped` `loose` `loose+p40` `structural-only` | `loose` is live; its A/B primary missed (coverage 14.2% → 16.6% against ~22% predicted) |
 | `CREWBORG_SPEAKER_TRUST` | `off` `on` `mild` | `on` is live; tempers claim/vote weight by how selectively a speaker votes |
 | `CREWBORG_KILL_WINDOW` | `off` `margin` `at-least-one` `both` | `both` is live. Offline over 64 seats: pins 28/29 → 26/26 sound, truth kept 63/64 → 64/64, 14 observations recovered, 3 pins lost |
-| `CREWBORG_KILL_ANCHOR` | `off` `sprite` | Imposter strike range measured from our own decoded sprite instead of the camera point (the two differ by a fixed `(-2,-6)`). Offline over `xreq_f1f82f76`: correctly refuses 99.7 % of 17,984 non-landing strike ticks, still allows 83.9 % of landed kills. Untested hosted |
+| `CREWBORG_KILL_ANCHOR` | `off` `sprite` | Imposter strike range measured from our own decoded sprite instead of the camera point (the two differ by a fixed `(-2,-6)`). **Hosted A/B, 100 v 100 imposter-pinned:** mechanism fixed (wasted strike ticks/ep 5.7 → 0.8, p = 0.001) but outcomes did not improve (win 85.0 % → 76.0 %, p = 0.108; kills/ep 1.60 → 1.53, p = 0.492; ejections 15 % → 20 %). Shipped in v21 as a correctness fix, **not** as an improvement |
 
 Retained rejected experiments (`GROUP_TASKING`, `WITNESS_TASKING`, `POST_TASK_ESCORT`,
 `POST_TASK_LOITER`, `SELF_PRESERVATION`, `STICK`) stay off — `docs/TODO.md` holds the
@@ -101,16 +101,42 @@ git fetch origin && git rebase origin/master && git push levity lawrence
    from the hypothesis space for the rest of that game. `CREWBORG_KILL_WINDOW` addresses
    the direct channel; the pin path itself still assumes every live player was decoded.
    `docs/TODO.md` has the measurement and the remaining work.
-3. **Impostor 2nd-kill conversion — mechanism found.** It is not hesitancy: the strike
-   *fires*, from a range test that measures our own position from a different anchor
-   than the victim's. Over 100 imposter-pinned hosted episodes (`xreq_f1f82f76`) we
-   held a kill intent for 18,077 ticks and landed 93 kills; 99.7 % of the non-landing
-   ticks were outside KillRange once measured from a consistent anchor. Because
-   `_resolve_kill` emits an A-press and no movement bits when it thinks it is in range,
-   the agent stands still — one episode held the same pose for ~4,400 ticks.
-   `CREWBORG_KILL_ANCHOR=sprite` is the fix; hosted A/B pending. The matched
-   within-episode comparator over those episodes: 1.11 kills/ep for us vs 1.72 for the
-   rotating field partner imposter, out-killed in 46 of 93.
+3. **The imposter's bottleneck is ACQUISITION, not the strike.** Measured over the
+   kill-anchor A/B (200 imposter-pinned episodes, `xreq_f9db8da2` / `xreq_a76aa9d5`),
+   the kill-ready time budget is:
+
+   | | v20 | v21 |
+   |---|---|---|
+   | no live victim visible | 79.4 % | **75.4 %** |
+   | visible, out of range | 11.7 % | 14.7 % |
+   | in range, witness gate blocks | 6.0 % | 8.9 % |
+   | holding a kill intent | 2.9 % | 0.9 % |
+   | ready ticks per kill | 184 | 188 |
+
+   Three quarters of the lethal window has nobody to kill, and it is an **information**
+   failure rather than a positioning one: of those blind ticks, 91.8 % have no sighting
+   of any live crewmate newer than the 120-tick tracking window, mean sighting age 447
+   ticks, mean distance to the last-known position 218 px. **That kills the obvious
+   lever** — extending the pre-ready beeline (`CREWBORG_RECON_WINDOW`) cannot help when
+   there is nothing fresh to beeline toward.
+
+   (This supersedes the earlier "target visible ~43 % of ready ticks, 4× rivals" figure,
+   which is not what the trace shows; measured it is 21–25 %.)
+
+   Search already scores rooms by expected crew occupancy — `modes/search.py:_pick_room`,
+   not the "random nearby task room" the older docs described — and every weight is
+   env-overridable (`CREWBORG_PICKROOM_W_*`). Occupancy is informative but diffuse:
+   reacquisition `distance_error` median 34 px, 68.4 % within 100 px, but median
+   `top_probability` 0.003 (and reacquisitions are selection-biased toward looking in
+   roughly the right place).
+
+4. **Activity appears to cost ejections, and that constrains every acquisition lever.**
+   The kill-anchor fix removed ~5 wasted standing-still ticks per episode and our
+   ejection rate went 15 % → 20 % while imposter win went 85.0 % → 76.0 %. Neither is
+   significant at n=100 (p = 0.35 and 0.108) so this is a hypothesis, not a result — but
+   it points the same way as the recorded `BE_DUMB` arm, where searching ~97 % of ticks
+   tripled ejections (14 % → 40 %) for only +10 % kills. Any "seek crew harder" lever
+   must carry ejection rate as an explicit guard, not just kills.
 
 ## Measurement gotchas
 

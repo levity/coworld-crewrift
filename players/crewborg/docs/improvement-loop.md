@@ -109,11 +109,29 @@ A **strategy change** is a change where the code already did what it was written
 and you are arguing the intent should be different — a threshold, a target-selection
 rule, a new behaviour. That is a claim about the game, and only games can settle it.
 
-**Do not spend a hosted A/B on a bug fix.** Prove it offline, pass Gate 1 with the
-mechanism visibly firing, and **fold it into the baseline**. Hosted episodes are the
-scarce instrument and win rate is a one-bit-per-game measure that cannot resolve below
-roughly +15pp at n=100 — spending a run to re-confirm arithmetic you have already
-replayed buys nothing and delays the next real question.
+**Do not spend a hosted A/B to re-establish that the defect is real.** That part is
+settled by the offline replay, and win rate is a one-bit-per-game measure that cannot
+resolve below roughly +15pp at n=100.
+
+**But do run one cheap outcome check before the fix becomes the baseline** — because a
+bug fix changes *behaviour in the field*, and that is a separate question from whether
+the arithmetic was wrong. `CREWBORG_KILL_ANCHOR` is the cautionary case as well as the
+worked example. The mechanism moved exactly as designed (wasted strike ticks/episode
+5.7 → 0.8, p = 0.001, and 93 % of the control's wasted ticks were genuinely out of
+range against 0 % of the candidate's) — and the outcome did **not** improve: imposter
+win 85.0 % → 76.0 % (p = 0.108), kills/episode 1.60 → 1.53 (p = 0.492), our ejection
+rate 15 % → 20 %. Neither outcome number is significant at n = 100, so the fix is not
+established as harmful; what is established is that it bought nothing, and that the
+broken behaviour had a *second* effect nobody had modelled — standing still mashing A
+was accidentally acting as camouflage.
+
+The lesson generalises: **"the code was wrong" does not imply "the code was worse."**
+A defect that has been in play for a while is load-bearing in ways the diff does not
+show. Fix it, but measure the fix's behavioural consequence before building on top of it.
+
+The thing genuinely not worth buying is a *large* A/B, or an A/B whose question is "was
+the defect real". One matched run at n≈100 per arm, read on the mechanism with outcomes
+as guards, is enough to catch a fix that quietly changes how the policy is perceived.
 
 Then A/B the *next* strategy change **on top of the fix**: baseline = bug fix, treatment
 = bug fix + change. Both arms carry the fix, so it is not a variable, and the comparison
