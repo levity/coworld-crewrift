@@ -959,10 +959,10 @@ def test_crew_brain_config_names_the_imposter_arm(monkeypatch) -> None:
     h = _Harness()
     h.step(belief=Belief(self_role="imposter"))
     [cfg] = h.events("domain.crew_brain_config")
-    assert cfg.data["imposter_overrides"] == {"kill_anchor": "off"}
+    assert cfg.data["imposter_overrides"] == {"kill_anchor": "off", "pickroom": None}
 
     monkeypatch.setenv("CREWBORG_KILL_ANCHOR", "sprite")
     treated = _Harness()
     treated.step(belief=Belief(self_role="imposter"))
     [cfg] = treated.events("domain.crew_brain_config")
-    assert cfg.data["imposter_overrides"] == {"kill_anchor": "sprite"}
+    assert cfg.data["imposter_overrides"] == {"kill_anchor": "sprite", "pickroom": None}

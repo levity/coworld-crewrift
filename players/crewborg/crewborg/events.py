@@ -72,6 +72,7 @@ from crewborg.deduction.config import enabled as deduction_flag_set
 from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
 from crewborg.deduction.config import gate_overrides, inference_overrides
 from crewborg.envflags import truthy
+from crewborg.modes.search import pickroom_overrides
 from crewborg.perception.constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from crewborg.strategy.commander.trace import CommanderTrace
 from crewborg.strategy.opportunity import (
@@ -272,7 +273,10 @@ class CrewborgEventTracer:
                 # its job is arm verification, and this is the only trace guaranteed to
                 # be emitted on the first tick regardless of role — an imposter arm has
                 # no crew-brain fork to latch, so anywhere else it could go missing.
-                "imposter_overrides": {"kill_anchor": kill_anchor()},
+                "imposter_overrides": {
+                    "kill_anchor": kill_anchor(),
+                    "pickroom": pickroom_overrides() or None,
+                },
             },
         )
 

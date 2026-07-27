@@ -39,14 +39,15 @@ import math
 import os
 import random
 
+from players.player_sdk import EmptyModeParams, Mode, ModeParams
+
 from crewborg.agent_tracking import best_seek_point, room_occupancy
-from crewborg.modes import imposter_common as ic
 from crewborg.map.types import Room
+from crewborg.modes import imposter_common as ic
 from crewborg.nav import _segment_clear
 from crewborg.strategy.commander.bias import commander_of
 from crewborg.strategy.path_prediction import PathPredictor
 from crewborg.types import ActionState, Belief, Intent, PlayerRecord
-from players.player_sdk import EmptyModeParams, Mode, ModeParams
 
 ARRIVE_RADIUS_SQ = 24**2
 # Drop a follow once the target has been unseen this long with no live prediction.
@@ -93,6 +94,42 @@ W_COMMANDER = _wenv("CREWBORG_PICKROOM_W_COMMANDER", 1.0)   # soft commander hun
 # Recency penalty is gone after ~this many ticks; unvisitedness maxes out after ~this many.
 RECENCY_DECAY_TICKS = _wenv("CREWBORG_PICKROOM_RECENCY_DECAY", 150.0)
 UNVISITED_FULL_TICKS = _wenv("CREWBORG_PICKROOM_UNVISITED_FULL", 800.0)
+
+# The defaults, kept so a trace can report only what an arm actually CHANGED. Without
+# this an A/B over these weights is unverifiable from a fetched trace — the same gap
+# that made the kill-anchor arms unverifiable until `imposter_overrides` existed.
+_PICKROOM_DEFAULTS = {
+    "CREWBORG_PICKROOM_W_OCCUPANCY": 3.0,
+    "CREWBORG_PICKROOM_W_UNVISITED": 2.5,
+    "CREWBORG_PICKROOM_W_RECENCY": 3.0,
+    "CREWBORG_PICKROOM_W_DISTANCE": 1.0,
+    "CREWBORG_PICKROOM_W_TEAMMATE": 1.5,
+    "CREWBORG_PICKROOM_W_TASKBONUS": 0.4,
+    "CREWBORG_PICKROOM_W_COMMANDER": 1.0,
+    "CREWBORG_PICKROOM_RECENCY_DECAY": 150.0,
+    "CREWBORG_PICKROOM_UNVISITED_FULL": 800.0,
+}
+_PICKROOM_LIVE = {
+    "W_OCCUPANCY": W_OCCUPANCY,
+    "W_UNVISITED": W_UNVISITED,
+    "W_RECENCY": W_RECENCY,
+    "W_DISTANCE": W_DISTANCE,
+    "W_TEAMMATE": W_TEAMMATE,
+    "W_TASKBONUS": W_TASKBONUS,
+    "W_COMMANDER": W_COMMANDER,
+    "RECENCY_DECAY": RECENCY_DECAY_TICKS,
+    "UNVISITED_FULL": UNVISITED_FULL_TICKS,
+}
+
+
+def pickroom_overrides() -> dict[str, float]:
+    """Only the PICK_ROOM weights this process actually overrode, for the arm trace."""
+
+    return {
+        short: value
+        for (env, default), (short, value) in zip(_PICKROOM_DEFAULTS.items(), _PICKROOM_LIVE.items())
+        if value != default
+    }
 
 
 class SearchMode(Mode[Belief, ActionState, Intent]):
