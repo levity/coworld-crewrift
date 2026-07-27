@@ -75,6 +75,7 @@ from crewborg.envflags import truthy
 from crewborg.modes.search import pickroom_overrides
 from crewborg.perception.constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from crewborg.strategy.commander.trace import CommanderTrace
+from crewborg.strategy.meeting.imposter import accuse_preset
 from crewborg.strategy.opportunity import (
     has_trackable_victim,
     kill_anchor,
@@ -276,6 +277,7 @@ class CrewborgEventTracer:
                 "imposter_overrides": {
                     "kill_anchor": kill_anchor(),
                     "pickroom": pickroom_overrides() or None,
+                    "accuse": accuse_preset(),
                 },
             },
         )

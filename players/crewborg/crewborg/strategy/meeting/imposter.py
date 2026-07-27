@@ -9,11 +9,46 @@ piles on. This module turns those signals into a single bandwagon target.
 
 from __future__ import annotations
 
+import os
+
 from crewborg.types import Belief
 
 # A cast vote is a stronger "heat" signal than a single chat accusation.
 VOTE_WEIGHT = 2
 CHAT_WEIGHT = 1
+
+ACCUSE_ENV = "CREWBORG_IMPOSTER_ACCUSE"
+ACCUSE_PRESETS = ("shipped", "follow")
+
+
+def accuse_preset() -> str:
+    """The active impostor meeting-conduct preset (default ``shipped``).
+
+    ``follow`` drops the *proactive* deflection path so the impostor never opens a
+    meeting with an accusation of its own; it may still pile onto heat someone else
+    created, and still makes the parity-closing push. Anything unrecognised
+    degrades to ``shipped``, which is byte-identical to the unflagged behaviour.
+    """
+
+    raw = (os.environ.get(ACCUSE_ENV) or "").strip().lower()
+    return raw if raw in ACCUSE_PRESETS else "shipped"
+
+
+def proactive_deflection_enabled() -> bool:
+    """Whether the impostor may open a meeting with its own accusation.
+
+    Measured on 190 impostor-pinned hosted episodes (2026-07-27): our seat is ejected
+    in 31% of games against the rotating rival impostor's 18.5% *in the same games*,
+    and no play-phase tell accounts for it -- rooms entered, kills made in front of a
+    witness, presence in the body room at a report and meeting calls are all equal or
+    in our favour. What differs is meeting conduct: 63.4% of our impostor meeting
+    decisions take the proactive path, so we lead with an accusation before anyone has
+    taken heat, on a target drawn from the fitted posterior (crew AUC 0.355). The
+    precedent is the crew-side change in v25, where the same restraint took our own
+    ejection rate from 52% to 2% against an accuse-heavy field.
+    """
+
+    return accuse_preset() != "follow"
 
 
 def votes_against(belief: Belief) -> dict[str, int]:

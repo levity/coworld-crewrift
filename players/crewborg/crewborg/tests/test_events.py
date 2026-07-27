@@ -956,13 +956,24 @@ def test_crew_brain_config_names_the_imposter_arm(monkeypatch) -> None:
     """
 
     monkeypatch.delenv("CREWBORG_KILL_ANCHOR", raising=False)
+    monkeypatch.delenv("CREWBORG_IMPOSTER_ACCUSE", raising=False)
     h = _Harness()
     h.step(belief=Belief(self_role="imposter"))
     [cfg] = h.events("domain.crew_brain_config")
-    assert cfg.data["imposter_overrides"] == {"kill_anchor": "off", "pickroom": None}
+    assert cfg.data["imposter_overrides"] == {
+        "kill_anchor": "off", "pickroom": None, "accuse": "shipped",
+    }
 
     monkeypatch.setenv("CREWBORG_KILL_ANCHOR", "sprite")
     treated = _Harness()
     treated.step(belief=Belief(self_role="imposter"))
     [cfg] = treated.events("domain.crew_brain_config")
-    assert cfg.data["imposter_overrides"] == {"kill_anchor": "sprite", "pickroom": None}
+    assert cfg.data["imposter_overrides"] == {
+        "kill_anchor": "sprite", "pickroom": None, "accuse": "shipped",
+    }
+
+    monkeypatch.setenv("CREWBORG_IMPOSTER_ACCUSE", "follow")
+    restrained = _Harness()
+    restrained.step(belief=Belief(self_role="imposter"))
+    [cfg] = restrained.events("domain.crew_brain_config")
+    assert cfg.data["imposter_overrides"]["accuse"] == "follow"
