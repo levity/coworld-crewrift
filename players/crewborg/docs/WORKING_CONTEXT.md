@@ -105,23 +105,33 @@ git fetch origin && git rebase origin/master && git push levity lawrence
    kill-anchor A/B (200 imposter-pinned episodes, `xreq_f9db8da2` / `xreq_a76aa9d5`),
    the kill-ready time budget is:
 
-   | | v20 | v21 |
-   |---|---|---|
-   | no live victim visible | 79.4 % | **75.4 %** |
-   | visible, out of range | 11.7 % | 14.7 % |
-   | in range, witness gate blocks | 6.0 % | 8.9 % |
-   | holding a kill intent | 2.9 % | 0.9 % |
-   | ready ticks per kill | 184 | 188 |
+   **Report this per episode, not pooled over ticks.** The episode is the independent
+   unit, and a handful of very long games hold so many kill-ready ticks that the pooled
+   share disagrees with the typical game — pooled says 75–80 % blind, per-episode says
+   43–47 %. Both are below, per-episode first:
 
-   Three quarters of the lethal window has nobody to kill, and it is an **information**
-   failure rather than a positioning one: of those blind ticks, 91.8 % have no sighting
-   of any live crewmate newer than the 120-tick tracking window, mean sighting age 447
-   ticks, mean distance to the last-known position 218 px. **That kills the obvious
-   lever** — extending the pre-ready beeline (`CREWBORG_RECON_WINDOW`) cannot help when
-   there is nothing fresh to beeline toward.
+   | share of kill-ready time | v20 | v21 | (pooled v20 / v21) |
+   |---|---|---|---|
+   | no live victim visible | 42.7 % | 46.7 % | 79.4 % / 75.4 % |
+   | visible, out of range | 28.2 % | 30.8 % | 12.0 % / 14.9 % |
+   | in range, witness gate blocks | 11.8 % | 15.2 % | 5.6 % / 8.8 % |
+   | holding a kill intent | 17.3 % | 7.3 % | 2.9 % / 0.9 % |
+   | ready ticks per kill | 184 | 188 | |
+
+   So the budget is roughly **45 % blind, 30 % closing, 13 % witness-gated, 12 %
+   striking**. Acquisition is the largest single bucket but it is not three quarters of
+   the problem, and "visible but cannot kill yet" (closing + witness ≈ 43 %) is just as
+   large. Only the striking row separates the arms (p < 0.001); every other row is well
+   inside noise at n=100 per arm.
+
+   The blind time is an **information** failure rather than a positioning one: 92–95 % of
+   blind ticks have no sighting of any live crewmate newer than the 120-tick tracking
+   window, mean sighting age 447 ticks, mean distance to the last-known position 218 px.
+   **That killed the cheapest candidate for free** — extending the pre-ready beeline
+   (`CREWBORG_RECON_WINDOW`) cannot help when there is nothing fresh to beeline toward.
 
    (This supersedes the earlier "target visible ~43 % of ready ticks, 4× rivals" figure,
-   which is not what the trace shows; measured it is 21–25 %.)
+   which is not what the trace shows.)
 
    Search already scores rooms by expected crew occupancy — `modes/search.py:_pick_room`,
    not the "random nearby task room" the older docs described — and every weight is
@@ -129,6 +139,16 @@ git fetch origin && git rebase origin/master && git push levity lawrence
    reacquisition `distance_error` median 34 px, 68.4 % within 100 px, but median
    `top_probability` 0.003 (and reacquisitions are selection-biased toward looking in
    roughly the right place).
+
+   **Room choice is not the binding constraint — tested and null.** `xreq_e8a28175`
+   (v22, default weights) vs `xreq_4fff13b2` (v23, `W_OCCUPANCY` 3.0→5.0,
+   `W_UNVISITED` 2.5→1.0), identical image, 100 v 100 imposter-pinned, arms verified
+   from `imposter_overrides.pickroom`. Victim-visible share 53.9 % → 54.6 % (+0.6 pp,
+   p = 0.899); imposter win 77.0 % → 80.0 % (p = 0.606); kills/ep 1.67 both; ejections
+   29.0 % → 24.0 % (p = 0.423, guard fine). Weighting believed-crew rooms harder does
+   not find more people. What is left on this line is the occupancy tracker itself
+   (median `top_probability` 0.003), or attacking the ~30 % "visible but out of range"
+   bucket instead.
 
 4. **Activity appears to cost ejections, and that constrains every acquisition lever.**
    The kill-anchor fix removed ~5 wasted standing-still ticks per episode and our
