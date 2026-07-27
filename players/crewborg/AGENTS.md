@@ -31,8 +31,10 @@ plenty:** surface decision-ready forks, present hypotheses and experiment design
 ## The optimization loop
 
 **evaluate → diagnose → experiment → improve → re-measure → (gated) submit.**
-**[`docs/improvement-loop.md`](docs/improvement-loop.md) is the runnable checklist** — one
-pass end to end, with a "done when" per step. Concretely:
+**The runnable checklist is `~/projects/softmax/improvement-loop.md`** — one pass end to
+end, with a "done when" per step. It lives outside this repo on purpose (working
+practice, not inherited code); `docs/improvement-loop.md` is a stub pointing at it.
+Concretely:
 
 1. **See where crewborg stands.** Run an experience request on a flat/representative field
    (**`coworld-experience-requests`**) — league/tournament episodes carry no results and no

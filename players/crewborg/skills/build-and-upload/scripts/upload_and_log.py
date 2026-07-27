@@ -47,6 +47,43 @@ def image_digest(image: str) -> str:
     return out.stdout.strip() or "unknown"
 
 
+def _resolve_version_id(name: str, label: str) -> str | None:
+    """The uploaded version's UUID, from its ``name:vN`` label. ``None`` if unavailable.
+
+    Best-effort on purpose: a failed lookup must not lose the row we just earned, so
+    every failure path returns ``None`` and the caller warns instead of raising.
+    """
+
+    try:
+        import httpx
+        from softmax import auth
+    except ImportError:
+        return None
+    try:
+        want = int(label.rsplit(":v", 1)[1])
+    except (IndexError, ValueError):
+        return None
+    try:
+        api = auth.get_api_server()
+        token = auth.load_current_token(server=api)
+        if not token:
+            return None
+        with httpx.Client(base_url=api.rstrip("/") + "/observatory",
+                          headers={"X-Auth-Token": token}, timeout=30.0) as c:
+            r = c.get("/stats/policy-versions",
+                      params={"mine": True, "name_exact": name, "limit": 100})
+            r.raise_for_status()
+            payload = r.json()
+        items = payload if isinstance(payload, list) else (
+            payload.get("items") or payload.get("entries") or payload.get("data") or [])
+        for v in items:
+            if v.get("version") == want:
+                return v.get("id") or v.get("policy_version_id")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, OSError):
+        return None
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -116,6 +153,18 @@ def main(argv: list[str] | None = None) -> int:
             version = line.split("Upload complete:")[-1].strip()
     if version:
         row = row.replace(f"{args.name}:vNEXT", version)
+        # The label is all `coworld upload-policy` prints; the version UUID is what an
+        # experience request and every analysis actually key on. Resolve it here rather
+        # than leaving a placeholder — a row that says "fill this in" is a row that
+        # stays unfilled, and then the log cannot be joined to a run.
+        vid = _resolve_version_id(args.name, version)
+        if vid:
+            row = row.replace("_(fill from upload output)_", f"`{vid}`")
+        else:
+            print(f"\nWARNING: uploaded {version} but could not resolve its version id. "
+                  f"Fill the second column by hand from:\n"
+                  f"  uv run python skills/build-and-upload/scripts/versions.py --name {args.name}",
+                  file=sys.stderr)
 
     text = VERSION_LOG.read_text()
     marker = "| --- | --- | --- | --- | --- | --- |\n"

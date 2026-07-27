@@ -116,20 +116,43 @@ being near crew about half as often as the strongest imposters.
 A small FSM, with all state on the instance:
 
 ```
-  PICK_ROOM ─► GO_TO_ROOM ─► WATCH ─► FOLLOW(c) ─┐
-      ▲            │            │          │      │
-      │   (room    │  (room     │ (crew    │ (c   │
-      │   empty)   │  empty)    │ leaves)  │ settles in
-      └────────────┴────────────┴──────────┘  a room) ─► WATCH
-                                             (c lost) ─► PICK_ROOM
+  PICK_ROOM ─► GO_TO_ROOM ─► SEARCH_ROOM ─► WATCH ─► FOLLOW(c) ─┐
+      ▲            │              │           │          │       │
+      │  (swept    │  (crewmate   │ (crewmate │ (last    │  (run it down:
+      │   empty)   │   seen)      │  seen     │  crew    │   same room) ─► SEARCH_ROOM
+      │            │              │  elsewhere│  leaves) │
+      └────────────┴──────────────┴───────────┴──────────┘  (lost) ─► PICK_ROOM
 ```
 
 | State | Behavior |
 |-------|----------|
-| `pick_room` | Choose a nearby reachable task room to sweep — a random one of the nearest `NEARBY_ROOMS` (4) rooms that contain a task station (somewhere to blend), excluding the current and just-left rooms and the spawn room. A fixed-seed RNG (`0xC0FFEE`) makes picks deterministic/replayable. Head to the room **center** (go fully inside), not a door/task spot. |
-| `go_to_room` | Navigate to the center; if a crewmate is seen leaving any watchable room, switch to FOLLOW immediately; on arrival, WATCH if crew are present else back to PICK_ROOM. |
-| `watch` | Hold the in-room **vantage** with line-of-sight to the most crew, recomputed as they move (so crew don't walk out of view). Leaver → FOLLOW; no watched crew remain → PICK_ROOM. |
-| `follow(c)` | Chase the committed leaver `c` to its next room. When visible, `navigate_to` its live position and feed `strategy/path_prediction.py:PathPredictor`; when occluded, `navigate_to` the predictor's top predicted hallway position. Give up when the target is gone/dead/now a teammate, the lost-ticks budget expires, or the predictor runs out. |
+| `pick_room` | Score **every reachable room** and commit to the best — it never idles. The score is a weighted blend of expected crew occupancy (the strongest term), unvisitedness (grows with time since the visit), a fast-decaying just-visited penalty, travel cost, a teammate-pressure subtraction, a small task-room bonus, and a soft commander nudge. Every weight is env-tunable — see [Room scoring](#room-scoring-the-pick_room-weights). |
+| `go_to_room` | Navigate to the room centre. Seeing **any** live non-teammate — in a room or a hallway — switches to FOLLOW. Arriving switches to SEARCH_ROOM. |
+| `search_room` | Sweep the room's interior, so crew hidden from the doorway are found. Crew in the room → WATCH; a crewmate seen elsewhere → FOLLOW; swept empty → PICK_ROOM. |
+| `watch` | Entered only with crew confirmed in the room. **Multiple** crew → hold the vantage that sees the most. A **single** crewmate → close on it: a task site beside it if one is within `TASK_SITE_NEAR_SQ`, else approach to `SINGLE_APPROACH_PX` (35 px — just outside kill range, poised to strike). The last crewmate leaving view → FOLLOW. |
+| `follow(c)` | Chase the committed leaver `c` using `strategy/path_prediction.py:PathPredictor` — it keeps going down the predicted hallway while `c` is occluded, up to `FOLLOW_LOST_TICKS`. Reaching the same room as `c` hands off to SEARCH_ROOM. Losing `c` past the window → SEARCH_ROOM, or PICK_ROOM. |
+
+### Room scoring — the `pick_room` weights
+
+`_pick_room` scores every reachable room; it does **not** pick randomly among nearby
+task rooms. All weights are read from the environment at import, so they can be swept
+without a rebuild, and `pickroom_overrides()` reports the ones an arm changed into
+`crew_brain_config.imposter_overrides.pickroom` so an A/B is verifiable from a trace.
+
+| Weight | Env var | Default | Meaning |
+|---|---|---|---|
+| `W_OCCUPANCY` | `CREWBORG_PICKROOM_W_OCCUPANCY` | 3.0 | Where crew are expected (from `agent_tracking`) |
+| `W_UNVISITED` | `CREWBORG_PICKROOM_W_UNVISITED` | 2.5 | Long-unvisited rooms; full at `UNVISITED_FULL` (800) |
+| `W_RECENCY` | `CREWBORG_PICKROOM_W_RECENCY` | 3.0 | Just-visited penalty; decays over `RECENCY_DECAY` (150) |
+| `W_DISTANCE` | `CREWBORG_PICKROOM_W_DISTANCE` | 1.0 | Discount far rooms |
+| `W_TEAMMATE` | `CREWBORG_PICKROOM_W_TEAMMATE` | 1.5 | Don't converge with the co-imposter |
+| `W_TASKBONUS` | `CREWBORG_PICKROOM_W_TASKBONUS` | 0.4 | Small blend bonus for task rooms |
+| `W_COMMANDER` | `CREWBORG_PICKROOM_W_COMMANDER` | 1.0 | Soft commander hunt-room nudge |
+
+**Tested and null:** raising `W_OCCUPANCY` to 5.0 and cutting `W_UNVISITED` to 1.0 moved
+the share of kill-ready time with a victim visible by +0.6 pp (p = 0.899) over 100 v 100
+imposter-pinned episodes (`xreq_e8a28175` / `xreq_4fff13b2`). Room choice is not the
+binding constraint on acquisition.
 
 Search never follows the teammate imposter (`belief.teammate_colors`). The path
 predictor is fed only what we actually see (the target's position when visible,
@@ -146,7 +169,8 @@ vantage sees at least one more crewmate, avoiding jitter between equal vantages.
 
 | Search constant | Value | Meaning |
 |-----------------|-------|---------|
-| `NEARBY_ROOMS` | 4 | How many nearest task rooms are candidates to sweep. |
+| `SINGLE_APPROACH_PX` | 35 px | Stand-off distance when closing on a lone crewmate — just outside kill range. |
+| `TASK_SITE_NEAR_SQ` | `56²` | A task station this close to a lone target is a natural place to stand and blend. |
 | `ARRIVE_RADIUS_SQ` | `24²` | Arrival tolerance at a goto point/vantage. |
 | `FOLLOW_LOST_TICKS` | 120 | Drop an unseen follow after this long with no live prediction. |
 | `COMMANDER_FOLLOW_LOST_TICKS` | 240 | Extended follow persistence for a commander-hard-named target. |

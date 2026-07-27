@@ -61,6 +61,21 @@ human if a request would contravene one** before proceeding (then do what they d
   that per-seat normalization does NOT remove** — isolating individual contribution to a team
   result needs a controlled design (vary one seat, hold the rest fixed). Individual stats
   (kills, tasks) are clean per-seat; team stats (win) are not.
+- **🚩 The episode is the unit. Never pool ticks across episodes.** Any "share of time spent
+  doing X" must be computed per episode and then averaged — pool the ticks and a handful of long
+  games decide the answer for the whole batch. This is not a rounding difference. Measuring the
+  imposter's kill-ready time budget both ways over the same 200 episodes gave *no live victim
+  visible* = 75–79 % pooled versus 43–47 % per episode, and it **inverted the sign** of the
+  treatment effect (+4.0 pp pooled, −4.0 pp per episode, p = 0.46). Ticks within one episode are
+  heavily autocorrelated, so a tick-level significance test is anti-conservative too and will
+  print p ≈ 0.000 for almost anything: run the test over per-episode rates. The same applies to
+  any per-tick rate — mode shares, visibility, proximity.
+- **Watch for survivorship in any "time spent" metric.** Time-based quantities only accumulate
+  while the seat is alive, so they encode survival before they encode behaviour. Blind kill-ready
+  time looked like a problem until it was split by outcome: the episodes with the *least* of it
+  won 44 % and were ejected 68 % of the time, because the seat died early and never got the
+  chance to be blind. Before reading a time metric as a defect, check how it correlates with
+  staying alive.
 - **Experience requests are your primary eval — they aren't scarce.** They run many episodes in
   parallel on Softmax infra and are currently free; use them liberally, just **target them to the
   question** (matched roles, the specific opponents you struggle against) and harvest async.

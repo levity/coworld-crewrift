@@ -43,7 +43,7 @@ Two things that came out of that and should shape what gets worked on:
 
 **Uploaded baseline: `crewborg-lw:v21`** (`fd9c08cf-f329-4404-a7cc-00f8fc988664`) — v20's
 config plus `CREWBORG_KILL_ANCHOR=sprite`. **Uploaded, not submitted.** It is a bug fix,
-so per `docs/improvement-loop.md` step 5 it was folded into the baseline without spending
+so per `~/projects/softmax/improvement-loop.md` step 5 it was folded into the baseline without spending
 a hosted A/B. The next A/B is **v21 vs v21 + the next strategy lever**, so both arms carry
 the fix and it is not a variable.
 
@@ -150,13 +150,49 @@ git fetch origin && git rebase origin/master && git push levity lawrence
    (median `top_probability` 0.003), or attacking the ~30 % "visible but out of range"
    bucket instead.
 
-4. **Activity appears to cost ejections, and that constrains every acquisition lever.**
+4. **Blind time is a survivorship artifact, not a defect. Ejection is what costs games.**
+   Blind kill-ready time per episode is median **5 ticks**, mean 124, and 63 % of episodes
+   have under 50; the worst 10 % of episodes hold 62 % of it. Split the 100 v22 episodes
+   into quartiles by blind time and the direction is the opposite of intuition:
+
+   | quartile | blind ticks | win | kills/ep | **ejected** | our Playing ticks |
+   |---|---|---|---|---|---|
+   | q1 | 0–1 | **44 %** | 1.00 | **68 %** | 753 |
+   | q2 | 1–4 | 96 % | 1.88 | 20 % | 1221 |
+   | q3 | 5–120 | 88 % | 1.84 | 20 % | 1228 |
+   | q4 | 146–1749 | 80 % | 1.96 | 8 % | 1860 |
+
+   Blind time only accumulates while the seat is alive. q1 has none because the crew
+   ejected us early. **Do not optimise blind time** — optimise not being ejected.
+
+5. **The ~30 % "visible but out of range" time is correct behaviour. Leave it alone.**
+   Over 2,734 such ticks we are in Hunt with a move command 98.7 % of the time, never
+   idle. Of 107 approach runs (≥6 ticks): 73.8 % close ≥4 px, 22.4 % stall, 3.7 % fall
+   back; median run starts 47 px out, lasts 17 ticks and closes 19.4 px, and 81.3 % end
+   near kill range. At ~3 px/tick that is the right physics. A witness does not block
+   movement, only the strike, so it is not a cause here.
+
+6. **The imposter is on cooldown 87 % of its playing time, and does nothing to blend.**
+   Per episode: 1,265 ticks in Playing, of which **1,106 on cooldown** and only 160
+   kill-ready. Cooldown splits Search 75.2 % / Recon 18.4 % / Evade 6.3 % / crewmate
+   tasking **0.03 %** (35 ticks across 100 episodes). Positioning during cooldown is
+   already good — a crew member is in view 66.7 % of it, and it is within 80 px of a task
+   station 91.2 % of the time. **Imitation is entirely absent.** Pretend mode (follow /
+   recover / wander / fake-task) was deleted 2026-06-24; `rule_based.py` records the
+   deletion but **no rationale survives in git history, CHANGELOG.md or TODO.md** — find
+   out why before re-adding it. Note the constraint: an imposter *cannot* do a real task
+   (`sim.nim` routes its A press to `tryKill`), so faking can only be positional — stand
+   in a task rect, motionless, for a believable time.
+
+7. **Activity appears to cost ejections, and that constrains every acquisition lever.**
    The kill-anchor fix removed ~5 wasted standing-still ticks per episode and our
    ejection rate went 15 % → 20 % while imposter win went 85.0 % → 76.0 %. Neither is
    significant at n=100 (p = 0.35 and 0.108) so this is a hypothesis, not a result — but
    it points the same way as the recorded `BE_DUMB` arm, where searching ~97 % of ticks
    tripled ejections (14 % → 40 %) for only +10 % kills. Any "seek crew harder" lever
-   must carry ejection rate as an explicit guard, not just kills.
+   must carry ejection rate as an explicit guard, not just kills. Threads 4 and 6 together
+   make **ejection the next objective**, and restoring some form of blending the most
+   obvious untested lever.
 
 ## Measurement gotchas
 
