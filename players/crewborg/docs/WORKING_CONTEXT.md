@@ -24,22 +24,37 @@ CREWBORG_SPEAKER_TRUST=on     CREWBORG_KILL_WINDOW=both
 v20 is v18's configuration plus `CREWBORG_KILL_WINDOW=both`, so the kill window is the
 single variable against the previous champion.
 
-**Standing, measured over 243 league episodes (2026-07-26 22:08 → 2026-07-27 05:12, all
-v20):** rank 10/18, and on raw win rate exactly the field mean in both roles — crew 26.3 %
-(50/190) against a field 26.3 %, imposter 73.6 % (39/53) against a field 73.7 %.
+**Standing, measured over 568 league episodes (2026-07-27 06:22 → 23:10, all v20).** Roles
+are recoverable from league data even though episodes carry no results: 2 winners means an
+imposter win and 6 a crew win, so every seat's role and outcome follows from the reward
+vector. Raw per-role win rate puts us at the field mean — crew 30.7 % (135/440) against a
+field 31.2 %, imposter 67.2 % (86/128) against a field 68.8 %.
 
-Two things that came out of that and should shape what gets worked on:
+Raw rates are confounded, because a win is a *team* outcome and a seat inherits its
+teammates. Fitting an additive logistic model over the 568 episodes — one coefficient per
+policy for the imposter side and one for the crew side, so each seat is scored controlling
+for its partner and the other five seats — gives:
 
-- **Crew win rate does not separate policies in this league.** Pooled over 1,969 crew
-  seats and 12 policies, χ² = 9.3 on 11 dof, p = 0.59; between-policy sd is 0pp after
-  removing binomial noise, and it replicates on a disjoint 111-episode sample (p = 0.87).
-  `notsus`, which does no deduction at all, sits at 27.3 %. A crew seat is 1 of 6 on a
-  shared-outcome team, so this says the league cannot *see* crew differences at this
-  sample — not that crew skill is worthless. But every recent lever has been crew-side.
-- **Imposter looked heterogeneous and does not survive scrutiny.** p = 0.011 across 11
-  policies, but that rests entirely on one 24-seat outlier; drop `shrike` and p = 0.18,
-  restrict to the five best-sampled policies and p = 0.60. Treat the imposter table as
-  unresolved, not as a ranking.
+| | our coefficient | best in league |
+|---|---|---|
+| imposter | **+0.034** [−0.19, +0.22] | `crewborg` **+0.824** [+0.54, +1.17] |
+| crew | **−0.090** [−0.29, +0.09] | `Eva-00-notsus` +0.339, `softmaxwell-crewborg` +0.328 |
+
+**Both corrections to the earlier read** (which was taken on 243 episodes without the
+adjustment, and is superseded):
+
+- **Crew identity does separate teams**, LR deviance 29.8 on 13 dof, p = 0.005. The earlier
+  χ² = 9.3, p = 0.59 was a smaller sample and did not control for teammates. What is true
+  is the weaker statement: our own position inside the competent cluster is unresolved.
+- **Imposter identity separates them more strongly**, deviance 51.8 on 13 dof, p = 1.5e−6,
+  and it does *not* rest on the `shrike` outlier. Only one policy is reliably ahead of us
+  in either role: `crewborg` as imposter, whose CI is disjoint from ours.
+
+So we are mid-pack in both roles rather than weak in either, and the one identifiable gap
+to a specific opponent is imposter-side. Reproduce with the league-fetch + fit in
+`~/projects/softmax/crewrift-analysis/` (`fetch_artifacts.py --policy crewborg-lw
+--no-replay`, filtering `tags.source == "tournament"` — a `--policy` fetch also returns our
+own experience-request episodes, which are role-pinned and will bias any win rate).
 
 **Uploaded baseline: `crewborg-lw:v21`** (`fd9c08cf-f329-4404-a7cc-00f8fc988664`) — v20's
 config plus `CREWBORG_KILL_ANCHOR=sprite`. **Uploaded, not submitted.** It is a bug fix,
@@ -76,7 +91,8 @@ All default off. One env var per lever, so an A/B moves one thing.
 | `CREWBORG_DECISION_GATE` | `shipped` `loose` `loose+p40` `structural-only` | `loose` is live; its A/B primary missed (coverage 14.2% → 16.6% against ~22% predicted) |
 | `CREWBORG_SPEAKER_TRUST` | `off` `on` `mild` | `on` is live; tempers claim/vote weight by how selectively a speaker votes |
 | `CREWBORG_KILL_WINDOW` | `off` `margin` `at-least-one` `both` | `both` is live. Offline over 64 seats: pins 28/29 → 26/26 sound, truth kept 63/64 → 64/64, 14 observations recovered, 3 pins lost |
-| `CREWBORG_KILL_ANCHOR` | `off` `sprite` | Imposter strike range measured from our own decoded sprite instead of the camera point (the two differ by a fixed `(-2,-6)`). **Hosted A/B, 100 v 100 imposter-pinned:** mechanism fixed (wasted strike ticks/ep 5.7 → 0.8, p = 0.001) but outcomes did not improve (win 85.0 % → 76.0 %, p = 0.108; kills/ep 1.60 → 1.53, p = 0.492; ejections 15 % → 20 %). Shipped in v21 as a correctness fix, **not** as an improvement |
+| `CREWBORG_KILL_ANCHOR` | `off` `sprite` | Imposter strike range measured from our own decoded sprite instead of the camera point (the two differ by a fixed `(-2,-6)`). **Hosted A/B, 100 v 100 imposter-pinned:** mechanism fixed (wasted strike ticks/ep 5.7 → 0.8, p = 0.001) but outcomes did not improve (win 85.0 % → 76.0 %, p = 0.108; kills/ep 1.60 → 1.53, p = 0.492; ejections 15 % → 20 %). Shipped in v21 as a correctness fix, **not** as an improvement. **Loose end:** in the paired view our kills-against-the-rival-impostor go −0.58 (v20 batch, p < 0.001) → +0.19 (v22 batch, p = 0.132), and the swing holds inside each of the three rival policies common to both batches. That is what a real kill gain would look like, but the two images differ by more than this flag, so it is unresolved rather than a result |
+| `CREWBORG_IMPOSTER_ACCUSE` | `shipped` `follow` | `follow` drops the impostor's proactive deflection path *and* its `top_suspect` ballot fallback, leaving bandwagon → parity_push → skip. Targets thread 8. Offline over the same 194 recorded decisions: meetings where we name a suspect 97.4 % → 52.1 % (lower bound — a static replay cannot credit heat that would arrive while we wait). Under test |
 
 Retained rejected experiments (`GROUP_TASKING`, `WITNESS_TASKING`, `POST_TASK_ESCORT`,
 `POST_TASK_LOITER`, `SELF_PRESERVATION`, `STICK`) stay off — `docs/TODO.md` holds the
@@ -193,6 +209,41 @@ git fetch origin && git rebase origin/master && git push levity lawrence
    must carry ejection rate as an explicit guard, not just kills. Threads 4 and 6 together
    make **ejection the next objective**, and restoring some form of blending the most
    obvious untested lever.
+
+8. **Ejection is now measured against the right baseline, and it is the defect.** Compare
+   our impostor seat to the **rival impostor in the same episode** — one impostor slot is
+   ours and the second rotates over the field, so the two seats share the crew, the map and
+   the game, and any per-seat quantity is a matched pair (`crewrift-analysis/imposter_pair.py`).
+   Over 190 clean impostor-pinned episodes (`xreq_f1f82f76` v20 + `xreq_e8a28175` v22):
+
+   | per impostor seat | ours | rival |
+   |---|---|---|
+   | **ejected** | **31 %** | **18.5 %** (McNemar b=33 c=8) |
+   | team win when that seat was ejected | 24–31 % | 8–13 % |
+   | team win when that seat survived | 87–96 % | 83–87 % |
+
+   Ejection is close to decisive — ~28 % win against ~91 % — and closing the gap to the
+   rival's rate is worth roughly +8 pp of impostor win rate, which is most of the distance
+   to the top of the league table.
+
+   **Every discrete play-phase tell was checked and none of them explains it.** Rooms
+   entered 7.96 vs 7.98; kills made with a live crew witness in the room 25.8 % vs 29.0 %;
+   standing in the body room when a body is reported 38.6 % vs 45.2 %; button calls 0.02 vs
+   0.01 and body reports 0.07 vs 0.12 per episode; ballots cast at our own partner 0 of 340.
+   We are *better* on three of those. Chat volume is lower than the field's, not higher.
+
+   **What is left is meeting conduct, and it is a rate rather than a single act.** Our
+   per-meeting ejection hazard is about 2× the rival's *within* every vote category and
+   every chat category, so no one conspicuous move accounts for it. What differs is how
+   often we speak at all: 49.5 % of 194 recorded impostor meeting decisions take the
+   **proactive** path, and 88 of those 96 had **no heat at all** at decision time — we are
+   the first mover in 45 % of all meetings, on a target drawn from the fitted posterior
+   (crew AUC 0.355). Beware the tautology when re-deriving this: if you are the ejectee the
+   plurality *is* you, so your ballot is off-crowd by construction; lag the outcome by one
+   meeting before reading any vote-shape hazard.
+
+   Being tested now as `CREWBORG_IMPOSTER_ACCUSE=follow` (v24 control / v25 candidate,
+   `xreq_200616d3` / `xreq_cf6aa964`), primary = the paired ejection differential.
 
 ## Measurement gotchas
 
