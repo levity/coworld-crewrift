@@ -93,6 +93,35 @@ pre-registered signal from step 3 moving, with the guard holding. Existing examp
 **Done when:** the target signal moved and the guard held, or the idea is dropped here at
 zero cost.
 
+### Is this a bug fix or a strategy change?
+
+Ask it here, because the answer decides whether steps 8's hosted A/B is worth buying.
+
+A **bug fix** is a change where the code was not doing what it was written to do, the
+cause is mechanical, and the offline replay shows the defect directly rather than
+inferring it from an outcome. `CREWBORG_KILL_ANCHOR` is the pattern: the kill-range test
+compared two different anchors for our own position, and the replay showed 99.7 % of
+17,984 non-landing strike ticks were out of range once measured consistently. Nothing
+about that needs a win rate to confirm — there is no version of the game where measuring
+a distance from the wrong point is correct.
+
+A **strategy change** is a change where the code already did what it was written to do
+and you are arguing the intent should be different — a threshold, a target-selection
+rule, a new behaviour. That is a claim about the game, and only games can settle it.
+
+**Do not spend a hosted A/B on a bug fix.** Prove it offline, pass Gate 1 with the
+mechanism visibly firing, and **fold it into the baseline**. Hosted episodes are the
+scarce instrument and win rate is a one-bit-per-game measure that cannot resolve below
+roughly +15pp at n=100 — spending a run to re-confirm arithmetic you have already
+replayed buys nothing and delays the next real question.
+
+Then A/B the *next* strategy change **on top of the fix**: baseline = bug fix, treatment
+= bug fix + change. Both arms carry the fix, so it is not a variable, and the comparison
+answers the question you actually have.
+
+The trap this avoids: A/B-ing bugfix-vs-broken. It will usually "win", and the number it
+produces is a measure of how broken the old arm was, not of anything you can build on.
+
 ## 6. Gate 1 — local smoke
 
 ```bash
@@ -123,11 +152,17 @@ Uploading is inert and ungated. The wrapper tags the version and writes its
 
 **Done when:** `versions.py --name crewborg-lw` shows the new `vN` and its tags round-trip.
 
-## 8. Measure hosted
+## 8. Measure hosted — strategy changes only
+
+**Skip this step for a bug fix** (see step 5). Upload it, fold it into the baseline, and
+come back here when you have a strategy change to test on top of it.
 
 Matched and fresh (`crewrift-ab`), decomposed **by role**, ops-filtered. Homogeneous
 rosters are the sensitive detector; a mixed 4-2-2 is the realistic confirmer and carries
 about two-thirds of the treatment. Nothing is promoted on a homogeneous result alone.
+
+Both arms carry every bug fix shipped since the last A/B — the treatment is the one
+strategy lever under test and nothing else.
 
 **Done when:** the pre-registered primary and guard both have a verdict.
 

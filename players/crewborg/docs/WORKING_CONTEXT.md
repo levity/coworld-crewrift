@@ -22,9 +22,30 @@ CREWBORG_SPEAKER_TRUST=on     CREWBORG_KILL_WINDOW=both
 ```
 
 v20 is v18's configuration plus `CREWBORG_KILL_WINDOW=both`, so the kill window is the
-single variable against the previous champion. It had played no rounds at submission time;
-the standing shown against its membership is a line-level figure shared with v17 and v18,
-not a v20 result.
+single variable against the previous champion.
+
+**Standing, measured over 243 league episodes (2026-07-26 22:08 → 2026-07-27 05:12, all
+v20):** rank 10/18, and on raw win rate exactly the field mean in both roles — crew 26.3 %
+(50/190) against a field 26.3 %, imposter 73.6 % (39/53) against a field 73.7 %.
+
+Two things that came out of that and should shape what gets worked on:
+
+- **Crew win rate does not separate policies in this league.** Pooled over 1,969 crew
+  seats and 12 policies, χ² = 9.3 on 11 dof, p = 0.59; between-policy sd is 0pp after
+  removing binomial noise, and it replicates on a disjoint 111-episode sample (p = 0.87).
+  `notsus`, which does no deduction at all, sits at 27.3 %. A crew seat is 1 of 6 on a
+  shared-outcome team, so this says the league cannot *see* crew differences at this
+  sample — not that crew skill is worthless. But every recent lever has been crew-side.
+- **Imposter looked heterogeneous and does not survive scrutiny.** p = 0.011 across 11
+  policies, but that rests entirely on one 24-seat outlier; drop `shrike` and p = 0.18,
+  restrict to the five best-sampled policies and p = 0.60. Treat the imposter table as
+  unresolved, not as a ranking.
+
+**Uploaded baseline: `crewborg-lw:v21`** (`fd9c08cf-f329-4404-a7cc-00f8fc988664`) — v20's
+config plus `CREWBORG_KILL_ANCHOR=sprite`. **Uploaded, not submitted.** It is a bug fix,
+so per `docs/improvement-loop.md` step 5 it was folded into the baseline without spending
+a hosted A/B. The next A/B is **v21 vs v21 + the next strategy lever**, so both arms carry
+the fix and it is not a variable.
 
 **Watch coverage, not precision.** The kill window's known cost is 3 pins out of 29 in the
 offline replay, and pins drive essentially all ejects. If ejects/game fall materially
