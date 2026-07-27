@@ -260,6 +260,35 @@ counts as unwitnessed — the imposter will strike regardless of nearby crew.
 | `WITNESS_WINDOW_TICKS` | 72 | Max age of a sighting that still counts a crewmate as a potential witness, at zero urgency. |
 | `URGENCY_FULL_TICKS` | 240 | Kill-ready-without-killing ticks at which the witness bar reaches zero. |
 
+### Which point the range is measured from
+
+`in_range` needs two positions, and the player has **two different anchors** for its
+own. `belief.self_world` is camera-derived (`perception/resolve.py`:
+`camera_x + SELF_OFFSET_X`), while every *other* player's `world_x/world_y` comes from
+the sprite decoder. Hosted decoding places our own player record a stable
+`(SELF_RECORD_DX, SELF_RECORD_DY) = (-2, -6)` from the camera point — which is exactly
+what `types.py` uses to work out which sprite is us.
+
+So measuring a range from `self_world` to a victim's sprite position compares two
+anchors and skews the test by 6.3 px, in a direction that depends on the geometry.
+`strategy/opportunity.py:strike_origin` is the single place that choice is made:
+
+| `CREWBORG_KILL_ANCHOR` | Behaviour |
+|---|---|
+| `off` (default) | Measure from `self_world`. |
+| `sprite` | Measure from our own decoded sprite, matching the victim's anchor. |
+
+Only the *range test* moves; navigation still runs off `self_world`, which the
+movement controller is calibrated against.
+
+**Why it matters more than 6 px sounds.** `action.py:_resolve_kill` emits *only* an
+A-press edge once it believes it is in range — no movement bits — so believing we are
+in range when we are not means standing still pressing A while the victim is out of
+reach. Over 100 hosted imposter-pinned episodes (`xreq_f1f82f76`), 17,984 of 18,077
+kill-intent ticks did not land, and under the sprite anchor 99.7 % of those were
+genuinely outside KillRange; one episode held a single such pose for ~4,400 ticks.
+Replay it with `tools/kill_anchor_counterfactual.py`.
+
 ### The first-kill witness drop
 
 The decisive override: **after the first kill, the witness requirement is dropped

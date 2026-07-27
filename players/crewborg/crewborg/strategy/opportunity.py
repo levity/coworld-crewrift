@@ -17,7 +17,24 @@ from __future__ import annotations
 import os
 
 from crewborg.nav import plan_route
-from crewborg.types import Belief, PlayerRecord
+from crewborg.types import SELF_RECORD_DX, SELF_RECORD_DY, Belief, PlayerRecord
+
+# Which anchor the kill-range test measures our own position from.
+#
+# There are two of them. ``belief.self_world`` is camera-derived
+# (``perception/resolve.py``: ``camera_x + SELF_OFFSET_X``), while every *other*
+# player's ``world_x/world_y`` comes from the sprite decoder. Hosted decoding places
+# our own player record a stable ``SELF_RECORD_D`` away from the camera point — that
+# is what ``types.py`` already uses to identify which sprite is us. So measuring a
+# range to a victim from ``self_world`` compares two different anchors and biases the
+# result by |SELF_RECORD_D| ≈ 6.3px, in a direction that depends on the geometry.
+#
+#   ``off``     measure from ``self_world`` (the shipped behaviour)
+#   ``sprite``  measure from our own decoded sprite, matching the victim's anchor
+#
+# Only the *range test* moves; the movement controller keeps using ``self_world``,
+# which is what it is calibrated against.
+KILL_ANCHOR_PRESETS = ("off", "sprite")
 
 # Clearance (world px) required around a target at zero urgency: no other crewmate
 # may be within this distance for the kill to count as unwitnessed.
@@ -219,6 +236,29 @@ def recon_window() -> int:
         except ValueError:
             pass
     return RECON_WINDOW_TICKS
+
+
+def kill_anchor() -> str:
+    """The active kill-range anchor preset (``CREWBORG_KILL_ANCHOR``, default ``off``)."""
+
+    raw = (os.environ.get("CREWBORG_KILL_ANCHOR") or "").strip().lower()
+    return raw if raw in KILL_ANCHOR_PRESETS else "off"
+
+
+def strike_origin(belief: Belief) -> tuple[int, int] | None:
+    """The point a kill-range test should measure *from*.
+
+    Under ``CREWBORG_KILL_ANCHOR=sprite`` this is our own decoded sprite position,
+    so the range test compares like with like against a victim's ``world_x/y``.
+    Otherwise it is the camera-derived ``self_world`` point (shipped behaviour).
+    ``None`` when we have no self position, exactly like the callers' own lookup.
+    """
+
+    if belief.self_world_x is None or belief.self_world_y is None:
+        return None
+    if kill_anchor() == "sprite":
+        return belief.self_world_x + SELF_RECORD_DX, belief.self_world_y + SELF_RECORD_DY
+    return belief.self_world_x, belief.self_world_y
 
 
 def most_recent_victim(belief: Belief) -> PlayerRecord | None:

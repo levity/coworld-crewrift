@@ -383,3 +383,24 @@ def test_vent_navigates_then_holds_b_level_in_range() -> None:
 
     far = _belief_with_vent((300, 300), (100, 100))
     assert resolve_action(Intent(kind="vent"), far, ActionState()).held_mask == BTN_UP | BTN_LEFT
+
+
+def test_kill_anchor_sprite_keeps_closing_at_the_deadlock_geometry(monkeypatch) -> None:
+    """The measured lock-up: self_world (235,405) vs a victim sprite at (234,420).
+
+    Measured from the camera point that is 15.03px — inside KillRange — so the shipped
+    gate presses A forever while standing still. Measured from our own decoded sprite
+    it is 21.0px, outside the range, and we keep closing instead. Taken from
+    xreq_f1f82f76 episode ereq_50dfe233, which held that pose for ~4,400 ticks.
+    """
+
+    belief = _belief_with_target((235, 405), (234, 420))
+    intent = Intent(kind="kill", target_color="red")
+
+    monkeypatch.delenv("CREWBORG_KILL_ANCHOR", raising=False)
+    assert resolve_action(intent, belief, ActionState()).held_mask == BTN_A  # stands and presses
+
+    monkeypatch.setenv("CREWBORG_KILL_ANCHOR", "sprite")
+    moved = resolve_action(Intent(kind="kill", target_color="red"), belief, ActionState()).held_mask
+    assert moved & BTN_A == 0  # no wasted press
+    assert moved & BTN_DOWN  # closes toward the victim below us

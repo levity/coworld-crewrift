@@ -8,12 +8,14 @@ from crewborg.strategy.opportunity import (
     URGENCY_FULL_TICKS,
     has_trackable_victim,
     has_visible_victim,
+    kill_anchor,
     kill_urgency_ticks,
     select_victim,
+    strike_origin,
     ticks_until_kill_ready,
     unwitnessed,
 )
-from crewborg.types import Belief, PlayerRecord
+from crewborg.types import SELF_RECORD_DX, SELF_RECORD_DY, Belief, PlayerRecord
 
 
 def test_ticks_until_kill_ready() -> None:
@@ -166,3 +168,30 @@ def test_full_urgency_strikes_through_a_witness() -> None:
     _crew(belief, 1, (50, 50), "green", URGENCY_FULL_TICKS)
     _crew(belief, 2, (60, 50), "blue", URGENCY_FULL_TICKS)  # witness ignored at full urgency
     assert unwitnessed(belief, belief.roster["green"])
+
+
+def test_kill_anchor_default_is_the_camera_point(monkeypatch) -> None:
+    """Unset (and any unknown value) keeps the shipped ``self_world`` anchor."""
+
+    monkeypatch.delenv("CREWBORG_KILL_ANCHOR", raising=False)
+    belief = Belief(self_world_x=100, self_world_y=100)
+    assert kill_anchor() == "off"
+    assert strike_origin(belief) == (100, 100)
+
+    monkeypatch.setenv("CREWBORG_KILL_ANCHOR", "nonsense")
+    assert kill_anchor() == "off"
+    assert strike_origin(belief) == (100, 100)
+
+
+def test_kill_anchor_sprite_shifts_to_our_decoded_sprite(monkeypatch) -> None:
+    """``sprite`` measures from where the decoder actually puts our own record."""
+
+    monkeypatch.setenv("CREWBORG_KILL_ANCHOR", "sprite")
+    belief = Belief(self_world_x=100, self_world_y=100)
+    assert kill_anchor() == "sprite"
+    assert strike_origin(belief) == (100 + SELF_RECORD_DX, 100 + SELF_RECORD_DY)
+
+
+def test_strike_origin_is_none_without_a_self_position(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_KILL_ANCHOR", "sprite")
+    assert strike_origin(Belief()) is None
