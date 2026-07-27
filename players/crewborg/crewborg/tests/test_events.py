@@ -946,3 +946,23 @@ def test_debug_decision_snapshot_voting_state_absent_outside_meetings() -> None:
 
     [event] = h.events("domain.decision_snapshot")
     assert event.data["voting"] is None
+
+
+def test_crew_brain_config_names_the_imposter_arm(monkeypatch) -> None:
+    """The kill anchor is an arm-selecting lever, so it must be verifiable from a trace.
+
+    An imposter seat has no crew-brain fork to latch, so `crew_brain_config` — emitted
+    unconditionally on the first tick — is the only place the arm is guaranteed to show.
+    """
+
+    monkeypatch.delenv("CREWBORG_KILL_ANCHOR", raising=False)
+    h = _Harness()
+    h.step(belief=Belief(self_role="imposter"))
+    [cfg] = h.events("domain.crew_brain_config")
+    assert cfg.data["imposter_overrides"] == {"kill_anchor": "off"}
+
+    monkeypatch.setenv("CREWBORG_KILL_ANCHOR", "sprite")
+    treated = _Harness()
+    treated.step(belief=Belief(self_role="imposter"))
+    [cfg] = treated.events("domain.crew_brain_config")
+    assert cfg.data["imposter_overrides"] == {"kill_anchor": "sprite"}
