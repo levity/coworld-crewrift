@@ -62,7 +62,13 @@ retention rationale and the bar for reactivating one.
 
 ## Active branch
 
-`crewborg-brain-separation`, on top of `crew-signals-v2`. Unpushed.
+**`lawrence`** — the personal main line, tracking `levity/lawrence`. It is `origin/master`
+plus our 82 commits; we have no write access to `origin/master`, so rebase onto it rather
+than merging, and push only to `levity`.
+
+```bash
+git fetch origin && git rebase origin/master && git push levity lawrence
+```
 
 ## Open threads
 

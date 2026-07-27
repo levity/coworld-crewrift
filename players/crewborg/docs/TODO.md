@@ -196,9 +196,8 @@ Independent of `structural-only`, which is trusted and needs no sequencing again
 ### False witness pins
 
 Found by the hosted sanity XP `xreq_51754f1f`. **Diagnosed: this is a kill-range
-boundary / sub-tick timing effect, NOT occlusion.** Not a regression either --
-`_witnessed_actions` is byte-identical to `crew-signals-v2` and the relocated constants
-are numerically unchanged (400 / 784).
+boundary / sub-tick timing effect, NOT occlusion**, and it is inherent to
+`_witnessed_actions` rather than introduced by any refactor of it.
 
 **What happened** (episode `ereq_ff5a9fdd`, true impostors `red` + `cyan`). At world
 frame 2111 the `pink` seat observed its own death and recorded
