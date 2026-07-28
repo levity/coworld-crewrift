@@ -41,13 +41,17 @@ results, logs, or policy telemetry do not cause three identical downloads.
 
 ## The model (read this before debugging a 404)
 
-There are two disjoint episode populations. **League/tournament** episodes use
-`/jobs/{job_id}/...` artifact routes. **Experience-request** episodes use
-ownership-scoped `/v2/episode-requests/{ereq}/...` routes, including the policy
-version ID and slot for logs and player artifacts. Full route map, dead-ends, and
-the recurring client/server drift: **`references/endpoint-map.md`**. Read it
-whenever a route 4xxs; the published `coworld` client regularly ships behind the
-server.
+There are two disjoint episode populations, **discovered** differently but **served** the
+same way. Both take their artifacts from the ownership-scoped
+`/v2/episode-requests/{ereq}/...` routes, keyed by policy version ID and slot for logs and
+player artifacts. An experience-request episode already carries its `ereq_...`; a
+league/tournament episode resolves to one via `GET /v2/episode-requests/by-job/{job_id}`,
+using `tags.job_id`. So league episodes yield results, logs and your own telemetry.
+
+Full route map, dead-ends, and the recurring client/server drift:
+**`references/endpoint-map.md`**. Read it whenever a route 4xxs — and note that a **403 is
+not a missing artifact**: the `/jobs/{job_id}/...` routes are team-only, and a best-effort
+GET that returns `None` on any 4xx will present that as absent.
 
 ## Workflow
 

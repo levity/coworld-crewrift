@@ -27,35 +27,33 @@ They are **disjoint populations**: a league episode's `pool_id` returns **0** ro
 from `/v2/episode-requests?pool_id=`, and `coworld episodes --policy <league-player>`
 is empty. Don't try to cross them — discover each in its own world.
 
-## Artifact routes differ by episode population
+## Artifact routes — one family, for both populations
 
-League episodes use these job routes:
-
-| Route | Returns |
-| --- | --- |
-| `GET /jobs/{job_id}/artifacts/results` | `results.json` (scores / metrics / win / per-agent) |
-| `GET /jobs/{job_id}/artifacts/replay` | replay bytes (zlib-compressed; magic `0x78`) |
-| `GET /jobs/{job_id}/artifacts/error_info` | `error_info.json` — **404 when absent** (valid type; present only on failure) |
-| `GET /jobs/{job_id}/policy-logs` | JSON list of filenames `["policy_agent_0.log", ...]` |
-| `GET /jobs/{job_id}/policy-logs/{agent_idx}` | one agent's stderr trace |
-| `GET /jobs/{job_id}/policy-artifact` | JSON list of **filenames** (`["policy_artifact_0.zip", ...]`), one per slot that uploaded — *not* bare slot ints; parse the index out |
-| `GET /jobs/{job_id}/policy-artifact/{agent_idx}` | one slot's `policy_artifact_{idx}.zip` (player-uploaded telemetry/debug bundle; **policy-scoped** — only slots you own) |
-
-The replay decompresses (zlib) to the game's binary replay (e.g. magic
-`CREWRIFT...`) — the directly-loadable form. Keep the raw `.z` too.
-
-Experience-request episodes use these ownership-aware routes (verified live
-2026-07-22):
+**Both populations serve their artifacts from the ownership-aware
+`/v2/episode-requests/...` routes** (verified live 2026-07-28). The two populations differ
+only in how you get the `ereq_...` handle: an experience-request episode already is one, and
+a league episode resolves to one through its job.
 
 | Route | Returns |
 | --- | --- |
+| `GET /v2/episode-requests/by-job/{job_id}` | `{"episode_request_id": "ereq_..."}` — the league episode's handle, from `tags.job_id` |
 | `GET /v2/episode-requests/{ereq}/artifacts/{results,replay}` | game result or replay artifact |
 | `GET /v2/episode-requests/{ereq}/policy-artifacts` | owned slots with `policy_version_id`, `has_log`, and `has_artifact` |
 | `GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-logs/{agent_idx}` | one owned slot's stderr |
 | `GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-artifact/{agent_idx}` | one owned slot's telemetry ZIP |
 
-The older `/jobs/{job_id}/...` result/log routes return 403 to normal player
-authors, while the old `/jobs/{job_id}/policy-artifact` route is gone (404).
+So a **league episode yields results, per-agent logs and your own telemetry zips**, exactly
+like one you requested yourself. `fetch_artifacts.py` does the `by-job` hop for you.
+
+The replay decompresses (zlib) to the game's binary replay (e.g. magic `CREWRIFT...`) — the
+directly-loadable form. Keep the raw `.z` too.
+
+**Do not reach for `/jobs/{job_id}/...`.** Those routes are restricted to Softmax team
+members and answer **403** to a normal player author; `/jobs/{job_id}/policy-artifact` is
+gone (404). A 403 is easy to misread as an absent artifact — most clients here wrap GETs in
+a best-effort helper that returns `None` on any 4xx — so **check the status code before
+concluding an artifact does not exist.** Reading a 403 as "league play has no results" is
+a mistake that has cost this project real money in unnecessary experience requests.
 
 ### Dead ends (do not use)
 - `GET /v2/experience-request-episodes...` — **gone** (renamed away ~2026-06; an
@@ -105,10 +103,16 @@ pass, use this skill's `fetch_artifacts.py` instead.
   `/v2/episode-requests/...` routes. Verified a current XP player-artifact ZIP
   and policy log live; the former job-based downloader had silently treated
   403/404 responses as missing optional telemetry.
+- **2026-07-28**: league episodes resolve to an `ereq_...` through
+  `/v2/episode-requests/by-job/{job_id}` and serve results, per-agent logs and owned
+  telemetry zips from the same `/v2/episode-requests/...` family as experience requests.
+  Verified live on a league game: per-seat results and a 133,769-line `telemetry.jsonl`.
+  `fetch_artifacts.py` now does the hop; the `/jobs/...` fallback stays only for the
+  team-member case.
 - **2026-06-27**: re-verified the discovery split live — `coworld episodes --policy crewborg`
   returns `[]` (champion league player), while `/stats/policy-versions` → `/episodes` lists its
   league games (the `fetch_artifacts.py --policy` path downloaded a current league episode). The
-  two-population model + the `job_id` artifact routes still hold.
+  two-population **discovery** model still holds.
 - **2026-06-10**: added the per-player artifact routes
   (`/jobs/{job_id}/policy-artifact[/{agent_idx}]`) — players may upload one
   telemetry/debug zip per slot to a runner-provided
