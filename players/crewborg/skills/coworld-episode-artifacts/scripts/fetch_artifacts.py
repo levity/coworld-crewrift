@@ -30,10 +30,11 @@ by resolving its `job_id` first:
 
 So a league episode yields results, per-agent logs and your own policy artifact zips,
 exactly like one you requested yourself. Measured coverage: 324 of 342 league episodes
-(94.7%); the rest do not resolve and have no artifacts by any route. Use the `/jobs/{job_id}/...` routes only as the
-fallback below: they are restricted to Softmax team members and answer **403** for
-everyone else, which is indistinguishable from "absent" once a best-effort GET has
-swallowed it.
+(94.7%); the rest do not resolve and have no artifacts by any route.
+
+Use the `/jobs/{job_id}/...` routes only as the fallback below. They are restricted to
+Softmax team members and answer **403** for everyone else, which is indistinguishable
+from "absent" once a best-effort GET has swallowed it.
 
 Each artifact is best-effort: a missing replay or one missing log is logged and
 recorded in the per-episode summary, never aborts the episode or the run.
