@@ -92,7 +92,7 @@ All default off. One env var per lever, so an A/B moves one thing.
 | `CREWBORG_SPEAKER_TRUST` | `off` `on` `mild` | `on` is live; tempers claim/vote weight by how selectively a speaker votes |
 | `CREWBORG_KILL_WINDOW` | `off` `margin` `at-least-one` `both` | `both` is live. Offline over 64 seats: pins 28/29 → 26/26 sound, truth kept 63/64 → 64/64, 14 observations recovered, 3 pins lost |
 | `CREWBORG_KILL_ANCHOR` | `off` `sprite` | Imposter strike range measured from our own decoded sprite instead of the camera point (the two differ by a fixed `(-2,-6)`). **Hosted A/B, 100 v 100 imposter-pinned:** mechanism fixed (wasted strike ticks/ep 5.7 → 0.8, p = 0.001) but outcomes did not improve (win 85.0 % → 76.0 %, p = 0.108; kills/ep 1.60 → 1.53, p = 0.492; ejections 15 % → 20 %). Shipped in v21 as a correctness fix, **not** as an improvement. **Loose end:** in the paired view our kills-against-the-rival-impostor go −0.58 (v20 batch, p < 0.001) → +0.19 (v22 batch, p = 0.132), and the swing holds inside each of the three rival policies common to both batches. That is what a real kill gain would look like, but the two images differ by more than this flag, so it is unresolved rather than a result |
-| `CREWBORG_IMPOSTER_ACCUSE` | `shipped` `follow` | `follow` drops the impostor's proactive deflection path *and* its `top_suspect` ballot fallback, leaving bandwagon → parity_push → skip. Targets thread 8. Offline over the same 194 recorded decisions: meetings where we name a suspect 97.4 % → 52.1 % (lower bound — a static replay cannot credit heat that would arrive while we wait). Under test |
+| `CREWBORG_IMPOSTER_ACCUSE` | `shipped` `follow` | `follow` drops the impostor's proactive deflection path *and* its `top_suspect` ballot fallback, leaving bandwagon → parity_push → skip. **Hosted A/B 100 v 100: NULL** on the paired ejection differential (+6.0 pp → +4.0 pp, DiD p = 0.693) at **zero cost** (kills/ep 1.64 both arms). Stays off, but it is a *free* alternative behaviour, not a harmful one. The offline replay predicted 97.4 % → 52.1 % of meetings naming a suspect; live it was ~94 %, because the static replay cannot credit heat arriving while we wait — treat that counterfactual as a lower bound on bandwagon and be sceptical of it as a behaviour forecast |
 
 Retained rejected experiments (`GROUP_TASKING`, `WITNESS_TASKING`, `POST_TASK_ESCORT`,
 `POST_TASK_LOITER`, `SELF_PRESERVATION`, `STICK`) stay off — `docs/TODO.md` holds the
@@ -242,8 +242,26 @@ git fetch origin && git rebase origin/master && git push levity lawrence
    plurality *is* you, so your ballot is off-crowd by construction; lag the outcome by one
    meeting before reading any vote-shape hazard.
 
-   Being tested now as `CREWBORG_IMPOSTER_ACCUSE=follow` (v24 control / v25 candidate,
-   `xreq_200616d3` / `xreq_cf6aa964`), primary = the paired ejection differential.
+   **Tested as `CREWBORG_IMPOSTER_ACCUSE=follow` and it is a NULL** (v24/v25,
+   `xreq_200616d3` / `xreq_cf6aa964`, 100 v 100, identical image). Paired ejection
+   differential **+6.0 pp → +4.0 pp**, DiD t = −0.39, p = 0.693. Absolute ejection halved
+   17.0 % → 8.0 % (p = 0.086) — **but so did the rival's**, 11.0 % → 4.0 % (p = 0.105),
+   with team win 83 % → 92 %: the candidate arm drew an easier pool, which is the whole
+   reason the primary is paired. Guards held, kills/ep 1.64 in **both** arms.
+
+   The intervention is not in question — telemetry shows proactive 55.6 % → 0 %, bandwagon
+   36.1 % → 62.9 %, parity_push 8.3 % → 31.4 %, and our ballots matching the meeting
+   plurality 70.6 % → 87.3 %. **So leading the meeting is not what marks us**, and it cost
+   nothing to stop.
+
+   **What `follow` did NOT test.** It converts leading into *following*, not into silence:
+   heat arrives while we wait, bandwagon absorbs it, and we still name a suspect in ~94 %
+   of meetings. If the tell is accusing *at all* rather than accusing *first*, that is
+   still open and needs a stricter arm (accuse only at the parity close). Note also that
+   the defect is smaller against the current pool than the pooled historical figure
+   suggested: +6.0 pp here against +12.1 pp over the two older batches. It is real —
+   ejected more than the rival in **4/4** batches, discordant pairs b=51 c=16, exact
+   McNemar p = 2.2e−05 — but sizing the next arm off +12 pp would overpromise.
 
 ## Measurement gotchas
 
