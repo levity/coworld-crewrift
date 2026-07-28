@@ -29,7 +29,8 @@ by resolving its `job_id` first:
     GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-artifact/{agent_idx}
 
 So a league episode yields results, per-agent logs and your own policy artifact zips,
-exactly like one you requested yourself. Use the `/jobs/{job_id}/...` routes only as the
+exactly like one you requested yourself. Measured coverage: 324 of 342 league episodes
+(94.7%); the rest do not resolve and have no artifacts by any route. Use the `/jobs/{job_id}/...` routes only as the
 fallback below: they are restricted to Softmax team members and answer **403** for
 everyone else, which is indistinguishable from "absent" once a best-effort GET has
 swallowed it.
@@ -164,6 +165,18 @@ class Client:
             return None
         r.raise_for_status()
         return r.json()
+
+    def get_json_or_status(self, path: str, **params: Any) -> tuple[Any | None, int]:
+        """GET JSON, returning `(payload_or_None, status)` and never raising on a 4xx.
+
+        The status comes back so a caller can say *why* it got nothing. 403 and 404 mean
+        different things here -- forbidden versus absent -- and collapsing them is how
+        league episodes came to be recorded as carrying no results at all.
+        """
+        r = self._http.get(path, params=params or None)
+        if r.status_code >= 400:
+            return None, r.status_code
+        return r.json(), r.status_code
 
     def get_bytes_or_none(self, path: str) -> bytes | None:
         """GET bytes; return None (not raise) on a 4xx so one missing artifact
@@ -447,12 +460,17 @@ def fetch_episode(
     # league games were long believed to carry no results and no telemetry. They carry
     # both -- results, per-agent logs, and our own policy artifact zips.
     if not is_xp:
-        mapped = client.get_json_or_none(f"/v2/episode-requests/by-job/{job}")
+        mapped, status = client.get_json_or_status(f"/v2/episode-requests/by-job/{job}")
         req_id = (mapped or {}).get("episode_request_id")
         if req_id:
             is_xp = True
         else:
-            summary["errors"].append(f"job {job} does not resolve to an episode request")
+            # Most league jobs resolve; a minority do not, and the reason matters, so
+            # keep the status. Never raise here -- one unresolvable episode in a batch
+            # of hundreds must not end the run.
+            summary["errors"].append(
+                f"job {job} did not resolve to an episode request (HTTP {status})"
+            )
 
     # 2. Results (scores / metrics).
     if want_results:

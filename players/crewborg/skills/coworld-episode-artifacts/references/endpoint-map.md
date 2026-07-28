@@ -45,6 +45,10 @@ a league episode resolves to one through its job.
 So a **league episode yields results, per-agent logs and your own telemetry zips**, exactly
 like one you requested yourself. `fetch_artifacts.py` does the `by-job` hop for you.
 
+Coverage is high but not total: over 342 league episodes, **324 (94.7%) resolved**. The
+remainder answer 403 or 404 on `by-job` and have no artifacts by any route. Check
+`artifact_status.json`, which records the status code, rather than assuming a full batch.
+
 The replay decompresses (zlib) to the game's binary replay (e.g. magic `CREWRIFT...`) — the
 directly-loadable form. Keep the raw `.z` too.
 
