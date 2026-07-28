@@ -29,7 +29,7 @@ from crewborg.game_rules import KILL_RANGE_SQ
 from crewborg.modes import imposter_common as ic
 from crewborg.nav import plan_route
 from crewborg.strategy.commander.bias import commander_of
-from crewborg.strategy.opportunity import select_victim, unwitnessed, visible_victims
+from crewborg.strategy.opportunity import select_victim, strike_origin, unwitnessed, visible_victims
 from crewborg.strategy.trajectory import lead_ticks, predict
 from crewborg.types import ActionState, Belief, Intent, PlayerRecord
 from players.player_sdk import EmptyModeParams, Mode, ModeParams
@@ -54,7 +54,9 @@ class HuntMode(Mode[Belief, ActionState, Intent]):
             return Intent(kind="idle", reason="no victim to hunt")  # selector normally flips to Search/Pretend
 
         victim_xy = (victim.world_x, victim.world_y)
-        in_range = ic.dist2(self_xy, victim_xy) <= KILL_RANGE_SQ
+        # Measure the range from the anchor the victim's position shares (see
+        # ``opportunity.strike_origin``); navigate from ``self_xy`` as before.
+        in_range = ic.dist2(strike_origin(belief) or self_xy, victim_xy) <= KILL_RANGE_SQ
 
         # Strike when kill-ready and in range. The kill fires if it goes UNWITNESSED (the
         # normal case), OR we've already banked a kill — after our first kill the witness

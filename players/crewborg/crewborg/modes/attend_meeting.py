@@ -34,6 +34,7 @@ from crewborg.strategy.meeting.context import (
 from crewborg.strategy.meeting.imposter import (
     bandwagon_target,
     parity_closing_vote_target,
+    proactive_deflection_enabled,
     votes_against,
 )
 from crewborg import nlp as chat_nlp
@@ -381,7 +382,9 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             return self._submit_vote_intent(belief, reason="imposter: vote whom we accused")
 
         # 1. Proactive deflection — a non-teammate with strong, real citable evidence.
-        target = top_suspect(belief)
+        #    Under CREWBORG_IMPOSTER_ACCUSE=follow we never open a meeting ourselves and
+        #    fall through to the reactive paths below (see `proactive_deflection_enabled`).
+        target = top_suspect(belief) if proactive_deflection_enabled() else None
         if target is not None:
             accusation = build_accusation(belief, target)
             if accusation is not None:
@@ -690,5 +693,13 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         # is empty by construction, and the only caller reaching here has already
         # rejected `_tentative_vote`. Skipping is the whole fallback.
         if deduction_history_enabled(belief.self_role):
+            return VOTE_SKIP
+        # `follow` is one behaviour — never act on a read only we hold — and the ballot
+        # is the other half of it. Without this the impostor goes quiet in chat and
+        # still votes its `top_suspect`, which is the conspicuous half: a vote target is
+        # public here, and it is why we skip 1-3% of ballots where the field skips 5-10%.
+        # The bandwagon and parity paths set `_tentative_vote` explicitly, so they never
+        # reach this fallback and keep working.
+        if belief.self_role == "imposter" and not proactive_deflection_enabled():
             return VOTE_SKIP
         return top_suspect(belief) or VOTE_SKIP

@@ -41,12 +41,8 @@
   families on the first tick; `role_resolved` names the live brain. Before this, a
   missed RoleReveal latch silently ran the fitted brain in an arm meant to test
   deduction, with nothing in the trace to show it.
-- Establish that league/tournament episodes carry no results and no policy artifacts:
-  `results: false`, zero artifacts, on episodes two minutes old and again on freshly
-  created ones. The same version through an experience request returns both. Earlier
-  advice held that league artifacts were ephemeral and should be harvested promptly;
-  that was wrong, and harvesting promptly does not help. The only league signal is
-  `episode.json -> policy_results`.
+- Establish that league artifacts are **not** ephemeral: an episode two minutes old and a
+  freshly created one behave identically, so harvesting promptly buys nothing.
 - Recover `crewborg-lw:v18`'s configuration, which had been uploaded untagged and
   unlogged while becoming league champion:
   `CREWBORG_DEDUCTION_HISTORY=1 + CREWBORG_DECISION_GATE=loose + CREWBORG_SPEAKER_TRUST=on`.

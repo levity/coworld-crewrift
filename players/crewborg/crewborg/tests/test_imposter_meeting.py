@@ -6,9 +6,11 @@ from crewborg.modes import AttendMeetingMode
 from crewborg.perception.entities import VoteCandidate, VoteDot, VotingState
 from crewborg.strategy.meeting.accusation import build_accusation, fabricate_accusation
 from crewborg.strategy.meeting.imposter import (
+    accuse_preset,
     alive_imposter_count,
     bandwagon_target,
     parity_closing_vote_target,
+    proactive_deflection_enabled,
     votes_against,
 )
 from crewborg.types import ActionState, Belief, PlayerEvent, PlayerRecord
@@ -258,3 +260,85 @@ def test_imposter_without_a_known_teammate_still_skips_a_flat_endgame() -> None:
     belief.last_tick = 200
     vote = mode.decide(belief, ActionState())
     assert vote.kind == "vote" and vote.target_color is None  # falls back to skip
+
+
+# --- CREWBORG_IMPOSTER_ACCUSE ----------------------------------------------
+#
+# The lever exists because leading the meeting is what marks us. Over 190 hosted
+# impostor-pinned episodes our seat is ejected in 31% of games against the rival
+# impostor's 18.5% in the SAME games, while every play-phase tell is equal or in our
+# favour; 63.4% of our impostor meeting decisions take the proactive path.
+
+
+def test_accuse_preset_defaults_to_shipped_and_rejects_junk(monkeypatch) -> None:
+    monkeypatch.delenv("CREWBORG_IMPOSTER_ACCUSE", raising=False)
+    assert accuse_preset() == "shipped" and proactive_deflection_enabled()
+
+    monkeypatch.setenv("CREWBORG_IMPOSTER_ACCUSE", "FoLLoW")
+    assert accuse_preset() == "follow" and not proactive_deflection_enabled()
+
+    # An unrecognised preset must degrade to shipped, never to a third behaviour.
+    monkeypatch.setenv("CREWBORG_IMPOSTER_ACCUSE", "restrained")
+    assert accuse_preset() == "shipped" and proactive_deflection_enabled()
+
+
+def test_follow_never_opens_a_meeting_even_with_a_clear_real_lead(monkeypatch) -> None:
+    """The exact belief that makes the shipped arm accuse must go quiet under `follow`."""
+
+    monkeypatch.setenv("CREWBORG_IMPOSTER_ACCUSE", "follow")
+    mode = AttendMeetingMode()
+    belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"}, last_tick=0)
+    belief.roster["red"] = PlayerRecord(
+        color="red", life_status="alive",
+        events=[PlayerEvent(kind="vent", start_tick=1, end_tick=20, region_index=0)],
+    )
+    belief.suspicion = {"red": 0.85}  # shipped arm chats "red sus: lurking on a vent"
+
+    assert mode.decide(belief, ActionState()).kind == "idle"  # nobody has taken heat yet
+    belief.last_tick = 200
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote" and vote.target_color is None  # skips at the deadline
+
+
+def test_follow_still_bandwagons_onto_heat_someone_else_created(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_IMPOSTER_ACCUSE", "follow")
+    mode = AttendMeetingMode()
+    belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"})
+    belief.suspicion = {"red": 0.85}  # a real lead we must NOT lead with
+    belief.voting = _voting(dots=(VoteDot(voter=2, target=1),))  # yellow voted blue
+    belief.roster["blue"] = PlayerRecord(color="blue", life_status="alive")
+
+    chat = mode.decide(belief, ActionState())
+    assert chat.kind == "chat" and chat.text.startswith("blue sus:")  # follows the pile, not red
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote" and vote.target_color == "blue"
+
+
+def test_follow_still_makes_the_parity_closing_push(monkeypatch) -> None:
+    """Retained on purpose: the endgame push must not become a second variable."""
+
+    monkeypatch.setenv("CREWBORG_IMPOSTER_ACCUSE", "follow")
+    mode = AttendMeetingMode()
+    belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"}, last_tick=0)
+    belief.suspicion = {"red": 0.85}
+    belief.voting = _parity_voting()  # 3 crew / 2 imp, no heat
+    belief.roster["red"] = PlayerRecord(color="red", life_status="alive")
+
+    chat = mode.decide(belief, ActionState())
+    assert chat.kind == "chat" and chat.text.startswith("red sus:")
+    vote = mode.decide(belief, ActionState())
+    assert vote.kind == "vote" and vote.target_color == "red"
+
+
+def test_shipped_arm_is_unchanged_by_the_lever_being_present(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_IMPOSTER_ACCUSE", "shipped")
+    mode = AttendMeetingMode()
+    belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"})
+    belief.roster["red"] = PlayerRecord(
+        color="red", life_status="alive",
+        events=[PlayerEvent(kind="vent", start_tick=1, end_tick=20, region_index=0)],
+    )
+    belief.suspicion = {"red": 0.85}
+
+    chat = mode.decide(belief, ActionState())
+    assert chat.kind == "chat" and chat.text == "red sus: lurking on a vent"

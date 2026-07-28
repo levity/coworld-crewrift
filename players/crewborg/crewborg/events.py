@@ -72,9 +72,15 @@ from crewborg.deduction.config import enabled as deduction_flag_set
 from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
 from crewborg.deduction.config import gate_overrides, inference_overrides
 from crewborg.envflags import truthy
+from crewborg.modes.search import pickroom_overrides
 from crewborg.perception.constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from crewborg.strategy.commander.trace import CommanderTrace
-from crewborg.strategy.opportunity import has_trackable_victim, kill_urgency_ticks
+from crewborg.strategy.meeting.imposter import accuse_preset
+from crewborg.strategy.opportunity import (
+    has_trackable_victim,
+    kill_anchor,
+    kill_urgency_ticks,
+)
 from crewborg.strategy.suspicion import (
     ACCUSE_TAIL_RECENCY_TICKS,
     VOTE_PROBABILITY,
@@ -264,6 +270,15 @@ class CrewborgEventTracer:
                 # control arm reads as a treatment arm.
                 "decision_gate_overrides": gate_overrides() or None,
                 "inference_overrides": inference_overrides() or None,
+                # Imposter-side arm levers live here too. The event is crew-named but
+                # its job is arm verification, and this is the only trace guaranteed to
+                # be emitted on the first tick regardless of role — an imposter arm has
+                # no crew-brain fork to latch, so anywhere else it could go missing.
+                "imposter_overrides": {
+                    "kill_anchor": kill_anchor(),
+                    "pickroom": pickroom_overrides() or None,
+                    "accuse": accuse_preset(),
+                },
             },
         )
 

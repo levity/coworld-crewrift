@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from crewborg.game_rules import KILL_RANGE_SQ, VENT_RANGE_SQ
 from crewborg.nav import plan_route, plan_route_via_vents
+from crewborg.strategy.opportunity import strike_origin
 from crewborg.types import ActionState, Belief, Command, Intent
 
 INPUT_HEADER = 0x84
@@ -444,7 +445,9 @@ def _resolve_kill(
     if target is None:
         return Command(held_mask=0)
     target_xy = (target.world_x, target.world_y)
-    if _dist2(self_xy, target_xy) <= KILL_RANGE_SQ:
+    # Range test from the anchor the target's position shares; movement still runs
+    # off ``self_xy``, which the controller is calibrated against.
+    if _dist2(strike_origin(belief) or self_xy, target_xy) <= KILL_RANGE_SQ:
         # In range: a fresh A press kills (sim.nim tryKill). Caveat: if a body is
         # adjacent, the server reports it instead — Hunt avoids that case.
         return Command(held_mask=_edge_press(action_state, BTN_A))

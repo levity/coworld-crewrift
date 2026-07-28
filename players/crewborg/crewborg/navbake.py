@@ -6,7 +6,7 @@ them is a heavy pure-Python pass: a pixel flood over the ~1235×659 mask, per-pi
 node/edge construction, and an O(anchors²) A* sweep for the substrate polylines.
 At the hosted 250m-CPU budget that first-tick build costs ~14s — freezing the agent
 at spawn while the real-time 24 Hz engine streams ahead (the agent then drains a
-stale backlog). See WORKING_CONTEXT / design §6.
+stale backlog). See design §6.
 
 There is only one, static map in the game, so we bake this **once offline**
 (``tools/nav_bake.py``) into a vendored asset and load it at runtime.

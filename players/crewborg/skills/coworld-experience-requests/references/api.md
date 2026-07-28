@@ -186,6 +186,11 @@ drift if they upload a new one mid-experiment).
 
 ## Composition — examples to adapt (not a fixed menu)
 
+> **The request says `roster`; the response says `participants`.** Same list, two
+> names. Composing a body from the response shape (or from grepped field names)
+> produces `"participants": [...]`, which the live schema rejects with
+> `additionalProperties: false`. Copy an example below rather than reconstructing one.
+
 **Your policy vs the live division's top 7 champions** (auto-select; everyone
 rotates; random roles) — 8 seats, so 8 participants:
 

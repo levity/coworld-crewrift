@@ -127,10 +127,13 @@ Gate-1 local smoke (mixed Prime roster, 2 episodes):
 - **`crewrift-analysis/fetch.sh` passes `--no-logs`, which also suppresses policy
   artifacts.** An empty `policy_artifacts: []` therefore means *your fetch flag*, not a
   version that lacks telemetry. Re-fetch without it when you need traces.
-- **League/tournament episodes carry NO results and NO policy artifacts**
-  (`results: false`, `policy_artifacts: []`, "no policy logs listed for job"). The only
-  league signal is `episode.json -> policy_results` (per-seat policy, version, reward).
-  To explain a version's behaviour, fire your own experience request and read its traces.
+- **League/tournament episodes carry results, per-agent logs and our own policy
+  artifacts**, the same set an experience request gives you. They are served by the
+  `/v2/episode-requests/...` routes after resolving `tags.job_id` through
+  `/v2/episode-requests/by-job/{job_id}`, which `fetch_artifacts.py` does for you.
+  The `/jobs/{job_id}/...` routes are Softmax-team-only and answer **403** — a
+  best-effort GET turns that into a silent "artifact unavailable", so never read that
+  message as evidence an artifact does not exist. Check the status code.
 - **`xp_py` / `wh_py` are shell functions**, so `timeout xp_py …` fails with "command
   not found". Call them directly, or wrap the inner python.
 - `fetch_artifacts -n` defaults to 10 and caps the TOTAL across multiple `--xreq` —

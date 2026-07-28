@@ -23,7 +23,7 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## What does NOT go here
 
-- **The current objective / live state** → [`WORKING_CONTEXT.md`](WORKING_CONTEXT.md) (TODO is *parked*
+- **The current objective / live state** → `~/projects/softmax/working-context.md` (TODO is *parked*
   work; working context is what you're doing *now*).
 - **Candidate learnings** → [`TENTATIVE_LESSONS.md`](TENTATIVE_LESSONS.md).
 - **Standing human preferences** → [`user_preferences.md`](user_preferences.md).

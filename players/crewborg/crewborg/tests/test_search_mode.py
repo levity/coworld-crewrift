@@ -390,3 +390,20 @@ def test_follow_hands_off_to_search_room_when_caught_in_a_room() -> None:
     intent = mode.decide(belief, ActionState())
     assert mode._state == "watch"             # SEARCH_ROOM found green -> WATCH
     assert intent.kind == "navigate_to"       # single crew -> approach, not idle
+
+
+def test_pickroom_overrides_reports_only_what_changed(monkeypatch) -> None:
+    """The arm trace must show a swept weight, and stay empty when nothing moved.
+
+    The weights are module constants read at import, so the env must be set before the
+    process starts (which is how `--secret-env` works on a hosted container). The
+    override report therefore reads the live constants, not the environment.
+    """
+
+    from crewborg.modes import search as search_mod
+
+    assert search_mod.pickroom_overrides() == {}
+
+    monkeypatch.setattr(search_mod, "W_OCCUPANCY", 5.0)
+    monkeypatch.setattr(search_mod, "_PICKROOM_LIVE", dict(search_mod._PICKROOM_LIVE, W_OCCUPANCY=5.0))
+    assert search_mod.pickroom_overrides() == {"W_OCCUPANCY": 5.0}

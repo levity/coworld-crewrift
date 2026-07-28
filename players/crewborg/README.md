@@ -65,9 +65,10 @@ wire by `coworld/`.
 
 ## Knowledge & process — `docs/`
 
-- **[`docs/improvement-loop.md`](docs/improvement-loop.md)** — the runnable checklist for one
-  full pass: get data → diagnose → propose three → build → prove offline → Gate 1 → upload →
-  hosted A/B → ship or retry, with a "done when" per step
+- **`~/projects/softmax/improvement-loop.md`** — the runnable checklist for one full pass:
+  get data → diagnose → propose three → build → prove offline → Gate 1 → upload → hosted
+  A/B → ship or retry, with a "done when" per step. Kept outside this repo because it is
+  working practice rather than inherited code
 - **[`docs/best_practices.md`](docs/best_practices.md)** — the battle-tested disciplines for the loop
   (measurement rigor, diagnosis, hypotheses, the gates, working-with-the-human). **Read on startup;
   treat as defaults.**
@@ -77,8 +78,9 @@ wire by `coworld/`.
   `report-style.md` (how the HTML reports look). The reproducible synthetic and
   hosted solver workflow is in
   [`deduction-analysis.md`](docs/reference/deduction-analysis.md).
-- **[`docs/WORKING_CONTEXT.md`](docs/WORKING_CONTEXT.md)** — the live, one-screen state of what's being
+- **`~/projects/softmax/working-context.md`** — the live, one-screen state of what's being
   worked on now (the active version, the current lens, open threads). The resume signal.
+  Kept outside this repo because it is working practice rather than inherited code.
 - **[`docs/user_preferences.md`](docs/user_preferences.md)** — the human's durable preferences.
 - **[`docs/TODO.md`](docs/TODO.md)** — parked work.
 - **[`docs/TENTATIVE_LESSONS.md`](docs/TENTATIVE_LESSONS.md)** + [`lessons_archive/`](docs/lessons_archive/) —
