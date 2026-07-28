@@ -22,7 +22,7 @@ When the human states a preference — **explicitly** ("always do X", "never Y",
 
 ## What does NOT go here
 
-- **Live state of the current work** (the active objective, the version under test) → [`WORKING_CONTEXT.md`](WORKING_CONTEXT.md).
+- **Live state of the current work** (the active objective, the version under test) → `~/projects/softmax/working-context.md`.
 - **Durable, game-agnostic disciplines** (measurement rigor, the loop) → [`best_practices.md`](best_practices.md).
 - **Candidate learnings still being validated** → [`TENTATIVE_LESSONS.md`](TENTATIVE_LESSONS.md)
   (these graduate into `best_practices.md` once they recur, not here).
@@ -33,7 +33,7 @@ applied going forward (here), the current objective (working context), or a disc
 player (best practices)?
 
 > Read on startup, alongside [`best_practices.md`](best_practices.md) and
-> [`WORKING_CONTEXT.md`](WORKING_CONTEXT.md). (The player's top-level `AGENTS.md` / `README.md` will
+> `~/projects/softmax/working-context.md`. (The player's top-level `AGENTS.md` / `README.md` will
 > point here once they exist.)
 
 ## Preferences

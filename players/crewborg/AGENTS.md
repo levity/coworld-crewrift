@@ -14,7 +14,7 @@ tools. This is the *procedure*; the *map* of what's here is [`README.md`](README
    *where* things are and *how they connect* before changing code or running an eval.
 3. **Read these on startup:** [`docs/best_practices.md`](docs/best_practices.md) (your defaults —
    warn the human if a request would contravene one), [`docs/user_preferences.md`](docs/user_preferences.md)
-   (the human's standing preferences), and [`docs/WORKING_CONTEXT.md`](docs/WORKING_CONTEXT.md) (the
+   (the human's standing preferences), and `~/projects/softmax/working-context.md` (the
    live state — what's being worked on now; a recorded objective there means resume the loop).
 4. **Check [`docs/TODO.md`](docs/TODO.md)** for parked work at the start of focused work.
 
@@ -125,8 +125,9 @@ cd ~/projects/softmax/crewrift-analysis && source ./env.sh
 
 ## Session state & lessons — keep them current
 
-- **[`docs/WORKING_CONTEXT.md`](docs/WORKING_CONTEXT.md)** — the live one-screen state. Update it as
-  you learn; clear/reseed it on a pivot.
+- **`~/projects/softmax/working-context.md`** — the live one-screen state. Update it as
+  you learn; clear/reseed it on a pivot. It lives outside this repo (working practice, not
+  inherited code) and carries one section per coworld.
 - **[`docs/TENTATIVE_LESSONS.md`](docs/TENTATIVE_LESSONS.md)** — write candidate lessons here **eagerly,
   as you go** (most are noise; the value is the occasional gem). A SessionStart hook archives the
   buffer and a Stop hook nudges if substantive work ended with it untouched; `/lessons-review`
@@ -135,8 +136,8 @@ cd ~/projects/softmax/crewrift-analysis && source ./env.sh
   [`docs/user_preferences.md`](docs/user_preferences.md); when you defer something, add it to
   [`docs/TODO.md`](docs/TODO.md).
 
-**On wrap-up of a thread:** capture every tentative lesson, reconcile WORKING_CONTEXT (prune stale
-detail, update the active version), and propose the next step — don't auto-chain.
+**On wrap-up of a thread:** capture every tentative lesson, reconcile the working context (prune
+stale detail, update the active version), and propose the next step — don't auto-chain.
 
 ## Writing docs and comments — state what is true
 
