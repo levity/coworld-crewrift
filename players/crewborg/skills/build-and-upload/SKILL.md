@@ -83,11 +83,11 @@ the only records of what a version runs. Get them right at upload time.
 uv run python skills/build-and-upload/scripts/versions.py --name crewborg-lw   # vN + UUID + created_at
 ```
 
-**League play cannot explain a version.** League/tournament episodes return
-`results: false` with no logs and no `policy_artifacts`; the only league signal is
-`episode.json -> policy_results`. To see a version's behaviour, fire your own experience
-request and read its traces. When fetching, avoid `fetch.sh` — its `--no-logs` also
-suppresses policy artifacts.
+**League play can explain a version.** League/tournament episodes return `results.json`,
+per-agent logs and our own `policy_artifact_<slot>.zip` traces — `fetch_artifacts.py`
+resolves them through `/v2/episode-requests/by-job/{job_id}`. So a version's behaviour in
+real competition is readable without buying games. When fetching, avoid `fetch.sh` — its
+`--no-logs` also suppresses policy artifacts.
 
 ## Then what
 

@@ -221,10 +221,11 @@ These layer on Part 1; they're the failure modes of *this* game. Add to this par
   behaviour env, and refuses without a purpose and a note.
 - **`--secret-env` is not readable back from any API route.** The tags and the log row are
   the only records of a version's configuration.
-- **League/tournament episodes carry no results and no policy artifacts** (`results: false`,
-  empty `policy_artifacts`). The only league signal is `episode.json -> policy_results`
-  (per-seat policy, version, reward). To explain a version's *behaviour*, fire your own
-  experience request and read its traces.
+- **League/tournament episodes carry results, per-agent logs and our own policy artifacts.**
+  `fetch_artifacts.py` reaches them by resolving `tags.job_id` through
+  `/v2/episode-requests/by-job/{job_id}`; the `/jobs/{job_id}/...` routes are team-only and
+  answer 403. Read the league first — it is the real field and it is free — and buy an
+  experience request when you need a role, a matchup or a head-to-head it does not deal you.
 - **When fetching, avoid `fetch.sh`** — its `--no-logs` also suppresses policy artifacts.
 - **Version numbers are per policy NAME and collide across lines.** In `version_log.md`,
   ours are keyed `` `crewborg-lw:vN` ``; a bare `| vN |` row belongs to the archived

@@ -16,22 +16,23 @@ client/server version skew that recurs here (the published `coworld` client
 regularly ships behind the server). It is **game-agnostic**: nothing about
 Crewrift, crewborg, or any specific game is baked in.
 
-League episodes use their `job_id` as the artifact handle. Experience-request
-episodes use ownership-scoped `/v2/episode-requests/...` routes (verified live
-2026-07-22):
+**Every episode is served by the ownership-scoped `/v2/episode-requests/...` routes,
+league and experience-request alike** (verified live 2026-07-28). An experience-request
+episode already carries its `ereq_...` handle; a league episode reaches the same routes
+by resolving its `job_id` first:
 
-    GET /jobs/{job_id}/artifacts/results        -> results.json   (scores/metrics)
-    GET /jobs/{job_id}/artifacts/replay          -> replay bytes   (game replay)
-    GET /jobs/{job_id}/policy-logs               -> ["policy_agent_0.log", ...]
-    GET /jobs/{job_id}/policy-logs/{agent_idx}   -> one agent's stderr trace
-    GET /jobs/{job_id}/policy-artifact           -> [slot, ...] with uploaded artifacts
-    GET /jobs/{job_id}/policy-artifact/{agent_idx} -> one slot's artifact zip
-    GET /jobs/{job_id}/artifacts/error_info      -> error_info.json (only on failure)
+    GET /v2/episode-requests/by-job/{job_id}     -> {"episode_request_id": "ereq_..."}
 
     GET /v2/episode-requests/{ereq}/artifacts/{results,replay}
     GET /v2/episode-requests/{ereq}/policy-artifacts
     GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-logs/{agent_idx}
     GET /v2/episode-requests/{ereq}/{policy_version_id}/policy-artifact/{agent_idx}
+
+So a league episode yields results, per-agent logs and your own policy artifact zips,
+exactly like one you requested yourself. Use the `/jobs/{job_id}/...` routes only as the
+fallback below: they are restricted to Softmax team members and answer **403** for
+everyone else, which is indistinguishable from "absent" once a best-effort GET has
+swallowed it.
 
 Each artifact is best-effort: a missing replay or one missing log is logged and
 recorded in the per-episode summary, never aborts the episode or the run.
@@ -434,15 +435,29 @@ def fetch_episode(
 
     job = ref.job_id
     is_xp = ref.ref_id.startswith("ereq_")
+    req_id: str | None = ref.ref_id if is_xp else None
     if job is None and not is_xp:
         summary["errors"].append("no job_id on episode -- artifacts unavailable")
         (out_dir / "artifact_status.json").write_text(json.dumps(summary, indent=2))
         return summary
 
+    # A league/tournament episode reaches its artifacts through the episode request its
+    # job belongs to. Resolve that first: the `/jobs/{job}/...` routes are team-only and
+    # answer 403, which reads downstream as "the artifact does not exist" and is why
+    # league games were long believed to carry no results and no telemetry. They carry
+    # both -- results, per-agent logs, and our own policy artifact zips.
+    if not is_xp:
+        mapped = client.get_json_or_none(f"/v2/episode-requests/by-job/{job}")
+        req_id = (mapped or {}).get("episode_request_id")
+        if req_id:
+            is_xp = True
+        else:
+            summary["errors"].append(f"job {job} does not resolve to an episode request")
+
     # 2. Results (scores / metrics).
     if want_results:
         raw = client.get_text_or_none(
-            f"/v2/episode-requests/{ref.ref_id}/artifacts/results"
+            f"/v2/episode-requests/{req_id}/artifacts/results"
             if is_xp else f"/jobs/{job}/artifacts/results"
         )
         if raw is not None:
@@ -454,7 +469,7 @@ def fetch_episode(
     # 3. Replay (prefer the job artifact; fall back to the episode's replay_url).
     if want_replay:
         content = client.get_bytes_or_none(
-            f"/v2/episode-requests/{ref.ref_id}/artifacts/replay"
+            f"/v2/episode-requests/{req_id}/artifacts/replay"
             if is_xp else f"/jobs/{job}/artifacts/replay"
         )
         if content is None and ref.replay_url:
@@ -474,7 +489,7 @@ def fetch_episode(
     if want_logs:
         if is_xp:
             owned = client.get_json_or_none(
-                f"/v2/episode-requests/{ref.ref_id}/policy-artifacts"
+                f"/v2/episode-requests/{req_id}/policy-artifacts"
             )
             if owned is None:
                 owned = []
@@ -487,7 +502,7 @@ def fetch_episode(
                 idx = int(entry["position"])
                 policy_version_id = str(entry["policy_version_id"])
                 text = client.get_text_or_none(
-                    f"/v2/episode-requests/{ref.ref_id}/{policy_version_id}/policy-logs/{idx}"
+                    f"/v2/episode-requests/{req_id}/{policy_version_id}/policy-logs/{idx}"
                 )
                 if text is None:
                     summary["errors"].append(f"policy-log {idx}: unavailable")
@@ -545,7 +560,7 @@ def fetch_episode(
             if is_xp:
                 policy_version_id = str(entry["policy_version_id"])
                 path = (
-                    f"/v2/episode-requests/{ref.ref_id}/{policy_version_id}"
+                    f"/v2/episode-requests/{req_id}/{policy_version_id}"
                     f"/policy-artifact/{idx}"
                 )
             else:

@@ -24,11 +24,11 @@ CREWBORG_SPEAKER_TRUST=on     CREWBORG_KILL_WINDOW=both
 v20 is v18's configuration plus `CREWBORG_KILL_WINDOW=both`, so the kill window is the
 single variable against the previous champion.
 
-**Standing, measured over 568 league episodes (2026-07-27 06:22 → 23:10, all v20).** Roles
-are recoverable from league data even though episodes carry no results: 2 winners means an
-imposter win and 6 a crew win, so every seat's role and outcome follows from the reward
-vector. Raw per-role win rate puts us at the field mean — crew 30.7 % (135/440) against a
-field 31.2 %, imposter 67.2 % (86/128) against a field 68.8 %.
+**Standing, measured over 568 league episodes (2026-07-27 06:22 → 23:10, all v20).** A
+league episode's `results.json` gives each seat's role, win, kills, tasks and ballots
+directly, plus the `connect_timeout` / `disconnect_timeout` arrays to filter ops failures.
+Raw per-role win rate puts us at the field mean — crew 30.7 % (135/440) against a field
+31.2 %, imposter 67.2 % (86/128) against a field 68.8 %.
 
 Raw rates are confounded, because a win is a *team* outcome and a seat inherits its
 teammates. Fitting an additive logistic model over the 568 episodes — one coefficient per
@@ -51,10 +51,10 @@ adjustment, and is superseded):
   in either role: `crewborg` as imposter, whose CI is disjoint from ours.
 
 So we are mid-pack in both roles rather than weak in either, and the one identifiable gap
-to a specific opponent is imposter-side. Reproduce with the league-fetch + fit in
-`~/projects/softmax/crewrift-analysis/` (`fetch_artifacts.py --policy crewborg-lw
---no-replay`, filtering `tags.source == "tournament"` — a `--policy` fetch also returns our
-own experience-request episodes, which are role-pinned and will bias any win rate).
+to a specific opponent is imposter-side. Reproduce with `fetch_artifacts.py --policy
+crewborg-lw`, then filter `tags.source == "tournament"` — a `--policy` fetch also returns
+our own experience-request episodes, which are role-pinned and will bias any win rate (424
+of 1000 in one pull).
 
 **Uploaded baseline: `crewborg-lw:v21`** (`fd9c08cf-f329-4404-a7cc-00f8fc988664`) — v20's
 config plus `CREWBORG_KILL_ANCHOR=sprite`. **Uploaded, not submitted.** It is a bug fix,
@@ -270,7 +270,10 @@ git fetch origin && git rebase origin/master && git push levity lawrence
   eject decisions came from dead seats. Filter on liveness (the seat's own
   `domain.player_died`) before quoting any decision-level rate. `decision_snapshot.self` is
   null during *every* Voting phase and is not a liveness signal.
-- **League episodes carry no results and no policy artifacts.** The only league signal is
-  `episode.json -> policy_results`. To see behaviour, fire your own experience request.
+- **League episodes carry results, per-agent logs and our own policy artifacts** — the same
+  set an experience request gives, reached by resolving `tags.job_id` through
+  `/v2/episode-requests/by-job/{job_id}`. Read the league before buying games; spend an
+  experience request only for a role, matchup or head-to-head the league does not deal.
+  `episode.json -> game_stats` is empty; per-seat outcomes are in `results.json`.
 - **Win rate is one bit per game.** At n=100 it cannot resolve below roughly +15pp. Prefer
   `tools/decision_quality.py`, which scores the belief against ground truth.

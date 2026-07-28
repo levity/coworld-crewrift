@@ -8,10 +8,13 @@ and runtime configuration it carries.
 this file reuses the same numbers for unrelated builds. Ours are keyed
 `` **`crewborg-lw:vN`** ``; a bare `| vN |` row is not ours.
 
-**`--secret-env` is not readable back from any API route**, and league episodes carry no
-policy artifacts, so this table and the version's `--tag`s are the only records of what a
-version runs. Upload through `skills/build-and-upload/scripts/upload_and_log.py`, which
-writes the row from the same arguments it uploads with.
+**`--secret-env` is not readable back from any API route**, so this table and the version's
+`--tag`s are the only records of what we *sent* a version. What the code actually
+*resolved* is readable from a trace — `domain.crew_brain_config` fires on the first tick —
+and league episodes carry our policy artifacts, so a champion's live configuration can be
+confirmed from real competition. Upload through
+`skills/build-and-upload/scripts/upload_and_log.py`, which writes the row from the same
+arguments it uploads with.
 
 | Version | Policy version ID | Uploaded at (UTC) | Source | Runtime config | Notes |
 | --- | --- | --- | --- | --- | --- |

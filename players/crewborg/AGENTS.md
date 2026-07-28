@@ -36,10 +36,11 @@ end, with a "done when" per step. It lives outside this repo on purpose (working
 practice, not inherited code); `docs/improvement-loop.md` is a stub pointing at it.
 Concretely:
 
-1. **See where crewborg stands.** Run an experience request on a flat/representative field
-   (**`coworld-experience-requests`**) — league/tournament episodes carry no results and no
-   policy artifacts, so they give rank but never behaviour. Turn the batch into a fast
-   overview with **`crewrift-survey`**
+1. **See where crewborg stands.** Read league episodes first — they carry results, logs and
+   our policy artifacts, they are the real field, and they are free
+   (**`coworld-episode-artifacts`**). Run an experience request
+   (**`coworld-experience-requests`**) when you need a role, a matchup or a head-to-head the
+   league does not deal you. Turn either batch into a fast overview with **`crewrift-survey`**
    (per-policy role-split table + win heat map + flagged episodes). Decompose by role — crewmate and
    imposter are effectively two policies.
 2. **Diagnose.** Turn the signals into a few *varied, mechanistic* hypotheses for where it falls short
