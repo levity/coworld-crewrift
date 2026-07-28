@@ -54,18 +54,20 @@ GATE_PRESETS: dict[str, Overrides] = {
         "require_support": False,
         "base_probability": 0.40,
     },
-    # Keeps `loose`'s margin relaxation but ejects ONLY on structural certainty.
+    # FALSIFIED 2026-07-28 -- DO NOT A/B THIS. Kept only so the retired arm stays
+    # readable; it is not a live question.
     #
-    # Measured on 60 LEAGUE episodes (2026-07-26), which is the first data we have
-    # from a mixed roster -- every earlier A/B ran six copies of this policy as the
-    # crew, so the social evidence channel was talking to itself. Against real
-    # opponents that channel collapses:
-    #     structural      9/9  = 100%
-    #     non-structural  5/19 =  26%   (random voting is ~29%)
-    # and it is 70% of the ejects `loose` produces, so `loose` as shipped is mostly
-    # casting near-random votes. No probability threshold rescues it -- the posterior
-    # inside that class averages 0.786 when right and 0.798 when wrong -- so the cut
-    # has to be by evidence class.
+    # The case for it rested on 60 league episodes: structural 9/9 = 100%,
+    # non-structural 5/19 = 26% (random ~29%), non-structural = 70% of `loose`'s
+    # ejects. Re-measured on 254 league episodes / 192 crew seats / 563 live
+    # decisions (`crewrift-analysis/crew_decision_audit.py`), that does not hold:
+    #     structural      49/49 = 100%   (59.8% of ejects)
+    #     non-structural  21/33 =  64%   (40.2% of ejects)
+    # Non-structural is well above random, and it is 40% of our ejects rather than
+    # 70%. So this preset trades away 40% of our coverage to move precision
+    # 85.4% -> 100%, and coverage -- not precision -- is the scarce quantity: we
+    # name a player in 14.6% of live crew decisions, last in the league by a wide
+    # margin. It is the wrong direction on the binding constraint.
     #
     # NOTE this is STRICTER than the shipped gate, which also allowed
     # accusation-backed ejects with >=2 independent sources.
