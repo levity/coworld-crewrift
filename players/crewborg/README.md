@@ -68,8 +68,7 @@ wire by `coworld/`.
 - **`~/projects/softmax/improvement-loop.md`** — the runnable checklist for one full pass:
   get data → diagnose → propose three → build → prove offline → Gate 1 → upload → hosted
   A/B → ship or retry, with a "done when" per step. Kept outside this repo because it is
-  working practice rather than inherited code; [`docs/improvement-loop.md`](docs/improvement-loop.md)
-  is a stub pointing at it
+  working practice rather than inherited code
 - **[`docs/best_practices.md`](docs/best_practices.md)** — the battle-tested disciplines for the loop
   (measurement rigor, diagnosis, hypotheses, the gates, working-with-the-human). **Read on startup;
   treat as defaults.**

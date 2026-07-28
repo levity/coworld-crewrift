@@ -32,9 +32,8 @@ plenty:** surface decision-ready forks, present hypotheses and experiment design
 
 **evaluate → diagnose → experiment → improve → re-measure → (gated) submit.**
 **The runnable checklist is `~/projects/softmax/improvement-loop.md`** — one pass end to
-end, with a "done when" per step. It lives outside this repo on purpose (working
-practice, not inherited code); `docs/improvement-loop.md` is a stub pointing at it.
-Concretely:
+end, with a "done when" per step. It lives outside this repo on purpose: working
+practice, not inherited code. Concretely:
 
 1. **See where crewborg stands.** Read league episodes first — they carry results, logs and
    our policy artifacts, they are the real field, and they are free
