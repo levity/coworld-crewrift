@@ -389,3 +389,33 @@ less time one-on-one and died with only the killer nearby 35/49 times versus 40/
 the narrower interval would test a different condition. The outcome improvement was nonsignificant
 and reversed under a strict whole-roster-clean filter, so mechanism movement is evidence of
 activation direction, not proof of survival benefit.
+
+### Choosing fetch flags before choosing the instrument silently forecloses the panel
+Evidence: 2026-07-28/29 session. Pulled league episodes with `--no-replay` (and `--no-logs`
+on the first pull) to get outcome tables fast. The warehouse builder needs replays, so
+`crew_play_signals.py` was foreclosed at step 1 — and by step 2 every question was cheaper to
+answer with a one-off script against the data already on disk than to re-fetch ~1000 episodes
+and build a warehouse. Net: **11 bespoke scripts written, the panel never run once**, despite
+`improvement-loop.md` step 2 naming it as *the* tool and my having quoted that table at the
+start of the same session. This was not a discovery failure; it was foreclosure plus
+compounding local optimisation.
+Seven quantities were rebuilt by hand that the panel already has, **including BOTH of its
+`dec`-grade signals** (`vote_precision`, `vote_timeout_rate`) — the only ones permitted as
+promotion criteria — plus `vote_coverage`, `posterior_auc`, `skip_with_pin_rate`,
+`pins_per_game`/`evidence_per_game`, `oracle_ghost_coverage_gain`.
+The cost is NOT duplicated effort, it is comparability: my "coverage 14.6%" is per solver
+DECISION, the panel's `vote_coverage` is per BALLOT cast. Different denominators, so the
+figure cannot be compared to any recorded panel run and no future run can compare to it.
+That is the exact property the panel exists to provide.
+Status: fixed in `improvement-loop.md` — step 1 now says decide the instrument before the
+fetch flags, step 2's done-when now requires the panel's dec-grade signals and rejects
+hand-computed substitutes. Reconciliation of this session's crew numbers against the panel
+is still OUTSTANDING.
+
+### The same session skipped this lessons buffer too, until asked
+Evidence: substantive multi-hour work (two shipped commits, four experiments, a harness
+blocker found and fixed) ended with `TENTATIVE_LESSONS.md` untouched; the Stop-hook nudge
+exists for exactly this and the buffer was still only written after the human pointed at the
+panel. Suggests the miss is not specific to the panel but to *standing instruments in
+general* under task focus — the pull toward the immediate question beats the standing process.
+Status: worth watching for recurrence across buffers; one instance is not a pattern.

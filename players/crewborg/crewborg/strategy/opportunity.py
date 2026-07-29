@@ -179,6 +179,31 @@ def _is_unwitnessed(target: PlayerRecord, belief: Belief, radius_sq: float, wind
     return True
 
 
+def nobody_seen_recently(belief: Belief, window: int) -> bool:
+    """Whether no live non-teammate crewmate has been in view for ``window`` ticks.
+
+    The pure-recency sibling of :func:`_is_unwitnessed`: no distance term, because
+    the question is not "could someone see this spot" but "is there anyone who
+    could later place us here at all". Used to decide whether self-reporting our
+    own kill is safe (``strategy/rule_based.py``) — if nobody has laid eyes on us
+    for long enough, no crewmate holds a recent sighting to contradict the report.
+
+    Same exclusions as the witness check, plus ourselves: our own record sits in
+    the roster and is refreshed every tick, so leaving it in would make this
+    permanently false. The victim needs no special case — the body marks them
+    dead, and the dead are excluded.
+    """
+
+    for other in belief.roster.values():
+        if other.color == belief.self_color or other.color in belief.teammate_colors:
+            continue
+        if other.life_status == "dead":
+            continue
+        if belief.last_tick - other.last_seen_tick <= window:
+            return False
+    return True
+
+
 def _claimed_by_teammate(target: PlayerRecord, belief: Belief, self_xy: tuple[int, int]) -> bool:
     target_xy = (target.world_x, target.world_y)
     self_dist = _dist2(self_xy, target_xy)

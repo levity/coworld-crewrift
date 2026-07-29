@@ -30,15 +30,19 @@ for why that matters when reading an A/B.
 Imposter priority order (design §10):
 
 1. ``phase == Voting`` → Attend Meeting
-2. just killed → Evade (vent / leave the body)
-3. kill ready + a visible victim → Hunt (commit to a victim and strike / close)
-4. near-ready cooldown + known crew → Recon (close on the last seen crewmate)
-5. otherwise → Search (find/follow a target)
+2. just killed, and nobody could place us at the scene → Report Body (self-report,
+   behind ``CREWBORG_SELF_REPORT``, default off)
+3. just killed → Evade (re-approach the crowd; despite the name it does not flee)
+4. kill ready + a visible victim → Hunt (commit to a victim and strike / close)
+5. near-ready cooldown + known crew → Recon (close on the last seen crewmate)
+6. otherwise → Search (find/follow a target)
 
-(2) prevents instant self-reports after our own kill: the imposter first leaves the
-scene, preferably through a vent. Imposters NEVER report bodies; self-reporting our
-own kill triggered a meeting that reset the cooldown and killed snowball kills. Once
-Evade ends we go straight back to Search (or Hunt/Recon if the gates match).
+(2) and (3) are the two answers to the same situation, and which one fires is the
+whole point of the lever. Reporting our own kill was long ruled out on the grounds
+that it opens a meeting and resets the cooldown — but any body-called meeting does
+that whoever calls it, and the reset is cheapest right after our own kill. See the
+``SELF_REPORT_*`` block below for the argument, the gates and the costs. With the
+lever off, (2) never fires and the behaviour is exactly as it was.
 
 (5) fires once the kill cooldown is within a short lead window of being ready
 (`ticks_until_kill_ready ≤ SEARCH_LEAD_TICKS`, reconstructed from the binary HUD via
@@ -55,19 +59,22 @@ Report Body so we can isolate "always prepare to kill" behavior.
 from __future__ import annotations
 
 import os
+import random
 
+from players.player_sdk import ModeDirective
+from players.player_sdk.types import BeliefSnapshot
+
+from crewborg.envflags import truthy as _truthy_env
 from crewborg.strategy.commander.bias import commander_of
 from crewborg.strategy.opportunity import (
     has_visible_victim,
     most_recent_victim,
+    nobody_seen_recently,
     recon_window,
     ticks_until_kill_ready,
 )
 from crewborg.strategy.suspicion import active_tail_suspect
-from crewborg.envflags import truthy as _truthy_env
 from crewborg.types import ActionState, Belief
-from players.player_sdk import ModeDirective
-from players.player_sdk.types import BeliefSnapshot
 
 # Ticks after a kill during which the imposter stays in Evade. Evade no longer "flees" —
 # it RE-APPROACHES the densest expected-crew area (modes/evade.py), so this is the post-kill
@@ -77,6 +84,63 @@ from players.player_sdk.types import BeliefSnapshot
 # the witness-drop (modes/hunt.py) is the actual driver of the confirmed +19pp ≥2-kill / +14pp
 # win (v63 vs v54, p=0.038). Env-tunable for sweeps via CREWBORG_EVADE_TICKS.
 EVADE_TICKS = int(os.environ.get("CREWBORG_EVADE_TICKS", "72"))
+
+# --- Self-report (CREWBORG_SELF_REPORT, default off) -------------------------------
+#
+# An imposter MAY report its own kill: `startVote(kind = VoteCalledBody, ...)` in the
+# game's sim.nim has no role check, and 6.2% of league kills are self-reported (one
+# policy does it 45% of the time). We do it 0.0% of the time, which is what makes it
+# worth having: the field's detectors are fitted on that.
+#
+# What reporting buys, in the two field policies whose source we can read: notsus
+# subtracts `reporterScores * 150` against a `SusVoteMinScore` of 75 — twice the bar
+# to convict — and crewborg-aaln fades body-proximity suspicion to zero over 48t
+# because "a long camp at a corpse is (innocent) reporter behaviour". Both treat the
+# reporter as exculpated.
+#
+# The standing objection (`_select_imposter` below) was that reporting "resets the
+# cooldown". It does — but so does ANY body-called meeting, whoever calls it, and the
+# body gets found either way. `applyVoteResult` resets to FULL cooldown, so the reset
+# is cheapest immediately after our own kill (we are already at full) and dearest if
+# we wait for a crewmate to find the body once we have partly recovered. The real
+# costs are that it resets our PARTNER's cooldown and hands crew an extra ballot.
+#
+# So gate it on solitude: report only when nobody could place us at the scene.
+#
+# 120t, sized by measurement (`crewrift-analysis/solitude_gate.py` over 100 of our
+# league kills, shared-room proxy for being seen). The measurement must exclude the
+# kill's OWN victim: Search/FOLLOW shadows the target by design, so counting the
+# victim as a witness pins the clock to ~now on every kill and makes the gate look
+# far narrower than it is. Against third parties only, the median gap at our kills is
+# 80t, and the gate fires on 42% of kills at 120t (53% at 72t).
+#
+# Dose is therefore not the binding constraint, so the threshold is set for SAFETY
+# rather than reach: 120t is comfortably past every witness-memory window in play
+# (our own WITNESS_WINDOW_TICKS and aaln's follow-to-death are 72t, aaln's body fade
+# 48t, notsus's vent window 96t), and 42% x the 2/3 coin still self-reports on ~28% of
+# kills — over 4x the field's 6.2%.
+#
+# The cost that argues against going wider: every self-report opens a meeting, and we
+# are ejected per meeting alive at 10.1% against a field 4.7%. More meetings amplify
+# our known weakness, and only games can say whether the exculpation outruns it.
+#
+# Fire 2 of 3 times rather than always, so the behaviour stays unpredictable and the
+# partner-cooldown cost is only paid sometimes.
+#
+# Both knobs are read at CALL time, not import time. `EVADE_TICKS` above is read at
+# import, which is fine for a deployed arm (`--secret-env` is set before the process
+# starts) but makes the value impossible to vary from a test — and a test that cannot
+# set the probability silently passes on whatever the default coin happened to give.
+SELF_REPORT_SOLITUDE_TICKS = 120
+SELF_REPORT_P = 0.667
+
+
+def _self_report_solitude_ticks() -> int:
+    return int(os.environ.get("CREWBORG_SELF_REPORT_SOLITUDE_TICKS", SELF_REPORT_SOLITUDE_TICKS))
+
+
+def _self_report_p() -> float:
+    return float(os.environ.get("CREWBORG_SELF_REPORT_P", SELF_REPORT_P))
 
 
 class RuleBasedStrategy:
@@ -147,10 +211,13 @@ class RuleBasedStrategy:
         return ModeDirective(mode="idle", source="strategy", reason=f"idle in phase {phase}")
 
     def _select_imposter(self, belief: Belief) -> ModeDirective:
-        # Imposter priority (design §10): just killed -> Evade; kill ready and a
-        # victim visible -> Hunt; near-ready with known crew -> Recon; else SEARCH.
-        # Imposters never report bodies: self-reporting our own kill opens a meeting
-        # and resets the cooldown, so once Evade ends we go back to the kill loop.
+        # Imposter priority (design §10): just killed -> self-report if unobserved and
+        # the lever is on, else Evade; kill ready and a victim visible -> Hunt;
+        # near-ready with known crew -> Recon; else SEARCH.
+        # Reporting our own kill used to be ruled out on the grounds that it opens a
+        # meeting and resets the cooldown. Any body-called meeting does that, whoever
+        # calls it, and the reset is cheapest right after our own kill — see the
+        # SELF_REPORT_* block above for the full argument and the gates.
         # SEARCH is the always-on seeking stance (Pretend removed 2026-06-24): it
         # keeps us near crew — watching a room and following a crewmate to their next
         # room — so a kill window opens, which is when Hunt takes over. RECON (added
@@ -163,6 +230,10 @@ class RuleBasedStrategy:
                 return ModeDirective(mode="hunt", source="strategy", reason="be dumb: kill ready with visible victim")
             return ModeDirective(mode="search", source="strategy", reason="be dumb: always seek kill setup")
         cmd = commander_of(belief)
+        if _recent_self_kill(belief) and _self_report_now(belief):
+            return ModeDirective(
+                mode="report_body", source="strategy", reason="just killed, unobserved: self-report"
+            )
         if _recent_self_kill(belief) and not (cmd is not None and cmd.skip_evade):
             return ModeDirective(mode="evade", source="strategy", reason="just killed: evade")
         if _recent_self_kill(belief) and cmd is not None and cmd.skip_evade:
@@ -234,6 +305,32 @@ def _button_reachable(belief: Belief) -> bool:
 
 def _recent_self_kill(belief: Belief) -> bool:
     return belief.last_kill_tick is not None and belief.last_tick - belief.last_kill_tick < EVADE_TICKS
+
+
+def _self_report_enabled() -> bool:
+    return _truthy_env("CREWBORG_SELF_REPORT")
+
+
+def _self_report_now(belief: Belief) -> bool:
+    """Whether to report the body we just made instead of evading.
+
+    Three gates, all required. The lever is on; nobody live could place us at the
+    scene (:func:`nobody_seen_recently`); and a body is actually in view — without
+    one ``report_body`` only idles, and we would spend the post-kill window standing
+    still, which is the one thing every field detector does score.
+
+    The 2-in-3 coin is derived from the kill tick rather than drawn from a live RNG,
+    so it is stable across the many ticks of a single kill (a per-tick re-roll would
+    fire on essentially every kill) while staying independent between kills.
+    """
+
+    if not _self_report_enabled():
+        return False
+    if not any(b in belief.bodies for b in belief.visible_body_ids):
+        return False
+    if not nobody_seen_recently(belief, _self_report_solitude_ticks()):
+        return False
+    return random.Random(f"{belief.self_color}:{belief.last_kill_tick}").random() < _self_report_p()
 
 
 def _be_dumb_enabled() -> bool:
