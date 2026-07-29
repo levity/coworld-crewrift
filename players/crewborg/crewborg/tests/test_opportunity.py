@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from crewborg.strategy.opportunity import (
+    CLEAR_WINDOW_TICKS,
     DEFAULT_KILL_COOLDOWN_TICKS,
     TRACK_WINDOW_TICKS,
     URGENCY_FULL_TICKS,
+    clear_window_ticks,
     has_trackable_victim,
     has_visible_victim,
     kill_urgency_ticks,
@@ -165,4 +167,88 @@ def test_full_urgency_strikes_through_a_witness() -> None:
     )
     _crew(belief, 1, (50, 50), "green", URGENCY_FULL_TICKS)
     _crew(belief, 2, (60, 50), "blue", URGENCY_FULL_TICKS)  # witness ignored at full urgency
+    assert unwitnessed(belief, belief.roster["green"])
+
+
+# --- the all-clear window (2026-07-29) --------------------------------------
+#
+# The defect it fixes, measured: 31.6% of our seen kills had nobody inside the 48px
+# ring, and 97.6% of those seen kills had the observer rendered to us at the kill
+# tick. A crewmate we can plainly see, standing past the ring, must veto the kill.
+
+
+def test_visible_bystander_past_the_ring_vetoes_the_kill() -> None:
+    # blue is 200px from the victim — far outside BASE_ISOLATION_RADIUS, so the
+    # proximity half passes — but we are looking right at it. This is the case the
+    # shipped gate got wrong.
+    belief = Belief(self_world_x=0, self_world_y=0, last_tick=500)
+    _crew(belief, 1, (50, 50), "green", 500)
+    _crew(belief, 2, (250, 50), "blue", 500)
+    assert not unwitnessed(belief, belief.roster["green"])
+
+
+def test_the_victim_is_never_its_own_witness() -> None:
+    # We must see the victim to kill it, so its own visibility cannot disqualify.
+    belief = Belief(self_world_x=0, self_world_y=0, last_tick=500)
+    _crew(belief, 1, (50, 50), "green", 500)
+    assert unwitnessed(belief, belief.roster["green"])
+
+
+def test_teammate_and_dead_players_are_not_witnesses() -> None:
+    belief = Belief(self_world_x=0, self_world_y=0, last_tick=500, teammate_colors={"pink"})
+    _crew(belief, 1, (50, 50), "green", 500)
+    _crew(belief, 2, (250, 50), "pink", 500)   # fellow imposter, in view
+    _crew(belief, 3, (260, 50), "white", 500)  # in view, but...
+    belief.roster["white"].life_status = "dead"
+    assert unwitnessed(belief, belief.roster["green"])
+
+
+def test_bystander_seen_just_inside_the_window_still_vetoes() -> None:
+    belief = Belief(self_world_x=0, self_world_y=0, last_tick=500)
+    _crew(belief, 1, (50, 50), "green", 500)
+    _crew(belief, 2, (250, 50), "blue", 500 - CLEAR_WINDOW_TICKS)  # exactly at the edge
+    assert not unwitnessed(belief, belief.roster["green"])
+
+
+def test_bystander_stale_past_the_window_does_not_veto() -> None:
+    belief = Belief(self_world_x=0, self_world_y=0, last_tick=500)
+    _crew(belief, 1, (50, 50), "green", 500)
+    _crew(belief, 2, (250, 50), "blue", 500 - CLEAR_WINDOW_TICKS - 1)
+    assert unwitnessed(belief, belief.roster["green"])
+
+
+def test_ourselves_never_count_as_a_witness() -> None:
+    # Our own record refreshes every tick; leaving it in would veto every kill.
+    belief = Belief(self_world_x=0, self_world_y=0, last_tick=500, self_color="red")
+    _crew(belief, 1, (50, 50), "green", 500)
+    _crew(belief, 2, (0, 0), "red", 500)
+    assert unwitnessed(belief, belief.roster["green"])
+
+
+def test_proximity_mode_restores_the_shipped_gate(monkeypatch) -> None:
+    # The A/B control arm: the visible bystander past the ring no longer vetoes.
+    monkeypatch.setenv("CREWBORG_WITNESS_GATE", "proximity")
+    belief = Belief(self_world_x=0, self_world_y=0, last_tick=500)
+    _crew(belief, 1, (50, 50), "green", 500)
+    _crew(belief, 2, (250, 50), "blue", 500)
+    assert unwitnessed(belief, belief.roster["green"])
+
+
+def test_clear_window_is_env_tunable(monkeypatch) -> None:
+    monkeypatch.setenv("CREWBORG_CLEAR_WINDOW", "10")
+    assert clear_window_ticks() == 10
+    belief = Belief(self_world_x=0, self_world_y=0, last_tick=500)
+    _crew(belief, 1, (50, 50), "green", 500)
+    _crew(belief, 2, (250, 50), "blue", 480)  # 20 ticks stale ⇒ outside a 10-tick window
+    assert unwitnessed(belief, belief.roster["green"])
+
+
+def test_full_urgency_still_strikes_through_a_visible_bystander() -> None:
+    # The escape valve must survive the new half, or a shadowed imposter stalls forever.
+    belief = Belief(
+        self_world_x=0, self_world_y=0, last_tick=URGENCY_FULL_TICKS,
+        self_kill_ready=True, kill_ready_since_tick=0,
+    )
+    _crew(belief, 1, (50, 50), "green", URGENCY_FULL_TICKS)
+    _crew(belief, 2, (250, 50), "blue", URGENCY_FULL_TICKS)
     assert unwitnessed(belief, belief.roster["green"])

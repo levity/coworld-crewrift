@@ -10,6 +10,13 @@ The witness bar is not fixed: the longer the imposter has been *able* to kill
 without doing so, the more it relaxes (``kill_urgency_ticks``), so a cautious
 imposter that never finds a clean opening still escalates rather than stalling
 forever (design §10 "act with urgency").
+
+The bar has two halves (2026-07-29): the original proximity ring around the victim,
+and an all-clear window requiring that nobody but the victim and our teammates has
+been *visible to us* for a continuous run of ticks. The second exists because the
+first was measurably wrong — see the note on ``CLEAR_WINDOW_TICKS``. Set
+``CREWBORG_WITNESS_GATE=proximity`` to restore the ring-only behaviour for an A/B
+control arm.
 """
 
 from __future__ import annotations
@@ -30,6 +37,38 @@ WITNESS_WINDOW_TICKS = 72
 # Ticks of being able-to-kill-without-killing at which the witness bar reaches zero —
 # i.e. the imposter will strike any victim regardless of witnesses (~10s at 24 Hz).
 URGENCY_FULL_TICKS = 240
+
+# --- The all-clear window (2026-07-29) ---------------------------------------------
+#
+# WHY THIS EXISTS. The proximity test below asks "is another crewmate within 48px of
+# the victim", which is a PROXY for "could anyone see this kill" — and it is wrong
+# about a third of the time. Measured over 89 matched league episodes
+# (`crewrift-analysis/kill_visibility.py`, ground truth = `player_visible_interval`
+# with visibility_basis="rendered_view", i.e. what the sim actually drew):
+#
+#   * 31.6% of our SEEN kills had nobody inside the 48px ring — we certified them
+#     unwitnessed and were wrong;
+#   * rendered visibility is 98.4% SYMMETRIC (n=38,831), so "who can see me" is
+#     "who can I see" — a fact the percept hands us every tick;
+#   * 97.6% of our seen kills (40/41) had the observer RENDERED TO US at the kill
+#     tick. We were looking straight at the witness and struck anyway.
+#
+# So the information was always there and the gate threw it away. This window is the
+# fix: a kill counts as unwitnessed only when nobody except the victim and our own
+# teammates has been visible to us for a CONTINUOUS run of ticks. Continuity is free —
+# ``last_seen_tick`` is the most recent tick we rendered that player, so requiring
+# every live non-teammate to be staler than the window IS "clear for the whole window".
+#
+# SIZING. 72 ticks (~3s at 24 Hz), matching WITNESS_WINDOW_TICKS. Calibrated against
+# the solitude measurement (median 80t since a third party shared our room at kill
+# time, 42% of kills 120t-clear), so roughly half of today's kill opportunities still
+# pass at zero urgency rather than the gate stalling us out. Env-tunable so an A/B can
+# sweep it without a rebuild.
+CLEAR_WINDOW_TICKS = 72
+
+# `visibility` (default) = the fix above. `proximity` = the shipped 48px-only gate,
+# kept so an A/B has a clean control arm.
+WITNESS_GATE_MODES = ("visibility", "proximity")
 
 # A non-teammate seen within this many ticks is still "trackable" — Search can
 # follow it to its last-known position even while it is briefly out of view.
@@ -142,13 +181,74 @@ def select_victim(belief: Belief) -> PlayerRecord | None:
     return max(candidates, key=lambda t: (_isolation(t, belief), -_dist2(self_xy, (t.world_x, t.world_y))))
 
 
+def clear_window_ticks() -> int:
+    """The all-clear window, env-overridable via ``CREWBORG_CLEAR_WINDOW``."""
+
+    raw = os.environ.get("CREWBORG_CLEAR_WINDOW")
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            pass
+    return CLEAR_WINDOW_TICKS
+
+
+def witness_gate_mode() -> str:
+    """``visibility`` (default) or ``proximity`` (the shipped control arm)."""
+
+    mode = (os.environ.get("CREWBORG_WITNESS_GATE") or "").strip().lower()
+    return mode if mode in WITNESS_GATE_MODES else "visibility"
+
+
 def unwitnessed(belief: Belief, target: PlayerRecord) -> bool:
-    """Whether killing ``target`` now would go unseen, at the current urgency level."""
+    """Whether killing ``target`` now would go unseen, at the current urgency level.
+
+    Two tests, both relaxed by urgency so a perpetually-shadowed imposter still
+    escalates rather than stalling forever (design §10):
+
+    1. nobody within the isolation ring of the victim (the shipped proximity proxy);
+    2. nobody but the victim and our teammates VISIBLE to us for a continuous
+       ``clear_window_ticks()`` — the actual question, see the note on the constant.
+
+    Both must pass. They are not redundant: (1) catches a crewmate who is close but
+    occluded from us, (2) catches the one we can plainly see standing past the ring.
+    """
 
     frac = min(1.0, kill_urgency_ticks(belief) / URGENCY_FULL_TICKS)
     radius_sq = (BASE_ISOLATION_RADIUS * (1.0 - frac)) ** 2
     window = int(WITNESS_WINDOW_TICKS * (1.0 - frac))
-    return _is_unwitnessed(target, belief, radius_sq, window)
+    if not _is_unwitnessed(target, belief, radius_sq, window):
+        return False
+    if witness_gate_mode() == "proximity":
+        return True
+    clear = int(clear_window_ticks() * (1.0 - frac))
+    if clear <= 0:
+        return True  # full urgency ⇒ no requirement, matching the proximity arm
+    return _nobody_else_visible_since(target, belief, clear)
+
+
+def _nobody_else_visible_since(target: PlayerRecord, belief: Belief, window: int) -> bool:
+    """Whether no live non-teammate except ``target`` was rendered to us for ``window``.
+
+    ``last_seen_tick`` is the most recent tick that player was in our view, so
+    "staler than the window" for every one of them means the window was clear
+    throughout — the continuity is implied, no extra state needed.
+
+    Exclusions: the victim (we must see it to kill it, so it can never be the
+    disqualifying sighting), our fellow imposters, the dead, and ourselves — our own
+    record refreshes every tick and would make this permanently false.
+    """
+
+    for other in belief.roster.values():
+        if other.color in (target.color, belief.self_color):
+            continue
+        if other.color in belief.teammate_colors:
+            continue
+        if other.life_status == "dead":
+            continue
+        if belief.last_tick - other.last_seen_tick <= window:
+            return False
+    return True
 
 
 def _isolation(target: PlayerRecord, belief: Belief) -> float:
