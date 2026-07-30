@@ -188,9 +188,12 @@ EJECTION_LIVENESS_ENV = "CREWBORG_EJECTION_LIVENESS"
 # impossible -- the crew would have won. The solver scores those hypotheses today.
 # It only ever removes assignments, so it cannot manufacture a confident wrong answer.
 #
-# It is flagged anyway, and default off, so the unflagged path stays byte-identical and
-# it can be switched back off without a rebuild -- the same treatment
-# `CREWBORG_KILL_ANCHOR` got as a correctness fix. Turn it ON in the shipping env.
+# ON by default since 2026-07-30. It was introduced default-off so the unflagged path
+# stayed byte-identical while it was unproven; it is kept as a flag only so `=off`
+# restores the old posterior without a rebuild. Note the asymmetry with every other
+# preset family here: for those, an unset or misspelt value degrades to shipped
+# behaviour, whereas for this one it degrades to ON -- which is correct, because "the
+# crew has already won" is not a variant of the solver, it is the solver being right.
 #
 # Measured offline over 563 live league decisions
 # (`crewrift-analysis/ejection_liveness_counterfactual.py`, 254 episodes): reaches 1.8%
@@ -199,7 +202,7 @@ EJECTION_LIVENESS_ENV = "CREWBORG_EJECTION_LIVENESS"
 # Net coverage 14.6% -> 15.5%, precision 85.4% -> 86.2%. Do NOT buy a hosted A/B for
 # this -- a +0.9pp coverage move is an order of magnitude below what n=100 can resolve.
 EJECTION_LIVENESS_PRESETS: dict[str, Overrides] = {
-    "off": {},
+    "off": {"ejection_liveness": False},
     "on": {"ejection_liveness": True},
 }
 

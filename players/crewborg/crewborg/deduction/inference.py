@@ -55,10 +55,15 @@ class InferenceConfig:
     speaker_trust: bool = False
     speaker_trust_prior: float = 0.25
     speaker_trust_k: float = 2.0
-    # Treat "the game is still running" as evidence. OFF by default: with
-    # ejection_liveness=False `DerivedEvidence.ejected` stays empty and the
-    # assignment table is byte-identical to the shipped one.
-    ejection_liveness: bool = False
+    # Treat "the game is still running" as evidence. ON by default since 2026-07-30:
+    # this is a soundness property of the game, not a tuning choice. An impostor can
+    # only leave by ejection, so a hypothesis whose entire impostor set has already
+    # been voted out describes a game the crew would have already won. Scoring those
+    # is simply wrong. It only ever REMOVES assignments, so it cannot manufacture a
+    # confident wrong answer, and `build_assignment_table` refuses to empty the
+    # hypothesis space. `CREWBORG_EJECTION_LIVENESS=off` restores the old behaviour
+    # without a rebuild.
+    ejection_liveness: bool = True
     # Score a speaker by whether they were RIGHT, not just by how often they abstain.
     # OFF by default; requires speaker_trust. See `_speaker_trust`.
     speaker_outcome_trust: bool = False

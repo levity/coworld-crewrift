@@ -1270,19 +1270,36 @@ def _eject(color: str, tick: int) -> DeathObserved:
     )
 
 
-def test_ejection_liveness_is_off_by_default() -> None:
-    """The unflagged path must be byte-identical, so `ejected` stays empty."""
+def test_ejection_liveness_is_on_by_default() -> None:
+    """Default-on since 2026-07-30: scoring an already-won game is simply wrong.
+
+    Every other preset family degrades to shipped behaviour when unset. This one
+    degrades to ON, deliberately -- it is a soundness property of the game rather than
+    a variant of the solver.
+    """
 
     history = _history(_eject("red", 10), _eject("blue", 20))
     shipped = derive_evidence(history)
+    assert shipped.ejected == frozenset({"red", "blue"})
+
+    table = build_assignment_table(history, shipped)
+    reasons = [r for item in table.excluded for r in item.reasons]
+    assert any(r == "all_imposters_ejected" for r in reasons)
+
+
+def test_ejection_liveness_off_restores_the_old_posterior() -> None:
+    """`=off` must reach the byte-identical pre-2026-07-30 path, with no rebuild."""
+
+    history = _history(_eject("red", 10), _eject("blue", 20))
+    config = InferenceConfig(ejection_liveness=False)
+    shipped = derive_evidence(history, config=config)
     assert shipped.ejected == frozenset()
 
     table = build_assignment_table(history, shipped)
     reasons = [r for item in table.excluded for r in item.reasons]
     assert not any(r == "all_imposters_ejected" for r in reasons)
-    # And the eligible set is exactly what it is with no deaths at all.
     assert table.eligible == build_assignment_table(
-        _history(), derive_evidence(_history())
+        _history(), derive_evidence(_history(), config=config)
     ).eligible
 
 
@@ -1342,8 +1359,14 @@ def test_ejection_liveness_preset_is_its_own_env_var() -> None:
     assert inference_overrides({"CREWBORG_EJECTION_LIVENESS": "on"}) == {
         "ejection_liveness": True
     }
-    assert inference_overrides({"CREWBORG_EJECTION_LIVENESS": "off"}) == {}
+    # `off` is now an explicit override rather than an absence, because the field
+    # defaults to True. A typo still yields no override -- which for this family means
+    # it lands on ON, unlike every other family where it lands on shipped behaviour.
+    assert inference_overrides({"CREWBORG_EJECTION_LIVENESS": "off"}) == {
+        "ejection_liveness": False
+    }
     assert inference_overrides({"CREWBORG_EJECTION_LIVENESS": "typo"}) == {}
+    assert InferenceConfig().ejection_liveness is True
     mixed = inference_overrides(
         {"CREWBORG_EJECTION_LIVENESS": "on", "CREWBORG_KILL_WINDOW": "both"}
     )
