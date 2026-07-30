@@ -288,9 +288,75 @@ def fetch_sources(args: argparse.Namespace, dest: Path) -> Path:
     return dest
 
 
-def summarize(out: Path) -> int:
+def _diagnose_trace_warnings(warned_ids: set[str], ep_root: Path | None) -> str:
+    """Say WHY episodes came out sparse, instead of assuming version skew.
+
+    A `trace_warning` is emitted when the expander's re-simulation diverges from the
+    recorded per-tick state hash ("hash failed" at some `fail_tick`) and it stops.
+    Version skew does cause that. So does anything else that makes the replay
+    non-deterministic, and the two are indistinguishable from the message alone.
+
+    Measured on 394 league episodes (2026-07-29), all `coworld_version` 0.4.74 -- so
+    skew was ruled out directly -- every one of the 6 warned episodes carried a
+    player-side timing anomaly: 4 had a disconnect timeout (against 1 of 388 clean
+    episodes), and the other 2 had the batch's heaviest vote-timeout counts. Their
+    fail ticks were all late (3175-4473) and their replays about half the median size.
+
+    The distinction matters because the remedies are opposite. Skew needs the expander
+    rebuilt from the deployed commit. A timing anomaly needs nothing -- those are ops
+    failures analysis is meant to drop anyway. Rebuilding an expander that is already
+    correct costs an hour and fixes nothing, so only claim skew when the versions
+    actually differ.
+    """
+
+    if ep_root is None or not ep_root.is_dir():
+        return ("  Cause not diagnosed (no --episodes dir). Before rebuilding the\n"
+                "  expander, check whether the warned episodes share a coworld_version\n"
+                "  with the clean ones -- if they do, this is not skew.")
+
+    warned_v, clean_v, dropped, timed_out = set(), set(), 0, 0
+    for ep in find_episode_dirs(ep_root):
+        meta_path = ep / "episode.json"
+        if not meta_path.is_file():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception:
+            continue
+        is_warned = any(w and w[:13] in ep.name for w in warned_ids)
+        (warned_v if is_warned else clean_v).add(meta.get("coworld_version"))
+        if is_warned:
+            try:
+                res = json.loads((ep / "results.json").read_text())
+            except Exception:
+                continue
+            if sum(res.get("connect_timeout") or []) + sum(res.get("disconnect_timeout") or []):
+                dropped += 1
+            elif sum(res.get("vote_timeout") or []):
+                timed_out += 1
+
+    if warned_v and clean_v and warned_v <= clean_v:
+        n = len(warned_ids)
+        return (f"  NOT VERSION SKEW: warned and clean episodes are the same game version\n"
+                f"  ({', '.join(str(v) for v in sorted(warned_v, key=str))}). Of the {n} warned, "
+                f"{dropped} had a connect/disconnect timeout and\n"
+                f"  {timed_out} more had vote timeouts -- a player-side timing anomaly makes the\n"
+                f"  re-simulation diverge from the recorded state hash, so the expander stops.\n"
+                f"  These are ops failures analysis drops anyway; remove the episodes rather\n"
+                f"  than rebuilding the expander.")
+    if warned_v - clean_v:
+        return (f"  VERSION SKEW confirmed: warned episodes are "
+                f"{', '.join(str(v) for v in sorted(warned_v - clean_v, key=str))} against "
+                f"clean {', '.join(str(v) for v in sorted(clean_v, key=str))}.\n"
+                f"  Rebuild --expand-replay from the arena's deployed crewrift commit.")
+    return "  Cause inconclusive; compare coworld_version by hand before rebuilding."
+
+
+def summarize(out: Path, ep_root: Path | None = None) -> int:
     manifest = json.loads((out / "manifest.json").read_text())
-    warned = sum(1 for e in manifest.get("episodes", []) if e.get("trace_warning"))
+    warned_ids = {e.get("episode_id") or e.get("episode_request_id")
+                  for e in manifest.get("episodes", []) if e.get("trace_warning")}
+    warned = len(warned_ids)
     failed = [e for e in manifest.get("episodes", []) if e.get("status") == "failed"]
     print("\n=== warehouse manifest ===")
     for k in ("episodes_total", "episodes_ok", "episodes_cached", "episodes_skipped",
@@ -302,9 +368,10 @@ def summarize(out: Path) -> int:
         for episode in failed[:5]:
             print(f"    {episode.get('episode_id')}: {episode.get('message')}")
     if warned:
-        print(f"\n  ⚠️  {warned}/{manifest.get('episodes_total')} episodes have trace_warning "
-              f"(replay/sim VERSION SKEW). Output is sparse for these — rebuild --expand-replay from "
-              f"the arena's deployed crewrift commit. See the SKILL.md.")
+        print(f"\n  ⚠️  {warned}/{manifest.get('episodes_total')} episodes have trace_warning: "
+              f"the expander stopped partway, so their event timelines end at an\n"
+              f"  arbitrary tick and their output is sparse. See the SKILL.md.")
+        print(_diagnose_trace_warnings(warned_ids, ep_root))
     elif not failed:
         print("\n  ✓ no trace_warning episodes — the expand_replay binary matches the replays.")
     return 1 if failed or warned else 0
@@ -350,7 +417,7 @@ def main() -> int:
         cmd += ["--workers", str(args.workers)]
     print(f"  building (uv run in {WH_DIR.name}) …")
     subprocess.run(cmd, cwd=WH_DIR, env=env, check=True)
-    return summarize(args.out)
+    return summarize(args.out, ep_root if args.episodes else None)
 
 
 if __name__ == "__main__":

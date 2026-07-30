@@ -844,6 +844,7 @@ def test_kill_window_presets_are_separate_from_the_other_arms() -> None:
         ("gate", "GATE_PRESETS"),
         ("trust", "TRUST_PRESETS"),
         ("kill_window", "KILL_WINDOW_PRESETS"),
+        ("ejection_liveness", "EJECTION_LIVENESS_PRESETS"),
     ],
 )
 def test_every_preset_actually_constructs_its_config(family, presets) -> None:
@@ -1261,3 +1262,259 @@ def test_offline_row_and_live_history_agree_on_the_timeline() -> None:
     })
     assert replayed.timeline == live.timeline
     assert replayed.game_log() == live.game_log()
+
+
+def _eject(color: str, tick: int) -> DeathObserved:
+    return DeathObserved(
+        event_id=f"eject:{color}", tick=tick, color=color, source="ejection"
+    )
+
+
+def test_ejection_liveness_is_off_by_default() -> None:
+    """The unflagged path must be byte-identical, so `ejected` stays empty."""
+
+    history = _history(_eject("red", 10), _eject("blue", 20))
+    shipped = derive_evidence(history)
+    assert shipped.ejected == frozenset()
+
+    table = build_assignment_table(history, shipped)
+    reasons = [r for item in table.excluded for r in item.reasons]
+    assert not any(r == "all_imposters_ejected" for r in reasons)
+    # And the eligible set is exactly what it is with no deaths at all.
+    assert table.eligible == build_assignment_table(
+        _history(), derive_evidence(_history())
+    ).eligible
+
+
+def test_ejection_liveness_excludes_a_fully_ejected_pair() -> None:
+    """If both hypothesised impostors were voted out, the crew would already have won."""
+
+    config = InferenceConfig(ejection_liveness=True)
+    history = _history(_eject("red", 10), _eject("blue", 20))
+    evidence = derive_evidence(history, config=config)
+    assert evidence.ejected == frozenset({"red", "blue"})
+
+    table = build_assignment_table(history, evidence)
+    excluded = {item.imposters: item.reasons for item in table.excluded}
+    assert ("red", "blue") in excluded
+    assert "all_imposters_ejected" in excluded[("red", "blue")]
+    # It removes exactly that one assignment and nothing else.
+    assert [
+        pair for pair, reasons in excluded.items()
+        if "all_imposters_ejected" in reasons
+    ] == [("red", "blue")]
+    assert ("red", "blue") not in set(table.eligible)
+
+
+def test_one_ejection_alone_proves_nothing() -> None:
+    """SOUNDNESS. The engine reveals no role on ejection, so a single ejection is
+    not evidence about that player. Only the whole impostor set being gone is."""
+
+    config = InferenceConfig(ejection_liveness=True)
+    history = _history(_eject("red", 10))
+    table = build_assignment_table(history, derive_evidence(history, config=config))
+
+    reasons = [r for item in table.excluded for r in item.reasons]
+    assert not any(r == "all_imposters_ejected" for r in reasons)
+    # `red` is still a live suspect in every pair that contains it.
+    assert any("red" in pair for pair in table.eligible)
+
+
+def test_ejection_liveness_never_empties_the_hypothesis_space() -> None:
+    """It only ever removes assignments, so it must not be able to remove them all."""
+
+    config = InferenceConfig(ejection_liveness=True)
+    history = _history(*[_eject(color, 10 + i) for i, color in enumerate(PLAYERS[1:])])
+    table = build_assignment_table(history, derive_evidence(history, config=config))
+    # Every candidate ejected is degenerate and cannot happen in a live game, but the
+    # solver must degrade to an error rather than to a silently confident posterior.
+    result = score_assignments(table, config=config)
+    assert not table.eligible
+    assert table.error is not None
+    assert all(value == 0.0 for _color, value in result.marginals)
+
+
+def test_ejection_liveness_preset_is_its_own_env_var() -> None:
+    """A fourth independent family, so an A/B still moves one thing."""
+
+    from crewborg.deduction.config import inference_overrides
+
+    assert inference_overrides({"CREWBORG_EJECTION_LIVENESS": "on"}) == {
+        "ejection_liveness": True
+    }
+    assert inference_overrides({"CREWBORG_EJECTION_LIVENESS": "off"}) == {}
+    assert inference_overrides({"CREWBORG_EJECTION_LIVENESS": "typo"}) == {}
+    mixed = inference_overrides(
+        {"CREWBORG_EJECTION_LIVENESS": "on", "CREWBORG_KILL_WINDOW": "both"}
+    )
+    assert mixed["ejection_liveness"] is True and mixed["kill_range_margin"] == 6
+
+
+def test_trace_always_carries_the_resolved_speaker_trust() -> None:
+    """`evidence[].weight` is PRE-tempering, so a trace that omits tau cannot be
+    re-scored. The map is emitted unconditionally; empty means trust was off."""
+
+    history = _history(
+        _utterance(101, "blue", "red vented"),
+        VoteObserved(
+            event_id="vote:100:blue", tick=110, meeting_id=100,
+            voter="blue", target="red",
+        ),
+    )
+
+    off = infer(history).as_trace()
+    assert off["speaker_trust"] == {}, "the off path must still report the fact"
+
+    on = infer(history, config=InferenceConfig(speaker_trust=True)).as_trace()
+    assert on["speaker_trust"], "trust was on; the resolved tau must be recorded"
+    assert all(0.0 <= tau <= 1.0 for tau in on["speaker_trust"].values())
+
+
+def test_recorded_trace_re_scores_to_the_recorded_posterior() -> None:
+    """The property `tools/sweep_speaker_trust.py` self-checks, asserted directly.
+
+    Re-scoring a trace from its own serialised evidence + emitted tau must reproduce
+    its marginals. Without the tau this reproduced 27% of live league decisions, which
+    is what made every offline speaker-trust claim unfalsifiable.
+    """
+
+    import itertools
+    import math
+
+    config = InferenceConfig(speaker_trust=True)
+    rng = random.Random(20260728)
+    checked = 0
+    for _ in range(40):
+        game = generate_game(rng)
+        result = infer(game.history, config=config)
+        trace = result.as_trace()
+        if trace.get("error") or not trace["marginals"]:
+            continue
+        tau = trace["speaker_trust"]
+        excluded = {frozenset(x["imposters"]) for x in trace["excluded"]}
+        players = sorted(trace["marginals"])
+
+        log_w: dict[frozenset[str], float] = {}
+        for pair in itertools.combinations(players, 2):
+            hyp = frozenset(pair)
+            if hyp in excluded:
+                continue
+            total = 0.0
+            for ev in trace["evidence"]:
+                if ev["status"] != "active" or not ev["source"] or not ev["targets"]:
+                    continue
+                weight = ev["weight"] * tau.get(ev["source"], 1.0)
+                if weight <= 0.0:
+                    continue
+                if ev["channel"] == "vote":
+                    like = _vote_likelihood(hyp, ev["source"], ev["targets"][0], config)
+                elif ev["channel"] == "claim":
+                    like = _claim_likelihood(
+                        hyp, ev["source"], tuple(ev["targets"]), ev["stance"], config
+                    )
+                else:
+                    continue
+                total += weight * math.log(max(like, 1e-9))
+            log_w[hyp] = total
+        if not log_w:
+            continue
+        hi = max(log_w.values())
+        weights = {h: math.exp(v - hi) for h, v in log_w.items()}
+        z = sum(weights.values())
+        rebuilt: dict[str, float] = {}
+        for hyp, weight in weights.items():
+            for color in hyp:
+                rebuilt[color] = rebuilt.get(color, 0.0) + weight / z
+
+        for color, recorded in trace["marginals"].items():
+            assert rebuilt.get(color, 0.0) == pytest.approx(recorded, abs=0.02), (
+                f"re-score diverged on {color}: "
+                f"{rebuilt.get(color, 0.0):.4f} vs recorded {recorded:.4f}"
+            )
+        checked += 1
+    assert checked >= 20, f"only {checked} games produced a scorable posterior"
+
+
+def _claim_likelihood(hyp, source, targets, stance, cfg) -> float:
+    """Mirrors `_actor_claim_probability`; duplicated so the test is a real check."""
+
+    actor_imp = source in hyp
+    target_imp = any(t in hyp for t in targets)
+    if stance in {"accuse", "at_least_one"}:
+        if actor_imp:
+            return cfg.imp_accuse_partner if target_imp else cfg.imp_accuse_crew
+        return cfg.crew_accuse_hit if target_imp else cfg.crew_accuse_miss
+    if actor_imp:
+        return cfg.imp_defend_partner if target_imp else cfg.imp_defend_crew
+    return cfg.crew_defend_imp if target_imp else cfg.crew_defend_crew
+
+
+def _vote_likelihood(hyp, voter, target, cfg) -> float:
+    voter_imp = voter in hyp
+    target_imp = target in hyp
+    if voter_imp:
+        return cfg.imp_vote_partner if target_imp else cfg.imp_vote_crew
+    return cfg.crew_vote_imp if target_imp else cfg.crew_vote_crew
+
+
+def test_outcome_trust_degrades_to_selectivity_without_evidence() -> None:
+    """No murder_clears and no pins means nothing was learned; tau must not move."""
+
+    history = _history(
+        _utterance(101, "blue", "red vented"),
+        VoteObserved(
+            event_id="vote:100:blue", tick=110, meeting_id=100,
+            voter="blue", target="red",
+        ),
+    )
+    on = infer(history, config=InferenceConfig(speaker_trust=True)).as_trace()
+    outcome = infer(
+        history,
+        config=InferenceConfig(speaker_trust=True, speaker_outcome_trust=True),
+    ).as_trace()
+
+    assert outcome["speaker_trust"] == on["speaker_trust"]
+    assert outcome["marginals"] == on["marginals"]
+
+
+def test_outcome_trust_penalises_an_accuser_of_a_murder_victim() -> None:
+    """A murdered player is CREW, so whoever accused them was demonstrably wrong."""
+
+    base = (
+        _utterance(101, "blue", "yellow vented"),
+        VoteObserved(
+            event_id="vote:100:blue", tick=110, meeting_id=100,
+            voter="blue", target="yellow",
+        ),
+    )
+    # `yellow` then turns up as a body -- blue's accusation was against a crewmate.
+    history = _history(
+        *base,
+        DeathObserved(
+            event_id="death:yellow", tick=200, color="yellow", source="body"
+        ),
+    )
+    config = InferenceConfig(speaker_trust=True, speaker_outcome_trust=True)
+    selectivity_only = infer(
+        history, config=InferenceConfig(speaker_trust=True)
+    ).as_trace()["speaker_trust"]
+    with_outcome = infer(history, config=config).as_trace()["speaker_trust"]
+
+    assert with_outcome["blue"] < selectivity_only["blue"], (
+        "blue accused a player later proved crew; trust must fall"
+    )
+    assert 0.0 <= with_outcome["blue"] <= 1.0
+
+
+def test_outcome_trust_is_its_own_preset_in_the_trust_family() -> None:
+    """One env var per lever: `outcome` lives in the trust family, not a new var."""
+
+    from crewborg.deduction.config import inference_overrides
+
+    resolved = inference_overrides({"CREWBORG_SPEAKER_TRUST": "outcome"})
+    assert resolved["speaker_trust"] is True
+    assert resolved["speaker_outcome_trust"] is True
+    # `on` must NOT quietly acquire it.
+    assert "speaker_outcome_trust" not in inference_overrides(
+        {"CREWBORG_SPEAKER_TRUST": "on"}
+    )

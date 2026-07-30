@@ -170,6 +170,16 @@ def load(roots: list[Path]) -> list[dict[str, Any]]:
                         "self": self_color,
                         "truth": truth,
                         "recorded_marginals": {k: float(v) for k, v in marg.items()},
+                        # The tau ACTUALLY applied, if the image was new enough to
+                        # emit it. `evidence[].weight` is pre-tempering, so without
+                        # this the shipped posterior cannot be reproduced on a
+                        # trust-on image -- re-deriving it reaches 27% of live league
+                        # decisions against the 90% the self-check demands.
+                        "emitted_tau": (
+                            {k: float(v) for k, v in inf["speaker_trust"].items()}
+                            if isinstance(inf.get("speaker_trust"), dict)
+                            else None
+                        ),
                         "evidence": inf.get("evidence") or [],
                         "pins": set(inf.get("pins") or ()),
                         "excluded": {frozenset(x.get("imposters") or ())
@@ -196,10 +206,20 @@ def players_of(row: dict) -> list[str]:
 
 # ---------------------------------------------------------------- self-check
 def self_check(rows: list[dict], tol: float) -> tuple[int, int, float]:
+    """Reproduce the SHIPPED posterior, whatever tempering it actually ran with.
+
+    Passing `None` here was correct only while speaker trust was off. On a trust-on
+    image the recorded weights are pre-tempering, so the baseline must re-apply the
+    tau the policy really used -- which is why it is now serialised rather than
+    re-derived. Traces older than that emission have `emitted_tau=None` and fall back
+    to the old assumption, which `main` reports rather than hides.
+    """
+
     ok = worst_n = 0
     worst = 0.0
     for row in rows:
-        got = rescore(players_of(row), row["evidence"], row["excluded"], None)
+        got = rescore(players_of(row), row["evidence"], row["excluded"],
+                      row.get("emitted_tau"))
         if not got:
             continue
         err = max(abs(got.get(c, 0.0) - p)
@@ -349,6 +369,13 @@ def main() -> None:
     if not rows:
         raise SystemExit("nothing to sweep")
 
+    stale = sum(1 for r in rows if r.get("emitted_tau") is None)
+    if stale:
+        print(f"  ! {stale}/{len(rows)} decisions predate the `speaker_trust` trace "
+              f"emission.\n    Their tau is unrecoverable, so they cannot reconstruct "
+              f"on a trust-on image.\n    Re-pull from a build that emits it before "
+              f"reading anything below.\n")
+
     ok, bad, worst = self_check(rows, args.tol)
     frac = ok / max(ok + bad, 1)
     print(f"RECONSTRUCTION SELF-CHECK  (must pass before any sweep is meaningful)")
@@ -356,8 +383,10 @@ def main() -> None:
     if frac < args.min_ok:
         print(f"\n  ✗ FAILED. The offline re-scorer does not reproduce the shipped "
               f"policy's posterior,\n    so any tau sweep would be measuring a "
-              f"different model. Fix the reconstruction\n    (likely: relayed-claim "
-              f"provenance, or an evidence channel not modelled here)\n    before "
+              f"different model. Fix the reconstruction\n    ("
+              + ("most likely the stale traces noted above; "
+                 if stale else "likely: relayed-claim provenance, ")
+              + f"or an evidence channel not modelled here)\n    before "
               f"trusting these numbers.")
         raise SystemExit(1)
     print("  ✓ reconstruction matches the recorded posterior\n")

@@ -55,6 +55,13 @@ class InferenceConfig:
     speaker_trust: bool = False
     speaker_trust_prior: float = 0.25
     speaker_trust_k: float = 2.0
+    # Treat "the game is still running" as evidence. OFF by default: with
+    # ejection_liveness=False `DerivedEvidence.ejected` stays empty and the
+    # assignment table is byte-identical to the shipped one.
+    ejection_liveness: bool = False
+    # Score a speaker by whether they were RIGHT, not just by how often they abstain.
+    # OFF by default; requires speaker_trust. See `_speaker_trust`.
+    speaker_outcome_trust: bool = False
     vote_weight: float = 0.35
     reporter_weight: float = 1.15
     bare_weight: float = 0.25
@@ -133,6 +140,19 @@ class InferenceResult:
     evidence: tuple[EvidenceAudit, ...]
     pins: tuple[str, ...]
     murder_clears: tuple[str, ...]
+    # The RESOLVED per-speaker tempering actually applied to this solve, so a fetched
+    # trace can be re-scored exactly. Empty when speaker trust is off (tau == 1.0).
+    #
+    # WHY THIS IS SERIALISED. `evidence[].weight` below is the PRE-tempering weight,
+    # so a trace of a trust-on image does not record what was really multiplied in.
+    # `tools/sweep_speaker_trust.py` therefore had to re-derive tau, and could not:
+    # measured on 118 league decisions, re-deriving reproduces the recorded posterior
+    # for 27% of them against the >=90% its own self-check demands (5.9% if tau is
+    # ignored entirely). That made every offline speaker-trust claim unfalsifiable --
+    # the same failure the improvement loop warns about for A/B arms, one level down,
+    # on a derived quantity instead of a config flag.
+    speaker_trust: tuple[tuple[str, float], ...] = ()
+
     error: str | None = None
 
     def marginal(self, color: str) -> float:
@@ -164,6 +184,11 @@ class InferenceResult:
             ],
             "pins": list(self.pins),
             "murder_clears": list(self.murder_clears),
+            # Unconditional: an empty map means "trust off", which is itself the fact
+            # an offline re-scorer needs. Never omit it on the off path.
+            "speaker_trust": {
+                speaker: round(tau, 6) for speaker, tau in self.speaker_trust
+            },
             "evidence": [
                 {
                     "evidence_id": item.evidence_id,
@@ -260,6 +285,12 @@ class DerivedEvidence:
     pins: frozenset[str]
     murder_clears: frozenset[str]
     audit: tuple[EvidenceAudit, ...]
+    # Players voted out before now. NOT a role signal -- the engine reveals nothing
+    # on ejection (`global.nim` VoteResult prints only "WAS KILLED"), which is exactly
+    # why these are excluded from `murder_clears`. They are kept for the one sound
+    # thing they do support: see `build_assignment_table`. Empty unless
+    # `InferenceConfig.ejection_liveness` is on.
+    ejected: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -319,6 +350,17 @@ def derive_evidence(
     # A witnessed action is the more specific observation if perception ever
     # produces a contradictory census label.
     murder_clears -= pins
+    ejected = (
+        frozenset(
+            event.color
+            for event in history.events
+            if isinstance(event, DeathObserved)
+            and event.source == "ejection"
+            and event.color in player_set
+        )
+        if config.ejection_liveness
+        else frozenset()
+    )
     kill_constraints, alibi_audit = _kill_constraints(
         history,
         candidates=set(candidates),
@@ -332,6 +374,7 @@ def derive_evidence(
         pins=frozenset(pins),
         murder_clears=frozenset(murder_clears),
         audit=tuple(claim_audit + vote_audit + direct_audit + alibi_audit),
+        ejected=ejected,
     )
 
 
@@ -372,6 +415,18 @@ def build_assignment_table(
             reasons.append(f"missing_pin:{color}")
         for color in sorted(hypothesis & evidence.murder_clears):
             reasons.append(f"murder_clear:{color}")
+        # An impostor can only leave the game by ejection -- impostors are never
+        # murdered. So if every impostor in this hypothesis had already been voted
+        # out, the crew would have won and we would not be taking a decision now.
+        # The hypothesis is impossible given that the game is still running.
+        #
+        # This removes assignments, it never adds one, so it cannot make the
+        # posterior confidently wrong. Measured over 563 live league decisions: it
+        # applies to 1.8% of them (only 2.7% see >=2 prior ejections), flipping the
+        # top marginal to the truth 4 times and away from it 0 times, and lifting 5
+        # skips over the eject bar, all 5 correct. Small, but free and one-directional.
+        if hypothesis and hypothesis <= evidence.ejected:
+            reasons.append("all_imposters_ejected")
         for evidence_id, candidates in required:
             if hypothesis.isdisjoint(candidates):
                 reasons.append(f"no_possible_killer:{evidence_id}")
@@ -486,6 +541,7 @@ def score_assignments(
         evidence=evidence.audit,
         pins=tuple(sorted(evidence.pins)),
         murder_clears=tuple(sorted(evidence.murder_clears)),
+        speaker_trust=tuple(sorted(trust.items())),
     )
 
 
@@ -1104,6 +1160,79 @@ def _speaker_trust(
     for speaker, (n, targeted) in ballots.items():
         raw = 1.0 - (targeted / n if n else 0.0)
         out[speaker] = (n * raw + k * prior) / (n + k)
+    if config.speaker_outcome_trust:
+        out = _outcome_trust(evidence, config, out)
+    return out
+
+
+def _outcome_trust(
+    evidence: DerivedEvidence,
+    config: InferenceConfig,
+    selectivity: dict[str, float],
+) -> dict[str, float]:
+    """Shrink each speaker's tau toward WHETHER THEY WERE RIGHT, not just how often
+    they abstain.
+
+    MEASURED NULL 2026-07-29 -- kept, default off, so the arm stays readable. Over 563
+    live league decisions: top-1 0.460 -> 0.451, AUC 0.626 -> 0.626, coverage
+    0.172 -> 0.167, precision 0.897 -> 0.915. Not sparsity -- the adjustment fires in
+    31.3% of decisions. See `CREWBORG_SPEAKER_TRUST=outcome` in config.py.
+
+    WHY IT WAS BUILT. `_speaker_trust` scores selectivity, which is a proxy for
+    informativeness and never looks at accuracy, so this adds one. The motivating
+    observation was that top-1 accuracy falls as `decision.sources` grows -- but that
+    is the support CITED for a decision, not the number of speakers, and against the
+    real speaker count accuracy RISES. The premise did not survive; the null is
+    consistent with that.
+
+    THE GROUND TRUTH IS IN-EPISODE AND NEEDS NO REVEAL. Ejections tell us nothing: the
+    engine prints only "WAS KILLED" (`global.nim`, VoteResult). But two facts are already
+    derived every solve:
+
+      - `murder_clears` -- a murdered player is CREW, because impostors are never
+        murdered. Anyone who accused them was demonstrably wrong.
+      - `pins` -- a witnessed kill or vent names an impostor. Anyone who accused them
+        was right.
+
+    SHRINKAGE TARGET IS THE SELECTIVITY ESTIMATE, NOT A FLAT PRIOR. Outcome evidence is
+    sparse (you only learn about speakers who happened to name a future victim or a
+    future pin) while selectivity is observable for everyone at every meeting. Shrinking
+    toward it means this degrades EXACTLY to today's behaviour when no outcome evidence
+    exists, and moves only as far as the evidence earns. `k` reuses `speaker_trust_k`
+    so the family keeps one knob.
+
+    Still tempering (`weight *= tau`, tau in [0, 1]): it can silence a speaker but never
+    invert them, so a wrong accuracy estimate cannot manufacture a confident falsehood
+    the way a mis-set likelihood can.
+    """
+
+    right: dict[str, int] = {}
+    wrong: dict[str, int] = {}
+    for claim in evidence.claims:
+        if claim.stance != "accuse":
+            continue
+        for target in claim.targets:
+            if target in evidence.pins:
+                right[claim.speaker] = right.get(claim.speaker, 0) + 1
+            elif target in evidence.murder_clears:
+                wrong[claim.speaker] = wrong.get(claim.speaker, 0) + 1
+    for vote in evidence.votes:
+        if not vote.target:
+            continue
+        if vote.target in evidence.pins:
+            right[vote.voter] = right.get(vote.voter, 0) + 1
+        elif vote.target in evidence.murder_clears:
+            wrong[vote.voter] = wrong.get(vote.voter, 0) + 1
+
+    k = config.speaker_trust_k
+    out = dict(selectivity)
+    for speaker in set(right) | set(wrong):
+        hits, misses = right.get(speaker, 0), wrong.get(speaker, 0)
+        n = hits + misses
+        if not n:
+            continue
+        base = selectivity.get(speaker, config.speaker_trust_prior)
+        out[speaker] = (n * (hits / n) + k * base) / (n + k)
     return out
 
 

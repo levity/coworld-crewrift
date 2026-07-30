@@ -74,7 +74,18 @@ def build_warehouse(
         reprocessed_ids=reprocessed_ids,
     )
     if players_table.num_rows:
-        pq.write_table(players_table, out_dir / "episode_players.parquet")
+        # Publish atomically. Unlike the event data -- one immutable parquet shard per
+        # (key, episode) -- this table is read-modify-written WHOLESALE on every batch,
+        # so writing straight onto the live path leaves a window where a concurrent
+        # reader opens a half-written file. That window is small but it is hit in
+        # practice: incremental builds run for many minutes while analyses query the
+        # same warehouse. os.replace is atomic within a filesystem, so a reader now
+        # always sees a complete table, either the previous one or the new one, and
+        # needs no lock discipline of its own.
+        dest = out_dir / "episode_players.parquet"
+        tmp = dest.with_suffix(f".parquet.tmp{os.getpid()}")
+        pq.write_table(players_table, tmp)
+        os.replace(tmp, dest)
 
     entries = dict(prior_entries)
     for r in results:

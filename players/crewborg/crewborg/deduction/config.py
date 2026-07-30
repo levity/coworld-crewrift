@@ -114,6 +114,35 @@ TRUST_PRESETS: dict[str, Overrides] = {
     "off": {},
     "on": {"speaker_trust": True, "speaker_trust_prior": 0.25, "speaker_trust_k": 2.0},
     "mild": {"speaker_trust": True, "speaker_trust_prior": 0.50, "speaker_trust_k": 2.0},
+    # `on` plus accuracy: shrink each speaker's tau toward whether their accusations
+    # matched `murder_clears` (a murdered player is crew, so that accuser was wrong) or
+    # a later `pin` (that accuser was right). In-episode ground truth needing no reveal;
+    # ejections reveal nothing, the engine prints only "WAS KILLED".
+    #
+    # Same family as `on`, so it stays ONE env var and an A/B still moves one thing.
+    # It shrinks toward the selectivity estimate rather than a flat prior, so with no
+    # outcome evidence it is exactly `on`.
+    #
+    # MEASURED NULL 2026-07-29 -- built and evaluated, do not ship without new evidence.
+    # Over 563 live league decisions (`crewrift-analysis/eval_outcome_trust.py`):
+    #     top-1     0.460 -> 0.451
+    #     AUC       0.626 -> 0.626
+    #     coverage  0.172 -> 0.167
+    #     precision 0.897 -> 0.915
+    # It is NOT sparsity: the adjustment fires in 31.3% of decisions (murder_clears
+    # present in 56.5%, pins in 11.5%). The mechanism works; it just does not help.
+    #
+    # The motivating read was also wrong, and is corrected here rather than only in
+    # chat: top-1 accuracy falls with `decision.sources` (60.7% at one, 16.7% at six),
+    # but that is the support CITED for a decision, not how many players spoke. Against
+    # the real distinct-speaker count accuracy RISES (1 -> 0.381, 5+ -> 0.483), so the
+    # social channel does not degrade as more players weigh in.
+    "outcome": {
+        "speaker_trust": True,
+        "speaker_trust_prior": 0.25,
+        "speaker_trust_k": 2.0,
+        "speaker_outcome_trust": True,
+    },
 }
 
 
@@ -148,11 +177,39 @@ KILL_WINDOW_PRESETS: dict[str, Overrides] = {
 }
 
 
-# Independent lever families that both feed `InferenceConfig`. Separate env vars on
+EJECTION_LIVENESS_ENV = "CREWBORG_EJECTION_LIVENESS"
+
+# Whether "the game is still running" is used as evidence (see
+# `inference.build_assignment_table`). A FOURTH separate env var, for the same reason
+# the others are separate.
+#
+# This is a CORRECTNESS fix, not a strategy knob: an impostor can only leave the game
+# by ejection, so a hypothesis whose whole impostor set has already been voted out is
+# impossible -- the crew would have won. The solver scores those hypotheses today.
+# It only ever removes assignments, so it cannot manufacture a confident wrong answer.
+#
+# It is flagged anyway, and default off, so the unflagged path stays byte-identical and
+# it can be switched back off without a rebuild -- the same treatment
+# `CREWBORG_KILL_ANCHOR` got as a correctness fix. Turn it ON in the shipping env.
+#
+# Measured offline over 563 live league decisions
+# (`crewrift-analysis/ejection_liveness_counterfactual.py`, 254 episodes): reaches 1.8%
+# of decisions, because only 2.7% see >=2 prior ejections. Where it reaches, top-1 flips
+# to the truth 4 times and away 0 times, and 5 skips clear the eject bar, all 5 correct.
+# Net coverage 14.6% -> 15.5%, precision 85.4% -> 86.2%. Do NOT buy a hosted A/B for
+# this -- a +0.9pp coverage move is an order of magnitude below what n=100 can resolve.
+EJECTION_LIVENESS_PRESETS: dict[str, Overrides] = {
+    "off": {},
+    "on": {"ejection_liveness": True},
+}
+
+
+# Independent lever families that all feed `InferenceConfig`. Separate env vars on
 # purpose (an A/B must move one thing); listed together only so resolution is one loop.
 INFERENCE_FAMILIES: tuple[tuple[str, dict[str, Overrides]], ...] = (
     (TRUST_ENV, TRUST_PRESETS),
     (KILL_WINDOW_ENV, KILL_WINDOW_PRESETS),
+    (EJECTION_LIVENESS_ENV, EJECTION_LIVENESS_PRESETS),
 )
 
 
