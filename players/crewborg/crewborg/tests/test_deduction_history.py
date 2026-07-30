@@ -3,12 +3,25 @@
 from __future__ import annotations
 
 import random
+from typing import ClassVar
 
 import pytest
 from players.player_sdk import EventEmitter, ListMetricsSink, ListTraceSink
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from crewborg.deduction.collector import update_deduction_history
 from crewborg.deduction.config import enabled_for_role
+from crewborg.deduction.consult import REGISTRY as CONSULT_REGISTRY
+from crewborg.deduction.consult import TRACE_EVENT as CONSULT_TRACE_EVENT
+from crewborg.deduction.consult import (
+    BaseConsult,
+    Candidate,
+    ConsultOutcome,
+    ConsultView,
+    GameEvent,
+    parse_spec,
+)
+from crewborg.deduction.consult.shortlist import ShortlistConsult, ShortlistResponse
 from crewborg.deduction.decision import decide, decide_from_inference
 from crewborg.deduction.inference import (
     InferenceConfig,
@@ -862,3 +875,389 @@ def test_inference_lever_families_do_not_collide() -> None:
                     f"{key} is set by both {seen.get(key)} and {env_var}"
                 )
                 seen[key] = env_var
+
+
+# --- the LLM consult seam at the end of the deduction branch ------------------------
+#
+# `CREWBORG_DEDUCTION_LLM=<consult>` puts one named experiment at the end of the branch.
+# What is under test here is mostly the SEAM, not any one experiment: the guarantees the
+# runner owns on every consult's behalf (fall back to the solver on any failure, never
+# emit an illegal vote, always leave one uniform trace) are what let the next idea be a
+# new module plus an env value rather than an edit to this mode.
+#
+# So the framework tests below drive a deliberately trivial consult defined in the test
+# file. If a future consult needs more than `payload`/`Response`/`apply` to express
+# itself, one of these tests is where that should first become awkward.
+
+
+class _StubLLM:
+    """Minimal client: records the structured call, returns a canned response."""
+
+    def __init__(self, response=None, *, enabled=True, raises=False):
+        self.enabled = enabled
+        self.disabled_reason = None if enabled else "stub disabled"
+        self.timeout_seconds = 3.0
+        self._response = response
+        self._raises = raises
+        self.calls: list[dict] = []
+
+    def structured(self, *, system, payload, response_model, trigger, max_tokens=None):
+        self.calls.append(
+            {"system": system, "payload": payload, "model": response_model, "trigger": trigger}
+        )
+        if self._raises:
+            raise RuntimeError("bedrock exploded")
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            value=self._response, model="stub", latency_ms=1.0, usage={},
+            raw_request=None, raw_response=None,
+        )
+
+
+class _EchoResponse(BaseModel):
+    """A test consult's response shape -- the whole surface an experiment declares."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    vote: str
+    say: str | None = None
+
+
+class _EchoConsult(BaseConsult):
+    name = "echo-test"
+    Response = _EchoResponse
+    defaults: ClassVar[dict] = {"veto": False, "floor": 0.0}
+
+    def applies(self, view):
+        if self.param("veto"):
+            return "vetoed by params"
+        if view.ranked and view.ranked[0].p < float(self.param("floor")):
+            return "below floor"
+        return None
+
+    def payload(self, view):
+        return {"candidates": [c.to_json() for c in view.ranked], "solver": dict(view.deterministic)}
+
+    def apply(self, response, view):
+        return ConsultOutcome(
+            vote=response.vote, chat=response.say, followed_llm=True, fields={"echo": True}
+        )
+
+
+def _run_deduction_branch(monkeypatch, *, llm=None, spec="echo-test", events=None):
+    """Drive the branch to its final vote, returning (intents, trace_sink, belief)."""
+
+    monkeypatch.setitem(CONSULT_REGISTRY, _EchoConsult.name, _EchoConsult)
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    monkeypatch.setenv("CREWBORG_DEDUCTION_LLM", spec)
+    if events is None:
+        events = (
+            _utterance(101, "blue", "red vented"),
+            _utterance(102, "yellow", "red vented"),
+            _utterance(103, "green", "red vented"),
+        )
+    belief = _meeting_belief_with_history(events)
+    belief.suspicion = {"purple": 0.999}  # the anti-signal; must never reach the LLM
+    mode = AttendMeetingMode(llm_client=llm) if llm is not None else AttendMeetingMode()
+    sink = ListTraceSink()
+    mode.emit = EventEmitter(sink, ListMetricsSink())
+
+    intents = []
+    # phase_start 100, timer 1200 -> remaining = 1200 - (tick - 100).
+    # 1140 = 160 remaining (before the consult trigger), 1160 = 140 (inside the window,
+    # and still startable), 1252 = 48 (the auto-submit backstop).
+    for tick in (1140, 1160, 1252, 1252):
+        belief.last_tick = tick
+        intents.append(mode.decide(belief, ActionState()))
+    return intents, sink, belief
+
+
+def _consult_traces(sink):
+    return [e for e in sink.events if e.name == f"domain.{CONSULT_TRACE_EVENT}"]
+
+
+def test_deduction_consult_off_is_the_unchanged_branch(monkeypatch) -> None:
+    intents, sink, _ = _run_deduction_branch(monkeypatch, llm=_StubLLM(), spec="off")
+    votes = [i for i in intents if i.kind == "vote"]
+    assert votes and votes[-1].target_color == "red"
+    assert not _consult_traces(sink)
+
+
+def test_unknown_consult_name_degrades_to_the_shipped_branch(monkeypatch) -> None:
+    # A typo in `--secret-env` must run NOTHING, not silently run a different experiment
+    # than the arm is named after.
+    intents, sink, _ = _run_deduction_branch(
+        monkeypatch, llm=_StubLLM(_EchoResponse(vote="green")), spec="shortlst"
+    )
+    votes = [i for i in intents if i.kind == "vote"]
+    assert votes and votes[-1].target_color == "red"
+    assert not _consult_traces(sink)
+
+
+def test_consult_casts_the_final_vote(monkeypatch) -> None:
+    llm = _StubLLM(_EchoResponse(vote="green"))
+    intents, sink, _ = _run_deduction_branch(monkeypatch, llm=llm)
+    votes = [i for i in intents if i.kind == "vote"]
+    assert votes and votes[-1].target_color == "green"  # departed from the solver's "red"
+    [trace] = _consult_traces(sink)
+    assert trace.data["consult"] == "echo-test"
+    assert trace.data["consulted"] is True
+    assert trace.data["deterministic_vote"] == "red"
+    assert trace.data["vote"] == "green"
+    assert trace.data["followed_llm"] is True
+
+
+def test_consult_payload_carries_the_deduction_posterior_not_the_fitted_one(monkeypatch) -> None:
+    llm = _StubLLM(_EchoResponse(vote="red"))
+    _run_deduction_branch(monkeypatch, llm=llm)
+    assert llm.calls, "the consult never reached the client"
+    call = llm.calls[-1]
+    assert call["model"] is _EchoResponse
+    assert call["trigger"] == "deduction_consult:echo-test"
+    # belief.suspicion put purple at 0.999 -- the fitted posterior measured AUC 0.355 and
+    # must not reach the model alongside the deduction posterior.
+    ranked = {row["color"]: row["p"] for row in call["payload"]["candidates"]}
+    assert ranked.get("purple") != 0.999
+    assert "red" in ranked
+    assert call["payload"]["solver"]["action"] in {"eject", "skip"}
+
+
+def test_consult_call_failure_falls_back_to_the_solver(monkeypatch) -> None:
+    llm = _StubLLM(_EchoResponse(vote="green"), raises=True)
+    intents, sink, _ = _run_deduction_branch(monkeypatch, llm=llm)
+    votes = [i for i in intents if i.kind == "vote"]
+    assert votes and votes[-1].target_color == "red"
+    [trace] = _consult_traces(sink)
+    assert trace.data["fields"]["fallback"] == "call_failed"
+    assert trace.data["followed_llm"] is False
+
+
+def test_consult_illegal_vote_falls_back_to_the_solver(monkeypatch) -> None:
+    # `apply` is experiment code and may be wrong; the runner is the backstop, so a bad
+    # consult can lose its own effect but can never cast a vote we did not choose.
+    llm = _StubLLM(_EchoResponse(vote="chartreuse"))
+    intents, sink, _ = _run_deduction_branch(monkeypatch, llm=llm)
+    votes = [i for i in intents if i.kind == "vote"]
+    assert votes and votes[-1].target_color == "red"
+    [trace] = _consult_traces(sink)
+    assert trace.data["fields"]["fallback"] == "illegal_vote"
+
+
+def test_disabled_client_is_the_unchanged_branch(monkeypatch) -> None:
+    llm = _StubLLM(_EchoResponse(vote="green"), enabled=False)
+    intents, sink, _ = _run_deduction_branch(monkeypatch, llm=llm)
+    votes = [i for i in intents if i.kind == "vote"]
+    assert votes and votes[-1].target_color == "red"
+    assert not llm.calls
+    assert not _consult_traces(sink)
+
+
+def test_consult_params_come_from_the_env_spec(monkeypatch) -> None:
+    # `name:key=value` is how a threshold sweep ships one image; a consult that declines
+    # must cost no call at all.
+    llm = _StubLLM(_EchoResponse(vote="green"))
+    intents, sink, _ = _run_deduction_branch(monkeypatch, llm=llm, spec="echo-test:veto=1")
+    votes = [i for i in intents if i.kind == "vote"]
+    assert votes and votes[-1].target_color == "red"
+    assert not llm.calls
+    [trace] = _consult_traces(sink)
+    assert trace.data["consulted"] is False
+    assert trace.data["why"] == "vetoed by params"
+
+
+def test_consult_can_convert_a_skip_into_a_vote(monkeypatch) -> None:
+    # The abstention case: no evidence at all, so the solver skips. This is the ~83%
+    # of decisions where added coverage has to come from, if it comes from anywhere.
+    llm = _StubLLM(_EchoResponse(vote="green"))
+    intents, sink, _ = _run_deduction_branch(monkeypatch, llm=llm, events=())
+    votes = [i for i in intents if i.kind == "vote"]
+    assert votes and votes[-1].target_color == "green"
+    [trace] = _consult_traces(sink)
+    assert trace.data["deterministic_vote"] == "skip"
+    assert trace.data["vote"] == "green"
+
+
+# --- the shortlist consult itself ---------------------------------------------------
+#
+# Pure, no belief and no mode: a `ConsultView` is constructible by hand, which is the
+# same property that lets the offline scorer replay league meetings through the shipped
+# payload and `apply`.
+
+
+def _view(pairs, *, action="eject", target=None, pins=(), self_color="blue", timeline=()):
+    return ConsultView(
+        self_color=self_color,
+        candidates=tuple(
+            Candidate(c, p, murder_cleared=False, pinned=c in pins) for c, p in pairs
+        ),
+        joint_hypotheses=(),
+        deterministic={"action": action, "target": target, "probability": max(p for _c, p in pairs)},
+        timeline=tuple(timeline),
+        legal_targets=tuple(sorted(c for c, _p in pairs)),
+        roster=tuple(sorted(c for c, _p in pairs)),
+    )
+
+
+def test_shortlist_only_fires_inside_the_contested_band() -> None:
+    consult = ShortlistConsult({})
+    # Confident board: the posterior is already right often enough to be left alone.
+    assert consult.applies(_view([("red", 0.88), ("green", 0.06)], target="red"))
+    # Flat board: nothing to reorder either.
+    assert consult.applies(_view([("red", 0.20), ("green", 0.18)], target=None, action="skip"))
+    # Contested: this is the 50.2%-accurate band the experiment exists for.
+    assert consult.applies(_view([("red", 0.48), ("green", 0.41)], target="red")) is None
+
+
+def test_shortlist_declines_when_the_top_candidate_is_pinned() -> None:
+    consult = ShortlistConsult({})
+    view = _view([("red", 0.55), ("green", 0.30)], target="red", pins=("red",))
+    assert consult.applies(view) == "top candidate is structurally pinned"
+
+
+def test_shortlist_rejects_a_pick_off_the_shortlist() -> None:
+    consult = ShortlistConsult({"k": "2"})
+    view = _view([("red", 0.48), ("green", 0.41), ("pink", 0.09)], target="red")
+    outcome = consult.apply(
+        ShortlistResponse(pick="pink", confidence=0.99), view
+    )
+    assert outcome.vote == "red" and not outcome.followed_llm
+    assert outcome.fields["declined"] == "pick_off_shortlist"
+
+
+def test_shortlist_rejects_a_low_confidence_pick() -> None:
+    consult = ShortlistConsult({"min_confidence": "0.6"})
+    view = _view([("red", 0.48), ("green", 0.41)], target="red")
+    outcome = consult.apply(ShortlistResponse(pick="green", confidence=0.4), view)
+    assert outcome.vote == "red" and outcome.fields["declined"] == "below_min_confidence"
+
+
+def test_promotion_is_one_parameter_in_both_directions() -> None:
+    # Inside the contested band the solver votes in 5.8% of meetings, so with promotion
+    # off this consult is a near-no-op -- hence the default. Both arms must remain one
+    # env change apart, because whether the coverage bet pays is not yet decided.
+    view = _view([("red", 0.48), ("green", 0.41)], action="skip", target=None)
+    answer = ShortlistResponse(pick="red", confidence=0.9)
+    loose = ShortlistConsult({}).apply(answer, view)
+    assert loose.vote == "red" and loose.fields["departure"] == "skip_to_eject"
+    strict = ShortlistConsult({"allow_promote": "0"}).apply(answer, view)
+    assert strict.vote == "skip"
+    assert strict.fields["declined"] == "would_promote_skip_to_eject"
+
+
+def test_shortlist_retarget_is_recorded_as_such() -> None:
+    view = _view([("red", 0.48), ("green", 0.41)], target="red")
+    outcome = ShortlistConsult({}).apply(
+        ShortlistResponse(pick="green", confidence=0.8, evidence=["green misplaced the body"]), view
+    )
+    assert outcome.vote == "green" and outcome.followed_llm
+    assert outcome.fields["departure"] == "retarget"
+
+
+def test_response_schema_forbids_invented_fields() -> None:
+    # The contract sent to the model is the response model's own JSON Schema, so a field
+    # the parser would ignore is a validation error rather than a silent drop.
+    with pytest.raises(ValidationError):
+        ShortlistResponse(pick="red", confidence=0.9, certainty=1.0)
+    with pytest.raises(ValidationError):
+        ShortlistResponse(pick="red", confidence=1.4)
+    assert "pick" in ShortlistResponse.model_json_schema()["properties"]
+
+
+def test_consult_spec_parsing() -> None:
+    assert parse_spec("shortlist") == ("shortlist", {})
+    assert parse_spec("shortlist:k=4,min_confidence=0.7") == (
+        "shortlist", {"k": "4", "min_confidence": "0.7"}
+    )
+    assert ShortlistConsult({"k": "4"}).param("k") == 4
+    assert ShortlistConsult({"nonsense": "1"}).params == ShortlistConsult({}).params
+
+
+# --- the game log ---------------------------------------------------------------------
+#
+# This is the bulk of what the model reads, so its failure modes are prompt bugs rather
+# than crashes. The one already caught in review: the CURRENT meeting was being narrated
+# as "ENDED -- nobody was ejected" directly above "this is the vote you are advising",
+# which tells the model the decision it is being asked for has already been taken.
+
+
+def _log_view(timeline, *, tick=2000, self_color="blue"):
+    return ConsultView(
+        self_color=self_color,
+        candidates=(Candidate("red", 0.5),),
+        joint_hypotheses=(),
+        deterministic={"action": "skip", "target": None},
+        timeline=tuple(timeline),
+        legal_targets=("red",),
+        roster=("blue", "green", "red"),
+        imposter_count=1,
+        tick=tick,
+    )
+
+
+def _closed_meeting():
+    return [
+        GameEvent(400, "meeting", actor="blue", detail="body", meeting_id=1),
+        GameEvent(400, "death", actor="green", detail="body"),
+        GameEvent(420, "utterance", actor="red", text="I was in Med Bay", meeting_id=1),
+        GameEvent(470, "vote", actor="blue", target="red", meeting_id=1),
+        GameEvent(470, "vote", actor="red", target="skip", meeting_id=1),
+        GameEvent(480, "death", actor="red", detail="ejection"),
+    ]
+
+
+def test_game_log_narrates_a_finished_meeting_and_its_outcome() -> None:
+    log = "\n".join(_log_view(_closed_meeting()).game_log())
+    assert "GAME START. 3 players" in log and "You are blue (crewmate)." in log
+    assert "MEETING 1 called by blue (a body was reported)" in log
+    assert "BODY FOUND: green is dead" in log
+    assert 'red: "I was in Med Bay"' in log
+    assert "meeting 1 VOTES  blue->red | red->skip" in log
+    assert "MEETING 1 ENDED -- red was ejected" in log
+
+
+def test_game_log_never_narrates_the_current_meeting_as_ended() -> None:
+    timeline = [
+        *_closed_meeting(),
+        GameEvent(1900, "meeting", actor="green", detail="button", meeting_id=2),
+        GameEvent(1910, "vote", actor="blue", target="skip", meeting_id=2),
+    ]
+    log = "\n".join(_log_view(timeline).game_log())
+    assert "MEETING 2 IS IN PROGRESS RIGHT NOW" in log
+    assert "MEETING 2 ENDED" not in log
+    assert "meeting 2 votes so far: blue->skip" in log
+    # the earlier meeting still closes normally
+    assert "MEETING 1 ENDED -- red was ejected" in log
+
+
+def test_game_log_distinguishes_how_each_death_became_known() -> None:
+    timeline = [
+        GameEvent(300, "death", actor="green", detail="body"),
+        GameEvent(900, "death", actor="red", detail="census"),
+    ]
+    log = "\n".join(_log_view(timeline).game_log())
+    assert "BODY FOUND: green is dead" in log
+    assert "NOTED DEAD: red (missing at roll call)" in log
+
+
+def test_offline_row_and_live_history_agree_on_the_timeline() -> None:
+    # The parity guarantee: a consult scored offline must be reading what a pod builds.
+    history = _history(
+        _utterance(101, "blue", "red vented", meeting_id=1),
+        DeathObserved(event_id="d1", tick=150, color="green", source="body"),
+    )
+    live = ConsultView.from_deduction(
+        decide(history), history=history, legal_targets=("red",), tick=200
+    )
+    replayed = ConsultView.from_row({
+        "marginals": dict(live.ranked and [(c.color, c.p) for c in live.candidates]),
+        "timeline": [e.to_json() for e in live.timeline],
+        "roster": list(live.roster),
+        "self_color": live.self_color,
+        "imposter_count": live.imposter_count,
+        "tick": live.tick,
+        "action": live.deterministic["action"],
+        "target": live.deterministic["target"],
+    })
+    assert replayed.timeline == live.timeline
+    assert replayed.game_log() == live.game_log()

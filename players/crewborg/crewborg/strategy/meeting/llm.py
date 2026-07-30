@@ -40,6 +40,25 @@ class MeetingLLMResult(BaseModel):
     raw_response: str | None = None
 
 
+class StructuredResult(BaseModel):
+    """A validated instance of an arbitrary response model, plus call metadata.
+
+    The generic sibling of `MeetingLLMResult`: `decide()` answers one fixed question with
+    one fixed schema, while `structured()` answers whatever question the caller poses in
+    whatever pydantic shape it declares. The deduction consults use the latter so that
+    adding an experiment is a new response model rather than a new client method.
+    """
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    value: Any
+    model: str
+    latency_ms: float
+    usage: dict[str, Any] | None = None
+    raw_request: dict[str, Any] | None = None
+    raw_response: str | None = None
+
+
 class MeetingLLMClient(Protocol):
     enabled: bool
     disabled_reason: str | None
@@ -54,6 +73,10 @@ class DisabledMeetingClient:
 
     def decide(self, context: dict[str, Any], *, trigger: str) -> MeetingLLMResult:
         del context, trigger
+        raise RuntimeError(self.disabled_reason)
+
+    def structured(self, **kwargs: Any) -> StructuredResult:
+        del kwargs
         raise RuntimeError(self.disabled_reason)
 
 
@@ -93,14 +116,8 @@ class AnthropicMeetingClient:
                 "confidence": "0.0 to 1.0 or null",
             },
         }
-        user_content = json.dumps(request, sort_keys=True, separators=(",", ":"))
-        call = self._call_json(
-            self._client,
-            model=self.config.model,
-            system=system_prompt_for_context(context, prompt_dir=self.config.prompt_dir),
-            user=user_content,
-            max_tokens=self.config.max_tokens,
-            temperature=self.config.temperature,
+        call = self._send(
+            system_prompt_for_context(context, prompt_dir=self.config.prompt_dir), request
         )
         decision = MeetingDecision.model_validate_json(self._extract_json_object(call.text))
         return MeetingLLMResult(
@@ -110,6 +127,51 @@ class AnthropicMeetingClient:
             usage=call.usage,
             raw_request=request if self.config.trace_raw else None,
             raw_response=call.text if self.config.trace_raw else None,
+        )
+
+    def structured(
+        self,
+        *,
+        system: str,
+        payload: dict[str, Any],
+        response_model: type[BaseModel],
+        trigger: str,
+        max_tokens: int | None = None,
+    ) -> StructuredResult:
+        """Ask an arbitrary question and validate the answer against `response_model`.
+
+        The response contract is the model's OWN JSON Schema (`model_json_schema()`)
+        rather than a hand-written description of it. That matters for iteration: adding a
+        field to a consult's response class updates what the model is told to produce in
+        the same edit, so the prompt and the parser cannot drift apart.
+        """
+
+        from crewborg.deduction.consult.base import response_schema
+
+        request = {
+            "trigger": trigger,
+            "payload": payload,
+            "response_json_schema": response_schema(response_model),
+        }
+        call = self._send(system, request, max_tokens=max_tokens)
+        value = response_model.model_validate_json(self._extract_json_object(call.text))
+        return StructuredResult(
+            value=value,
+            model=call.model,
+            latency_ms=call.latency_ms,
+            usage=call.usage,
+            raw_request=request if self.config.trace_raw else None,
+            raw_response=call.text if self.config.trace_raw else None,
+        )
+
+    def _send(self, system: str, request: dict[str, Any], *, max_tokens: int | None = None) -> Any:
+        return self._call_json(
+            self._client,
+            model=self.config.model,
+            system=system,
+            user=json.dumps(request, sort_keys=True, separators=(",", ":")),
+            max_tokens=max_tokens or self.config.max_tokens,
+            temperature=self.config.temperature,
         )
 
 

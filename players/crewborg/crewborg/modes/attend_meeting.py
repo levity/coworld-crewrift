@@ -7,13 +7,17 @@ from collections import Counter
 from time import perf_counter
 from typing import Any
 
+from players.player_sdk import EmptyModeParams, Mode
+
+from crewborg import nlp as chat_nlp
 from crewborg.deduction.collector import history_from_belief
 from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
 from crewborg.deduction.config import gate_overrides, inference_overrides
+from crewborg.deduction.consult import ConsultView, resolve_consult, run_consult
 from crewborg.deduction.decision import DecisionConfig
-from crewborg.deduction.inference import InferenceConfig
 from crewborg.deduction.decision import MeetingDecision as DeductionMeetingDecision
 from crewborg.deduction.decision import decide as decide_from_history
+from crewborg.deduction.inference import InferenceConfig
 from crewborg.deduction.model import DeductionHistory
 from crewborg.strategy.meeting import (
     CHAT_MAX_CHARS,
@@ -22,6 +26,8 @@ from crewborg.strategy.meeting import (
     MeetingDecisionValidationError,
     MeetingLLMClient,
     build_meeting_llm_client_from_env,
+    chat_read,
+    sanitize_chat,
     serialize_meeting_context,
     valid_vote_targets,
     validate_meeting_decision,
@@ -36,11 +42,8 @@ from crewborg.strategy.meeting.imposter import (
     parity_closing_vote_target,
     votes_against,
 )
-from crewborg import nlp as chat_nlp
-from crewborg.strategy.meeting import chat_read
 from crewborg.strategy.suspicion import chat_suspect, top_suspect
 from crewborg.types import ActionState, Belief, ChatEvent, Intent
-from players.player_sdk import EmptyModeParams, Mode
 
 LLM_MIN_CALL_INTERVAL_TICKS = 12
 DEADLINE_LLM_REMAINING_TICKS = 96
@@ -208,12 +211,26 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
                     reason="sharing early append-only deduction",
                 )
 
-        if not self._should_auto_submit(belief):
+        # WHEN TO FINALISE. Off: at the 48-tick auto-submit backstop, consuming the most
+        # chat possible. On: earlier, because an LLM call may only start while it can
+        # still finish before that backstop -- so the solve moves forward to leave room
+        # for the consult that reads it. See `deduction.config.llm_enabled` for the cost.
+        llm_last = self._deduction_llm_active()
+        finalize_at = (
+            self._deduction_llm_trigger_remaining()
+            if llm_last
+            else AUTO_SUBMIT_REMAINING_TICKS
+        )
+        if self._remaining_ticks(belief) > finalize_at and not self._should_auto_submit(belief):
             return Intent(
                 kind="idle",
                 reason="gathering complete meeting transcript before deduction",
             )
         if self._deduction_finalized:
+            if not self._should_auto_submit(belief):
+                # Finalised early for the consult; hold the staged vote until the
+                # backstop rather than voting ahead of the deterministic schedule.
+                return Intent(kind="idle", reason="deduction decided; holding until backstop")
             return self._submit_vote_intent(
                 belief,
                 reason="append-only deduction vote",
@@ -228,11 +245,12 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         )
         solve_ms = (perf_counter() - solve_started) * 1000
         self._deduction_finalized = True
-        self._tentative_vote = (
+        deterministic_vote = (
             final.target
             if final.action == "eject" and final.target is not None
             else VOTE_SKIP
         )
+        self._tentative_vote = deterministic_vote
         self.emit.event(
             "deduction_history_decision",
             self._deduction_trace(
@@ -248,6 +266,22 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             live_targets=live_targets,
             allow_clear=False,
         )
+
+        # THE LAST STEP OF THE BRANCH, when the toggle is on. The LLM sees the deduction
+        # posterior and the conclusion it produced, and casts the final vote -- it may
+        # confirm or depart from the solver. Every downgrade lands back on
+        # `deterministic_vote`: the client disabled, no time to start, a raised call, an
+        # invalid decision. So "on" can only ever change the vote via a decision that
+        # passed the same validator the LLM path has always used.
+        if llm_last:
+            self._tentative_vote, llm_text = self._deduction_llm_vote(
+                belief,
+                final,
+                history=history,
+                deterministic_vote=deterministic_vote,
+            )
+            if llm_text:
+                text = llm_text
         if (
             text is not None
             and text not in self._sent_chat_texts
@@ -262,6 +296,65 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             belief,
             reason=f"append-only deduction: {final.reason}",
         )
+
+    def _deduction_llm_active(self) -> bool:
+        return resolve_consult() is not None and self._llm_client.enabled
+
+    def _deduction_llm_trigger_remaining(self) -> int:
+        """Finalise as late as the deadline math allows, plus a second of slack.
+
+        `_can_start_llm_call` is a strict `remaining > floor`, so triggering AT the floor
+        could never start a call. The slack is a full second rather than one margin
+        because the window is otherwise only `LLM_TIMEOUT_MARGIN_TICKS` wide: if the mode
+        is not called for a few ticks -- scheduling lag, a slow perception frame -- the
+        remaining count steps straight past a narrow window and the consult is skipped
+        with nothing but a fallback trace to show for it. A second of slack costs ~12
+        extra ticks of unread chat and makes the trigger robust to that.
+        """
+
+        return self._latest_safe_llm_start_remaining_ticks() + MEETING_TICKS_PER_SECOND
+
+    def _deduction_llm_vote(
+        self,
+        belief: Belief,
+        decision: DeductionMeetingDecision,
+        *,
+        history: DeductionHistory,
+        deterministic_vote: str,
+    ) -> tuple[str, str | None]:
+        """Hand the solved board to the configured consult and take its vote.
+
+        Returns `(vote, chat_text_or_None)`. This method holds NO experiment logic: which
+        consult runs, what it is shown, what shape its answer must take and when its
+        answer is accepted all live in `deduction/consult/`. That is deliberate -- the
+        next idea for what the LLM is for should be a new module there and an env value,
+        not an edit to the meeting mode.
+
+        Never raises; `run_consult` returns the deterministic vote on every failure path,
+        so the branch degrades to exactly its toggle-off behaviour.
+        """
+
+        consult = resolve_consult()
+        if consult is None:
+            return deterministic_vote, None
+        view = ConsultView.from_deduction(
+            decision,
+            history=history,
+            legal_targets=valid_vote_targets(belief),
+            meeting_id=belief.phase_start_tick,
+            tick=belief.last_tick,
+        )
+        outcome = run_consult(
+            consult,
+            view,
+            client=self._llm_client,
+            emit=self.emit.event,
+            can_start=lambda: self._can_start_llm_call(belief),
+        )
+        chat = sanitize_chat(outcome.chat) or None
+        if chat is not None and chat in self._sent_chat_texts:
+            chat = None
+        return outcome.vote, chat
 
     def _deduction_trace(
         self,

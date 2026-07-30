@@ -23,6 +23,32 @@ def enabled_for_role(
     return role == "crewmate" and enabled(env)
 
 
+LLM_ENV = "CREWBORG_DEDUCTION_LLM"
+
+
+def llm_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Is an LLM consult the final step of the deduction branch?
+
+    OFF (default, and on any unrecognised value): the branch is exactly what it is
+    today -- solve at the auto-submit backstop, vote the result. ON: the same solve runs
+    earlier (see below), and the named consult from `deduction.consult` gets the last
+    word on the vote. Which consult, and with what parameters, is the value of this env
+    var; see `deduction/consult/__init__.py`.
+
+    THE COST OF TURNING IT ON, STATED. An LLM call may only START while enough of the
+    meeting remains for it to finish before the 48-tick auto-submit backstop -- with the
+    default 3s timeout that floor is 132 ticks. So when this is on, the deduction solve
+    and the vote both move from 48 ticks remaining to ~132, giving up roughly 84 ticks
+    (~3.5s) of late chat. That is a real loss for the deterministic half: the solver
+    normally consumes 1152 of 1200 ticks of utterances before deciding. It is the price
+    of having the LLM see the solve at all, and it is why this is not on by default.
+    """
+
+    from crewborg.deduction.consult import resolve_consult
+
+    return resolve_consult(env) is not None
+
+
 GATE_ENV = "CREWBORG_DECISION_GATE"
 
 # Named settings for `DecisionConfig`, so an A/B ships ONE image and the arms differ
