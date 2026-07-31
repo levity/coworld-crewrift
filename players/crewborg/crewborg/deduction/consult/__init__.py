@@ -5,7 +5,7 @@
     CREWBORG_DEDUCTION_LLM=shortlist:k=4,min_confidence=0.7
 
 One env var holding a name, with the presets in code, is the same shape as
-`CREWBORG_DECISION_GATE` and `CREWBORG_SPEAKER_TRUST` next door -- deliberately, so an A/B
+`CREWBORG_DECISION_GATE` and `CREWBORG_KILL_WINDOW` next door -- deliberately, so an A/B
 ships ONE image and the arms differ only by `--secret-env`. The `:key=value` suffix
 extends that to per-consult tunables, so sweeping a threshold does not need a rebuild
 either.

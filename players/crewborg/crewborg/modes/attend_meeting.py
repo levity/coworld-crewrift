@@ -87,7 +87,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._history_key: tuple | None = None
         # Resolve both env-selected presets once, here at the runtime boundary, so the
         # pure inference and decision stages never read the environment. They are
-        # deliberately separate vars: CREWBORG_SPEAKER_TRUST changes the posterior,
+        # deliberately separate vars: CREWBORG_SOCIAL_WEIGHT changes the posterior,
         # CREWBORG_DECISION_GATE changes what we do with it, and bundling them would
         # make an A/B uninterpretable (see deduction/config.py).
         self._decision_config = DecisionConfig(**gate_overrides())

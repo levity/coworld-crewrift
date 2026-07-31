@@ -75,10 +75,116 @@ GATE_PRESETS: dict[str, Overrides] = {
     },
     # Adds the probability threshold on top. A separate question; kept apart so the
     # two are never bundled into one A/B.
+    #
+    # PRECISION IS THE WRONG OBJECTIVE HERE, and reading these presets on precision is
+    # what previously ruled this one out ("51.5% coverage at 60.0% precision"). The
+    # quantity that matters is delivered CORRECT ejects net of the crewmates a wrong
+    # eject removes -- and those two are not equally valuable. Measured over 443 league
+    # episodes by reconstructing ejections from the ballots
+    # (`crewrift-analysis/eject_value.py`), crew win rate is:
+    #
+    #     impostors ejected ->    0        1        2
+    #     0 crewmates ejected   21.2%    64.5%    94.3%
+    #     1                      3.3%    53.8%    88.2%
+    #     2                      1.3%    47.1%
+    #
+    # An ejected impostor is worth about +43 pp; each crewmate lost costs about -9 pp.
+    # The logistic fit gives log-odds(crew win) = -1.62 + 2.39*imp - 0.88*crew, so a
+    # wrong eject costs |0.88/2.39| = 0.37 of what a right one gains.
+    #
+    # At that exchange rate, scoring the gate curve on net value rather than precision
+    # (`crewrift-analysis/crew_gate_curve.py`, 1012 live league decisions) inverts the
+    # old conclusion. Correct ejects delivered per decision, net of 0.37x the wrong ones:
+    #
+    #     bar 0.65 (shipped)  coverage 0.118  precision 0.916  net 0.104
+    #     bar 0.40            coverage 0.505  precision 0.566  net 0.205
+    #     bar 0.30            coverage 0.930  precision 0.481  net 0.270
+    #
+    # So this is the wrong-objective correction, not a new mechanism. It is a STRATEGY
+    # change -- only games settle it -- but unlike most of our levers the predicted
+    # effect is large enough for a hosted A/B to resolve.
+    # THE THREE CONSTANTS MOVE TOGETHER, because `decide` overrides the bar with
+    # ABSOLUTE values, not offsets:
+    #
+    #     required = base_probability
+    #     if skip_loss >= parity_risk_cutoff: required = forced_vote_probability
+    #     elif wrong_eject_loss > 0:          required = dangerous_wrong_eject_probability
+    #
+    # `forced_vote_probability` exists to make us vote MORE readily when skipping is
+    # what loses the game, and at the shipped base of 0.65 its 0.51 does exactly that.
+    # Lowering base alone to 0.40 would leave 0.51 above it and invert the branch into a
+    # bar RAISE. So it moves down with base, keeping the shipped 0.14 gap below it.
+    # `dangerous_wrong_eject_probability` stays at 0.80: that branch fires when a wrong
+    # eject is what loses the game, and its caution is an absolute risk statement rather
+    # than something that should loosen because the base moved.
+    #
+    # Measured over 663 recorded league decisions, the overrides govern 28 % of them
+    # (0.80 in 22.0 %, 0.51 in 5.9 %), so this is not a footnote -- the lever reaches
+    # roughly the 78 % that are not in the dangerous-wrong-eject class.
+    # All three bars scaled PROPORTIONALLY from the shipped 0.65/0.51/0.80, preserving
+    # their ratios (x0.785 and x1.231). That keeps each branch's meaning intact --
+    # `forced_vote` below base, `dangerous` above it -- with one number to reason about.
+    #
+    # WHY 0.40 AND NOT THE MEASURED OPTIMUM OF 0.30. The value model says 0.30 (see
+    # `loose+bayes`), but it gets there at 0.489 precision, i.e. most of our named votes
+    # would eject a CREWMATE. That is net-positive only while the measured exchange rate
+    # of 0.37 holds, and that rate is observational. Keeping precision above a coin flip
+    # makes the change robust to it being wrong:
+    #
+    #     bar 0.30  precision 0.489  -> net at cost 1.0 = 0.928 * (2*0.489-1) = -0.020
+    #     bar 0.40  precision ~0.57  -> net at cost 1.0 = 0.45  * (2*0.57 -1) = +0.063
+    #
+    # So 0.40 stays positive under ANY cost ratio up to 1.0, while 0.30 needs the ratio
+    # to be below ~0.9 to pay at all. Giving up some measured value to stop depending on
+    # the least certain number in the derivation.
     "loose+p40": {
         "base_margin": 1e-3,
         "require_support": False,
         "base_probability": 0.40,
+        "forced_vote_probability": 0.31,
+        "dangerous_wrong_eject_probability": 0.49,
+    },
+    # The offline optimum at the measured 0.37 exchange rate. Deliberately listed as a
+    # separate arm rather than folded into the one above: it takes coverage to 0.930,
+    # which is a behaviour change of a different order (roughly Eva-00's posture -- the
+    # league's best crew contributor at +4.4 pp matched, naming on every ballot at 63%
+    # precision). Offline it beats bar 0.40, but the gate curve is a ranking calculation
+    # on recorded histories and cannot see that ejecting more people changes every later
+    # meeting, so prefer 0.40 as the first arm and come here only if it pays.
+    "loose+p30": {
+        "base_margin": 1e-3,
+        "require_support": False,
+        "base_probability": 0.30,
+        "forced_vote_probability": 0.21,
+    },
+    # All three bar constants set to the value-maximising bar implied by the measured
+    # eject exchange rate, rather than tuned by hand. Vote iff p*gain > (1-p)*cost, so
+    # required = cost/(gain+cost); pivotality cancels, because being one of ~6 voters
+    # scales gain and cost equally.
+    #
+    #   base 0.30       the modal state (0 ejections, 84% of our decisions) has
+    #                   gain +0.433 / cost 0.179 -> 0.292.
+    #   dangerous 0.31  `wrong_eject_loss > 0` fires on 22% of decisions with median
+    #                   loss 0.430, so cost there is 0.416*0.212 + 0.584*0.179 = 0.193
+    #                   -> 0.308. Note how SMALL that premium is: the trigger barely
+    #                   selects for extra danger, because the state a wrong eject drops
+    #                   you into is already near-worthless (V = 0.033). The shipped 0.80
+    #                   is ~2.6x too high, and blocking that 22% costs more than the
+    #                   base bar does.
+    #   forced 0.21     kept below base so the branch cannot invert. Measured INERT --
+    #                   0.04, 0.21 and 0.40 give bit-identical results, because it fires
+    #                   on 5.9% of decisions and never binds.
+    #
+    # Offline over 5279 live league decisions (crew_gate_curve.py --gate-grid): coverage
+    # 0.159 -> 0.930, precision 0.840 -> 0.467, value +0.0507 -> +0.1042 win points per
+    # decision, CIs [.0457,.0558] against [.0929,.1158]. That is 2.06x the shipped gate
+    # and the largest crew effect we have measured.
+    "loose+bayes": {
+        "base_margin": 1e-3,
+        "require_support": False,
+        "base_probability": 0.30,
+        "forced_vote_probability": 0.21,
+        "dangerous_wrong_eject_probability": 0.31,
     },
     # FALSIFIED 2026-07-28 -- DO NOT A/B THIS. Kept only so the retired arm stays
     # readable; it is not a live question.
@@ -104,46 +210,29 @@ GATE_PRESETS: dict[str, Overrides] = {
 }
 
 
-TRUST_ENV = "CREWBORG_SPEAKER_TRUST"
+SOCIAL_WEIGHT_ENV = "CREWBORG_SOCIAL_WEIGHT"
 
-# Per-speaker tempering of the claim/vote channels (see inference._speaker_trust).
-# Deliberately a SEPARATE env var from CREWBORG_DECISION_GATE: trust changes the
-# posterior, the gate changes what we do with it, and bundling them would make an
-# A/B uninterpretable. Values are "<prior>" or "<prior>:<k>".
-TRUST_PRESETS: dict[str, Overrides] = {
-    "off": {},
-    "on": {"speaker_trust": True, "speaker_trust_prior": 0.25, "speaker_trust_k": 2.0},
-    "mild": {"speaker_trust": True, "speaker_trust_prior": 0.50, "speaker_trust_k": 2.0},
-    # `on` plus accuracy: shrink each speaker's tau toward whether their accusations
-    # matched `murder_clears` (a murdered player is crew, so that accuser was wrong) or
-    # a later `pin` (that accuser was right). In-episode ground truth needing no reveal;
-    # ejections reveal nothing, the engine prints only "WAS KILLED".
-    #
-    # Same family as `on`, so it stays ONE env var and an A/B still moves one thing.
-    # It shrinks toward the selectivity estimate rather than a flat prior, so with no
-    # outcome evidence it is exactly `on`.
-    #
-    # MEASURED NULL 2026-07-29 -- built and evaluated, do not ship without new evidence.
-    # Over 563 live league decisions (`crewrift-analysis/eval_outcome_trust.py`):
-    #     top-1     0.460 -> 0.451
-    #     AUC       0.626 -> 0.626
-    #     coverage  0.172 -> 0.167
-    #     precision 0.897 -> 0.915
-    # It is NOT sparsity: the adjustment fires in 31.3% of decisions (murder_clears
-    # present in 56.5%, pins in 11.5%). The mechanism works; it just does not help.
-    #
-    # The motivating read was also wrong, and is corrected here rather than only in
-    # chat: top-1 accuracy falls with `decision.sources` (60.7% at one, 16.7% at six),
-    # but that is the support CITED for a decision, not how many players spoke. Against
-    # the real distinct-speaker count accuracy RISES (1 -> 0.381, 5+ -> 0.483), so the
-    # social channel does not degrade as more players weigh in.
-    "outcome": {
-        "speaker_trust": True,
-        "speaker_trust_prior": 0.25,
-        "speaker_trust_k": 2.0,
-        "speaker_outcome_trust": True,
-    },
-}
+# Bound on `InferenceConfig.social_weight`, read from the env as a bare float so a fit
+# can sweep it continuously. Out-of-range or unparseable values are ignored rather than
+# clamped: a clamp silently runs an arm nobody asked for, and this scalar sets how
+# sharp the whole posterior is.
+SOCIAL_WEIGHT_MAX = 4.0
+
+
+def social_weight_override(env: Mapping[str, str] | None = None) -> Overrides:
+    """`social_weight` from the env, or `{}` if unset, unparseable or out of range."""
+
+    source = os.environ if env is None else env
+    raw = source.get(SOCIAL_WEIGHT_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        value = float(raw)
+    except ValueError:
+        return {}
+    if not 0.0 <= value <= SOCIAL_WEIGHT_MAX:
+        return {}
+    return {"social_weight": value}
 
 
 KILL_WINDOW_ENV = "CREWBORG_KILL_WINDOW"
@@ -180,8 +269,8 @@ KILL_WINDOW_PRESETS: dict[str, Overrides] = {
 EJECTION_LIVENESS_ENV = "CREWBORG_EJECTION_LIVENESS"
 
 # Whether "the game is still running" is used as evidence (see
-# `inference.build_assignment_table`). A FOURTH separate env var, for the same reason
-# the others are separate.
+# `inference.build_assignment_table`). Its own env var, for the same reason the others
+# have theirs: an A/B must move one thing.
 #
 # This is a CORRECTNESS fix, not a strategy knob: an impostor can only leave the game
 # by ejection, so a hypothesis whose whole impostor set has already been voted out is
@@ -207,12 +296,32 @@ EJECTION_LIVENESS_PRESETS: dict[str, Overrides] = {
 }
 
 
+SKIP_VOTE_ENV = "CREWBORG_SKIP_VOTE"
+
+# Whether a SKIP ballot is scored as evidence about the voter. Its own env var: this
+# changes what evidence EXISTS, which is a different question from how heavily the social
+# channel is weighed (`CREWBORG_SOCIAL_WEIGHT`) or what is done with the result (the gate).
+#
+# The measured field rates are P(skip|crew) = 0.500 against P(skip|impostor) = 0.240
+# over 8227 league ballots -- see `InferenceConfig.skip_vote_likelihood` for the
+# measurement and for why the weight is shrunk rather than taken at face value.
+SKIP_VOTE_PRESETS: dict[str, Overrides] = {
+    "off": {},
+    # Shrunk to half the targeted-ballot weight, because four of the ten policies with
+    # enough ballots to measure run flat or inverted and we cannot see a voter's policy.
+    "on": {"skip_vote_likelihood": True},
+    # The measured rates at full targeted-ballot weight. Strictly more aggressive; use
+    # it only to bracket how much of any effect is the weight rather than the signal.
+    "strong": {"skip_vote_likelihood": True, "skip_vote_weight": 0.35},
+}
+
+
 # Independent lever families that all feed `InferenceConfig`. Separate env vars on
 # purpose (an A/B must move one thing); listed together only so resolution is one loop.
 INFERENCE_FAMILIES: tuple[tuple[str, dict[str, Overrides]], ...] = (
-    (TRUST_ENV, TRUST_PRESETS),
     (KILL_WINDOW_ENV, KILL_WINDOW_PRESETS),
     (EJECTION_LIVENESS_ENV, EJECTION_LIVENESS_PRESETS),
+    (SKIP_VOTE_ENV, SKIP_VOTE_PRESETS),
 )
 
 
@@ -229,14 +338,15 @@ def inference_overrides(
 ) -> Overrides:
     """`InferenceConfig` field overrides from the selected presets.
 
-    Merges the independent preset families (speaker trust, kill window). Unset or
-    unrecognised values yield no overrides, so the shipped posterior is exactly
-    unchanged unless someone opts in.
+    Merges the independent preset families (kill window, skip vote) and the
+    continuously-valued social weight. Unset or unrecognised values yield no overrides,
+    so the shipped posterior is exactly unchanged unless someone opts in.
     """
 
     overrides: Overrides = {}
     for env_var, presets in INFERENCE_FAMILIES:
         overrides.update(_preset(presets, env_var, env))
+    overrides.update(social_weight_override(env))
     return overrides
 
 

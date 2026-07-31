@@ -50,11 +50,6 @@ class InferenceConfig:
     repeat_decay: float = 0.70
     same_target_decay: float = 0.80
     vote_repeat_decay: float = 0.70
-    # Per-speaker tempering (see `_speaker_trust`). OFF by default: with
-    # speaker_trust=False every weight keeps its shipped value exactly.
-    speaker_trust: bool = False
-    speaker_trust_prior: float = 0.25
-    speaker_trust_k: float = 2.0
     # Treat "the game is still running" as evidence. ON by default since 2026-07-30:
     # this is a soundness property of the game, not a tuning choice. An impostor can
     # only leave by ejection, so a hypothesis whose entire impostor set has already
@@ -64,9 +59,36 @@ class InferenceConfig:
     # hypothesis space. `CREWBORG_EJECTION_LIVENESS=off` restores the old behaviour
     # without a rebuild.
     ejection_liveness: bool = True
-    # Score a speaker by whether they were RIGHT, not just by how often they abstain.
-    # OFF by default; requires speaker_trust. See `_speaker_trust`.
-    speaker_outcome_trust: bool = False
+    # How far the posterior is allowed to move on SOCIAL evidence -- claims and votes --
+    # as a single scalar on their log-likelihood contributions.
+    #
+    # This is a TEMPERATURE, not a re-ranking. `log_weight` is summed over claims and
+    # votes only; structural evidence never enters it, acting instead by removing pairs
+    # from `AssignmentTable.eligible`. So scaling every social contribution by the same
+    # constant sharpens or flattens the posterior without changing which hypothesis leads.
+    # It therefore moves COVERAGE (how many decisions clear the vote bar) far more than
+    # precision, and 1.0 -- full nominal weight -- is much sharper than it sounds.
+    #
+    # Fit it to CALIBRATION: the vote bar is priced off `p` meaning what it says, so the
+    # value is whichever one makes predicted probability match observed frequency. It is
+    # not a free knob and must be refit whenever the social channels change.
+    #
+    # 0.40 comes from that fit, over 1071 live crew decisions in 500 league episodes
+    # (`crewrift-analysis/social_weight_fit.py`, cohort `crew-gate`). It is the CENTRE OF
+    # A PLATEAU, not a point optimum: every value in [0.275, 0.450] scores a max
+    # calibration gap of 0.038-0.064, and with ~300 decisions per bin the binomial
+    # standard error is ~0.028, so calibration cannot separate them. Outside that range
+    # it can -- 0.164 at 0.20, 0.090 at 0.50. Prefer the plateau's middle so a refit on
+    # more data is unlikely to land outside it; 0.45 scores marginally better and sits
+    # next to a sharp rise at 0.475.
+    #
+    # 1.0 is NOT the neutral choice it looks like -- undamped, coverage nearly doubles to
+    # 0.350, precision falls to 0.648 and the max gap reaches 0.369.
+    #
+    # Per-SPEAKER credence is a separate question -- which speakers to believe, rather
+    # than how much to believe speakers in general -- and is deliberately not modelled
+    # here. A constant is the baseline any per-speaker term has to beat. See docs/TODO.md.
+    social_weight: float = 0.40
     vote_weight: float = 0.35
     reporter_weight: float = 1.15
     bare_weight: float = 0.25
@@ -97,6 +119,33 @@ class InferenceConfig:
     # OFF by default. Lever #1 of docs/2026-07-26-constraint-supply-and-the-next-plan.md;
     # 98 such observations were discarded across that note's 100-game sample.
     ambiguous_kill_constraints: bool = False
+    # Score a SKIP ballot as evidence about the voter. OFF by default. Lever #2 of
+    # docs/2026-07-26-constraint-supply-and-the-next-plan.md, and the single largest
+    # discard in the audit: 6004 skip ballots ignored across 998 league decisions,
+    # against 7527 that were scored.
+    #
+    # A skip names nobody, so it says nothing about any target -- but it is still a
+    # choice, and the two roles make it at different rates. Measured over 8227 ballots
+    # in 393 league episodes (2026-07-29), by the voter's TRUE role:
+    #
+    #     P(skip | crew) = 0.500      P(skip | impostor) = 0.240
+    #
+    # The gap holds inside every meeting index (meeting 1: 68.2 % vs 27.9 %; meeting 5:
+    # 33.3 % vs 26.9 %), so it is not a survivorship artifact of impostors living longer.
+    #
+    # WHY THE WEIGHT IS SEPARATE FROM `vote_weight`, and lower. The rates above are a
+    # field MIXTURE, and the field is not homogeneous: of ten policies with enough
+    # ballots to measure, four are flat or run the other way -- shrike's impostors skip
+    # 100 % of the time at every meeting index, and aaln-hunter's skip ~2x more than its
+    # crew. We cannot see a voter's policy at runtime, so a global constant is wrong for
+    # roughly a sixth of ballots. Pooled rates are still the maximum-likelihood fit over
+    # the mixture, so the EXPECTED log-likelihood gain is positive, but the per-episode
+    # variance is high and the sensible response is to shrink rather than to trust it at
+    # full strength.
+    skip_vote_likelihood: bool = False
+    crew_skip_vote: float = 0.50
+    imp_skip_vote: float = 0.24
+    skip_vote_weight: float = 0.18
 
 
 @dataclass(frozen=True)
@@ -145,18 +194,6 @@ class InferenceResult:
     evidence: tuple[EvidenceAudit, ...]
     pins: tuple[str, ...]
     murder_clears: tuple[str, ...]
-    # The RESOLVED per-speaker tempering actually applied to this solve, so a fetched
-    # trace can be re-scored exactly. Empty when speaker trust is off (tau == 1.0).
-    #
-    # WHY THIS IS SERIALISED. `evidence[].weight` below is the PRE-tempering weight,
-    # so a trace of a trust-on image does not record what was really multiplied in.
-    # `tools/sweep_speaker_trust.py` therefore had to re-derive tau, and could not:
-    # measured on 118 league decisions, re-deriving reproduces the recorded posterior
-    # for 27% of them against the >=90% its own self-check demands (5.9% if tau is
-    # ignored entirely). That made every offline speaker-trust claim unfalsifiable --
-    # the same failure the improvement loop warns about for A/B arms, one level down,
-    # on a derived quantity instead of a config flag.
-    speaker_trust: tuple[tuple[str, float], ...] = ()
 
     error: str | None = None
 
@@ -189,11 +226,6 @@ class InferenceResult:
             ],
             "pins": list(self.pins),
             "murder_clears": list(self.murder_clears),
-            # Unconditional: an empty map means "trust off", which is itself the fact
-            # an offline re-scorer needs. Never omit it on the off path.
-            "speaker_trust": {
-                speaker: round(tau, 6) for speaker, tau in self.speaker_trust
-            },
             "evidence": [
                 {
                     "evidence_id": item.evidence_id,
@@ -264,7 +296,8 @@ class DerivedVote:
     event_id: str
     meeting_id: int
     voter: str
-    target: str
+    # None for a SKIP ballot, which is evidence about the voter and no one else.
+    target: str | None
     weight: float
 
 
@@ -472,7 +505,7 @@ def score_assignments(
             error=table.error,
         )
 
-    trust = _speaker_trust(evidence, config)
+    social = config.social_weight
     log_weights: dict[tuple[str, ...], float] = {}
     contribution_table: dict[tuple[str, ...], tuple[Contribution, ...]] = {}
     for pair in table.eligible:
@@ -481,7 +514,7 @@ def score_assignments(
         log_weight = 0.0
         for claim in evidence.claims:
             likelihood = _claim_probability(hypothesis, claim, config)
-            weight = claim.weight * trust.get(claim.source, 1.0)
+            weight = claim.weight * social
             delta = weight * math.log(max(likelihood, 1e-9))
             contributions.append(
                 Contribution(
@@ -495,7 +528,7 @@ def score_assignments(
             log_weight += delta
         for vote in evidence.votes:
             likelihood = _vote_probability(hypothesis, vote, config)
-            weight = vote.weight * trust.get(vote.voter, 1.0)
+            weight = vote.weight * social
             delta = weight * math.log(max(likelihood, 1e-9))
             contributions.append(
                 Contribution(
@@ -546,7 +579,6 @@ def score_assignments(
         evidence=evidence.audit,
         pins=tuple(sorted(evidence.pins)),
         murder_clears=tuple(sorted(evidence.murder_clears)),
-        speaker_trust=tuple(sorted(trust.items())),
     )
 
 
@@ -775,10 +807,15 @@ def _votes(
         key=lambda item: (item.meeting_id, item.tick, item.voter),
     ):
         evidence_id = f"vote:{event.event_id}"
+        skip_ballot = event.target is None
         if event.voter == history.game.self_color:
             reason = "own derived vote is not new evidence"
-        elif event.target is None:
+        elif skip_ballot and not config.skip_vote_likelihood:
             reason = "skip vote has no target likelihood"
+        elif skip_ballot and event.voter not in players:
+            reason = "vote actor is not a player"
+        elif skip_ballot:
+            reason = ""
         elif event.voter not in players or event.target not in players:
             reason = "vote actor or target is not a player"
         elif event.voter == event.target:
@@ -798,17 +835,20 @@ def _votes(
                 )
             )
             continue
-        assert event.target is not None
-        key = (event.voter, event.target)
+        # A repeated skip is the same decay family as a repeated target: a voter who
+        # skips every meeting is one habit, not N independent observations, and the
+        # heterogeneity above is exactly the habit we must not over-count.
+        key = (event.voter, event.target or "")
         repeat_index = repeated.get(key, 0)
         repeated[key] = repeat_index + 1
+        base = config.skip_vote_weight if skip_ballot else config.vote_weight
         vote = DerivedVote(
             evidence_id=evidence_id,
             event_id=event.event_id,
             meeting_id=event.meeting_id,
             voter=event.voter,
             target=event.target,
-            weight=config.vote_weight * config.vote_repeat_decay**repeat_index,
+            weight=base * config.vote_repeat_decay**repeat_index,
         )
         votes.append(vote)
         audit.append(
@@ -817,9 +857,10 @@ def _votes(
                 event_id=event.event_id,
                 channel="vote",
                 status="active",
-                reason="role-conditioned ballot likelihood",
+                reason="role-conditioned skip likelihood" if skip_ballot
+                else "role-conditioned ballot likelihood",
                 source=event.voter,
-                targets=(event.target,),
+                targets=() if event.target is None else (event.target,),
                 weight=vote.weight,
             )
         )
@@ -1120,127 +1161,6 @@ def _close_to_self(frame: WorldObserved, color: str) -> bool:
     return dx * dx + dy * dy <= COPRESENCE_DISTANCE_SQ
 
 
-def _speaker_trust(
-    evidence: DerivedEvidence, config: InferenceConfig
-) -> dict[str, float]:
-    """Per-speaker tempering factor in [0, 1]; empty (=1.0 everywhere) when disabled.
-
-    WHY. Every likelihood here is keyed to ROLE only -- `crew_accuse_hit=0.58` vs
-    `crew_accuse_miss=0.15` says any crewmate accuses a real impostor ~4x more often
-    than an innocent. That held in every A/B we ran, because all six crew seats were
-    this same policy. It is false in league play: some policies target on 100% of
-    their ballots, so their true ratio is 1.0 and we read pure noise as 4:1 evidence.
-    Measured over 60 league episodes, non-structural ejects were 5/19 correct against
-    ~29% for random voting.
-
-    HOW. `tau` is estimated from how SELECTIVELY a speaker votes, which needs no
-    ground truth and is observable for everyone at every meeting. It is applied as
-    tempering (`weight *= tau`) rather than by rewriting the likelihoods: tau=0
-    exactly reproduces "ignore this speaker", it is monotone, and it cannot
-    manufacture a confidently wrong posterior the way mis-set likelihoods can.
-
-    THE PRIOR IS THE LOAD-BEARING PART. A seat gets ~2.5 meetings per episode and has
-    seen each other player vote exactly ONCE by its first decision, so the estimate is
-    coarse when it matters most. Measured at that first meeting, the shipped posterior
-    is a coin flip (AUC 0.514) and every non-structural eject it casts is wrong (0/5).
-    The fix is not a faster estimator but a lower starting point: shrinking toward
-    `speaker_trust_prior` means strangers are discounted until they demonstrate
-    selectivity. The shipped model is effectively tau=1 -- maximum trust in strangers
-    at the moment it has least basis for it.
-
-    When the platform exposes which policy occupies each seat, `speaker_trust_prior`
-    becomes a per-policy prior carried across games and nothing else here changes.
-    """
-
-    if not config.speaker_trust:
-        return {}
-    ballots: dict[str, list[int]] = {}
-    for vote in evidence.votes:
-        seen = ballots.setdefault(vote.voter, [0, 0])
-        seen[0] += 1
-        if vote.target:
-            seen[1] += 1
-    prior, k = config.speaker_trust_prior, config.speaker_trust_k
-    out: dict[str, float] = {}
-    for speaker, (n, targeted) in ballots.items():
-        raw = 1.0 - (targeted / n if n else 0.0)
-        out[speaker] = (n * raw + k * prior) / (n + k)
-    if config.speaker_outcome_trust:
-        out = _outcome_trust(evidence, config, out)
-    return out
-
-
-def _outcome_trust(
-    evidence: DerivedEvidence,
-    config: InferenceConfig,
-    selectivity: dict[str, float],
-) -> dict[str, float]:
-    """Shrink each speaker's tau toward WHETHER THEY WERE RIGHT, not just how often
-    they abstain.
-
-    MEASURED NULL 2026-07-29 -- kept, default off, so the arm stays readable. Over 563
-    live league decisions: top-1 0.460 -> 0.451, AUC 0.626 -> 0.626, coverage
-    0.172 -> 0.167, precision 0.897 -> 0.915. Not sparsity -- the adjustment fires in
-    31.3% of decisions. See `CREWBORG_SPEAKER_TRUST=outcome` in config.py.
-
-    WHY IT WAS BUILT. `_speaker_trust` scores selectivity, which is a proxy for
-    informativeness and never looks at accuracy, so this adds one. The motivating
-    observation was that top-1 accuracy falls as `decision.sources` grows -- but that
-    is the support CITED for a decision, not the number of speakers, and against the
-    real speaker count accuracy RISES. The premise did not survive; the null is
-    consistent with that.
-
-    THE GROUND TRUTH IS IN-EPISODE AND NEEDS NO REVEAL. Ejections tell us nothing: the
-    engine prints only "WAS KILLED" (`global.nim`, VoteResult). But two facts are already
-    derived every solve:
-
-      - `murder_clears` -- a murdered player is CREW, because impostors are never
-        murdered. Anyone who accused them was demonstrably wrong.
-      - `pins` -- a witnessed kill or vent names an impostor. Anyone who accused them
-        was right.
-
-    SHRINKAGE TARGET IS THE SELECTIVITY ESTIMATE, NOT A FLAT PRIOR. Outcome evidence is
-    sparse (you only learn about speakers who happened to name a future victim or a
-    future pin) while selectivity is observable for everyone at every meeting. Shrinking
-    toward it means this degrades EXACTLY to today's behaviour when no outcome evidence
-    exists, and moves only as far as the evidence earns. `k` reuses `speaker_trust_k`
-    so the family keeps one knob.
-
-    Still tempering (`weight *= tau`, tau in [0, 1]): it can silence a speaker but never
-    invert them, so a wrong accuracy estimate cannot manufacture a confident falsehood
-    the way a mis-set likelihood can.
-    """
-
-    right: dict[str, int] = {}
-    wrong: dict[str, int] = {}
-    for claim in evidence.claims:
-        if claim.stance != "accuse":
-            continue
-        for target in claim.targets:
-            if target in evidence.pins:
-                right[claim.speaker] = right.get(claim.speaker, 0) + 1
-            elif target in evidence.murder_clears:
-                wrong[claim.speaker] = wrong.get(claim.speaker, 0) + 1
-    for vote in evidence.votes:
-        if not vote.target:
-            continue
-        if vote.target in evidence.pins:
-            right[vote.voter] = right.get(vote.voter, 0) + 1
-        elif vote.target in evidence.murder_clears:
-            wrong[vote.voter] = wrong.get(vote.voter, 0) + 1
-
-    k = config.speaker_trust_k
-    out = dict(selectivity)
-    for speaker in set(right) | set(wrong):
-        hits, misses = right.get(speaker, 0), wrong.get(speaker, 0)
-        n = hits + misses
-        if not n:
-            continue
-        base = selectivity.get(speaker, config.speaker_trust_prior)
-        out[speaker] = (n * (hits / n) + k * base) / (n + k)
-    return out
-
-
 def _claim_probability(
     hypothesis: frozenset[str],
     claim: DerivedClaim,
@@ -1291,6 +1211,11 @@ def _vote_probability(
     config: InferenceConfig,
 ) -> float:
     voter_is_imp = vote.voter in hypothesis
+    if vote.target is None:
+        # A skip is unary: it discriminates the voter's own role and says nothing
+        # about anyone else. Only the ratio between the two branches reaches the
+        # posterior, so the absolute scale here is free.
+        return config.imp_skip_vote if voter_is_imp else config.crew_skip_vote
     target_is_imp = vote.target in hypothesis
     if voter_is_imp:
         return config.imp_vote_partner if target_is_imp else config.imp_vote_crew

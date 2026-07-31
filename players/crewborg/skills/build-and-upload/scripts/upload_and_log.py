@@ -10,7 +10,7 @@ disagree. It refuses without a purpose and a note.
         --purpose kill-window-league --note "margin+at_least_one on, first league run" \\
         --secret-env CREWBORG_DEDUCTION_HISTORY=1 \\
         --secret-env CREWBORG_DECISION_GATE=loose \\
-        --secret-env CREWBORG_SPEAKER_TRUST=on \\
+        --secret-env CREWBORG_SOCIAL_WEIGHT=0.13 \\
         --secret-env CREWBORG_KILL_WINDOW=both
 
 `--dry-run` prints the exact command and the row it would append, and touches nothing.

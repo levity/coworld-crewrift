@@ -32,6 +32,78 @@ post-kill re-approach into a dedicated state spanning Evade→Search (see impost
 
 ## Open
 
+### Panel: score every suspicion-like quantity against its OWN ground truth (2026-07-29)
+
+Lawrence's ask, and the design point is his: **each internal quantity must be scored
+against the truth it is actually trying to predict, not against role.**
+
+For per-speaker credence the target is *testimony reliability*, not whether the speaker is
+an impostor. Distrusting an impostor is a hit — but so is distrusting a CREWMATE whose
+claims were false (accusing crew, or exonerating impostors). Scoring credence against role
+counts that second case as an error when it is correct behaviour.
+
+Claim veracity is recoverable from history, so this is measurable retrospectively: the
+trace's evidence audit records every claim's `source`, `stance` and `targets`, and
+`results.json` gives the true roles. Label each claim `accuse`/`at_least_one` true iff a
+target is an impostor, `defend` true iff no target is. Ballots carry the same label and are
+denser and unambiguous — every seat votes every meeting, and a ballot naming X *is* the
+claim that X is an impostor — so score both channels.
+
+Proposed panel family — one row per (quantity, its ground truth):
+
+| signal | quantity | ground truth |
+|---|---|---|
+| `posterior_auc` (exists) | deduction marginal | player is an impostor |
+| `credence_veracity_auc` | per-speaker credence | this claim was true |
+| `credence_role_auc` | −credence | speaker is an impostor |
+| `ballot_veracity_auc` | per-speaker credence | this ballot named an impostor |
+| `claim_veracity_base` | — | share of parsed claims that were true (the base rate) |
+| `clear_precision` | `murder_clears` | player is crew |
+
+**Unit of analysis:** compute per episode and average, never pool claims across episodes —
+a long game with many claims would otherwise decide the batch (`improvement-loop.md`
+step 2).
+
+**This is the acceptance test, not a nice-to-have.** It is what tells us whether a
+per-speaker term works at all, and the constant `social_weight` is the baseline it has to
+beat. Build it before the mechanism it judges.
+
+### Per-speaker credence is not modelled at all (2026-07-30)
+
+The posterior weights social evidence by one global scalar, `InferenceConfig.social_weight`.
+Every speaker is believed equally. Nothing distinguishes a reliable witness from an
+indiscriminate accuser or from an impostor who is lying on purpose.
+
+**The design constraint that shapes any fix.** Two kinds of unreliable speaker need
+opposite treatment, and a `[0, 1]` multiplier can only express the first:
+
+* a **noisy crewmate** is *uninformative* — their claims are noise around the truth, and
+  shrinking their weight toward zero is right;
+* an **impostor** is *anti-informative* — their claims point away from the truth
+  systematically, which is information we currently discard.
+
+So the per-speaker term wants a **signed** range, roughly `[-1, 1]`, where a negative
+coefficient inverts that speaker's contribution (`delta = w * log(L)`, so `w < 0` gives
+`log(1/L)` — the existing arithmetic already supports it). A signed credence also has a
+natural estimand: the correlation between a speaker's claims and the truth.
+
+**Two traps, both easy to fall into.**
+
+*Circularity.* If credence is updated from "was this accusation true" and truth is judged
+by the posterior, credence amplifies whatever the posterior already believes. Validation
+must come only from independently established facts — pins, `murder_clears`, confirmed
+bodies — never from the current belief state.
+
+*Validation sparsity.* Ejection does not reveal role (see the workspace glossary), so no
+ballot is ever labelled in-game. Confirmable events are rare and arrive late, and a seat
+gets ~2.5 meetings per episode. Whether an online per-game learner can converge at all is
+an empirical question; if it cannot, the alternative is to fit observable-behaviour →
+reliability offline across league episodes and ship a fixed function.
+
+**Acceptance test, which must exist before the mechanism.** The panel row above: does the
+per-speaker credence separate true claims from false ones? A constant is the baseline to
+beat, and a candidate that cannot beat a constant is not worth shipping.
+
 ### Retained rejected experiments — chopping block, but held on purpose (2026-07-26)
 
 Six default-off behaviours (~700 lines) survive from the survival-via-movement
@@ -98,8 +170,8 @@ siblings want the same. Small (0.06-0.17% of budget), but an inconsistency insid
 
 **4. One shared episode/telemetry loader for the tools.** `kill_window_counterfactual.py`
 is the fifth copy of the `<ep>/results.json` + `artifacts/*.zip` walk, and
-`SLOT_COLORS`/`COLORS` is declared five times (`decision_quality`, `sweep_decision_gate`,
-`simulate_tally`, `sweep_speaker_trust`, `kill_window_counterfactual`). Extract
+`SLOT_COLORS`/`COLORS` is declared four times (`decision_quality`, `sweep_decision_gate`,
+`simulate_tally`, `kill_window_counterfactual`). Extract
 `tools/_episodes.py` with `SLOT_COLORS`, `iter_episodes(root)` and `seat_records(zip)`.
 Note `decision_quality.py` is the only one that *validates* the slot->colour convention
 and reports violations; the other four would silently mislabel ground truth if it broke.
@@ -166,7 +238,7 @@ a before/after on the same episodes.
 ### Kill window (`CREWBORG_KILL_WINDOW`) — implemented, default off
 
 `CREWBORG_KILL_WINDOW` presets `margin` / `at-least-one` / `both`
-(`deduction/config.py`). A third env var, separate from `CREWBORG_SPEAKER_TRUST` and
+(`deduction/config.py`). A third env var, separate from `CREWBORG_SOCIAL_WEIGHT` and
 `CREWBORG_DECISION_GATE`, so an A/B still moves one thing at a time.
 
 Offline counterfactual on the 64 crew seats of `xreq_51754f1f`

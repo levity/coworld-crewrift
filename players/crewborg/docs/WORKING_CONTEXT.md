@@ -8,3 +8,7 @@ It sits outside this repo deliberately. `coworld-crewrift/` is an inherited fork
 `players/crewborg/` an inherited player, while the working context is practice expected to
 outlive both and to port to other players and other Coworlds.
 `~/projects/softmax/AGENTS.md` records that boundary and lists which document holds what.
+
+The path is given by name rather than as a relative link: agent work happens in
+worktrees under `.claude/worktrees/`, where a relative path up to the workspace
+resolves to a different depth than it does in the normal checkout.

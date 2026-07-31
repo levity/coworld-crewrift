@@ -443,22 +443,75 @@ def test_copresence_excludes_pairs_without_an_eligible_outside_killer() -> None:
     assert result.marginal("yellow") > 0.0
 
 
-def test_independent_accusers_can_drive_a_vote() -> None:
-    eight_players = PLAYERS + ("orange", "cyan")
-    history = _history(
-        _utterance(101, "blue", "red vented"),
-        _utterance(102, "yellow", "red vented"),
-        _utterance(103, "green", "red vented"),
-        players=eight_players,
+def _accusation_history(count: int):
+    """`count` distinct speakers independently naming red, in one meeting."""
+
+    speakers = ("blue", "yellow", "green", "pink", "purple", "orange")[:count]
+    return _history(
+        *(_utterance(101 + i, s, "red vented") for i, s in enumerate(speakers)),
+        players=PLAYERS + ("orange", "cyan"),
     )
+
+
+_EIGHT_LIVE = tuple(
+    color for color in PLAYERS + ("orange", "cyan") if color != "white"
+)
+
+
+def test_independent_accusers_can_drive_a_vote() -> None:
+    """The independence mechanism, isolated from how hard social evidence is damped.
+
+    `social_weight` is pinned here rather than inherited: it is a temperature fitted to
+    league calibration and is expected to move, and letting it leak in would turn a
+    refit into three silent test failures that look like a broken mechanism.
+    """
+
     decision = decide(
-        history,
-        live_targets=tuple(color for color in eight_players if color != "white"),
+        _accusation_history(3),
+        live_targets=_EIGHT_LIVE,
+        inference_config=InferenceConfig(social_weight=1.0),
     )
 
     assert decision.action == "eject"
     assert decision.target == "red"
     assert decision.sources == ("blue", "green", "yellow")
+
+
+def test_fitted_social_weight_needs_the_lower_bar_to_act_on_chat_alone() -> None:
+    """What the fitted damping actually costs, pinned so a refit has to face it.
+
+    At the fitted weight three independent accusations land between the champion's bar
+    (`loose+p40`, base 0.40) and the default 0.65. So chat-only ejects survive only
+    because the bar was repriced: the two constants are COUPLED, and moving either one
+    alone changes whether social evidence can ever act by itself.
+
+    The weight is asserted to lie in the fitted PLATEAU rather than to equal one value.
+    Calibration cannot separate points inside [0.275, 0.450] -- the binomial standard
+    error on a bin is about as large as the differences between them -- so pinning an
+    exact constant would fail on every legitimate refit while catching nothing real.
+    """
+
+    from crewborg.deduction.decision import DecisionConfig
+
+    history = _accusation_history(3)
+    fitted = InferenceConfig()
+    assert 0.275 <= fitted.social_weight <= 0.450, (
+        f"{fitted.social_weight} is outside the calibrated plateau; refit before shipping"
+    )
+
+    shipped_bar = decide(history, live_targets=_EIGHT_LIVE)
+    champion_bar = decide(
+        history,
+        live_targets=_EIGHT_LIVE,
+        decision_config=DecisionConfig(
+            base_probability=0.40, base_margin=1e-3, require_support=False
+        ),
+    )
+
+    assert 0.40 < shipped_bar.probability < 0.65, shipped_bar.probability
+    assert shipped_bar.action == "skip"
+    assert champion_bar.action == "eject"
+    assert champion_bar.target == "red"
 
 
 def test_single_public_source_does_not_spend_a_vote() -> None:
@@ -487,9 +540,14 @@ def test_ballot_pile_without_an_accusation_does_not_spend_a_vote() -> None:
                     target="red",
                 )
             )
+    # Undamped on purpose: the point is that the SUPPORT rule refuses this pile even
+    # when the posterior is over the bar. Under the fitted `social_weight` the pile
+    # would fall short of the bar too, and the test would pass without exercising the
+    # rule it is named for.
     decision = decide(
         _history(*events, players=eight_players),
         live_targets=tuple(color for color in eight_players if color != "white"),
+        inference_config=InferenceConfig(social_weight=1.0),
     )
 
     assert decision.probability > decision.required_probability
@@ -605,6 +663,10 @@ def test_meeting_switch_bypasses_legacy_suspicion_and_uses_history(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    # This is a wiring test -- that the meeting mode routes through the history posterior
+    # instead of legacy suspicion. Pin the temperature so it keeps testing the wiring
+    # when the fitted value moves.
+    monkeypatch.setenv("CREWBORG_SOCIAL_WEIGHT", "1.0")
     events = (
         _utterance(101, "blue", "red vented"),
         _utterance(102, "yellow", "red vented"),
@@ -831,18 +893,17 @@ def test_kill_window_presets_are_separate_from_the_other_arms() -> None:
     both = inference_overrides({"CREWBORG_KILL_WINDOW": "both"})
     assert both == {"kill_range_margin": 6, "ambiguous_kill_constraints": True}
     assert inference_overrides({"CREWBORG_KILL_WINDOW": "typo"}) == {}
-    # Trust and kill-window compose without colliding.
+    # The social weight and the kill window compose without colliding.
     mixed = inference_overrides(
-        {"CREWBORG_KILL_WINDOW": "margin", "CREWBORG_SPEAKER_TRUST": "on"}
+        {"CREWBORG_KILL_WINDOW": "margin", "CREWBORG_SOCIAL_WEIGHT": "0.5"}
     )
-    assert mixed["kill_range_margin"] == 6 and mixed["speaker_trust"] is True
+    assert mixed["kill_range_margin"] == 6 and mixed["social_weight"] == 0.5
 
 
 @pytest.mark.parametrize(
     ("family", "presets"),
     [
         ("gate", "GATE_PRESETS"),
-        ("trust", "TRUST_PRESETS"),
         ("kill_window", "KILL_WINDOW_PRESETS"),
         ("ejection_liveness", "EJECTION_LIVENESS_PRESETS"),
     ],
@@ -952,6 +1013,12 @@ def _run_deduction_branch(monkeypatch, *, llm=None, spec="echo-test", events=Non
     monkeypatch.setitem(CONSULT_REGISTRY, _EchoConsult.name, _EchoConsult)
     monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
     monkeypatch.setenv("CREWBORG_DEDUCTION_LLM", spec)
+    # These tests are about the consult SEAM, not about how hard social evidence is
+    # damped. `social_weight` is a temperature fitted to league calibration and is
+    # expected to move; at the fitted value the three accusations below sit under the
+    # bar, so the branch would skip and every assertion about the final vote would fail
+    # for a reason that has nothing to do with the consult.
+    monkeypatch.setenv("CREWBORG_SOCIAL_WEIGHT", "1.0")
     if events is None:
         events = (
             _utterance(101, "blue", "red vented"),
@@ -1373,38 +1440,20 @@ def test_ejection_liveness_preset_is_its_own_env_var() -> None:
     assert mixed["ejection_liveness"] is True and mixed["kill_range_margin"] == 6
 
 
-def test_trace_always_carries_the_resolved_speaker_trust() -> None:
-    """`evidence[].weight` is PRE-tempering, so a trace that omits tau cannot be
-    re-scored. The map is emitted unconditionally; empty means trust was off."""
-
-    history = _history(
-        _utterance(101, "blue", "red vented"),
-        VoteObserved(
-            event_id="vote:100:blue", tick=110, meeting_id=100,
-            voter="blue", target="red",
-        ),
-    )
-
-    off = infer(history).as_trace()
-    assert off["speaker_trust"] == {}, "the off path must still report the fact"
-
-    on = infer(history, config=InferenceConfig(speaker_trust=True)).as_trace()
-    assert on["speaker_trust"], "trust was on; the resolved tau must be recorded"
-    assert all(0.0 <= tau <= 1.0 for tau in on["speaker_trust"].values())
-
-
 def test_recorded_trace_re_scores_to_the_recorded_posterior() -> None:
-    """The property `tools/sweep_speaker_trust.py` self-checks, asserted directly.
+    """Re-scoring a trace from its own serialised evidence must reproduce its marginals.
 
-    Re-scoring a trace from its own serialised evidence + emitted tau must reproduce
-    its marginals. Without the tau this reproduced 27% of live league decisions, which
-    is what made every offline speaker-trust claim unfalsifiable.
+    This is what makes an offline claim falsifiable: `crewrift-analysis` fits and sweeps
+    `social_weight` by rebuilding recorded decisions rather than replaying episodes, and
+    that is only sound while this holds. `evidence[].weight` is recorded PRE-weighting, so
+    the rebuild multiplies by `config.social_weight` -- a config constant, which is why it
+    needs nothing serialised beyond the audit.
     """
 
     import itertools
     import math
 
-    config = InferenceConfig(speaker_trust=True)
+    config = InferenceConfig()
     rng = random.Random(20260728)
     checked = 0
     for _ in range(40):
@@ -1413,7 +1462,6 @@ def test_recorded_trace_re_scores_to_the_recorded_posterior() -> None:
         trace = result.as_trace()
         if trace.get("error") or not trace["marginals"]:
             continue
-        tau = trace["speaker_trust"]
         excluded = {frozenset(x["imposters"]) for x in trace["excluded"]}
         players = sorted(trace["marginals"])
 
@@ -1426,7 +1474,7 @@ def test_recorded_trace_re_scores_to_the_recorded_posterior() -> None:
             for ev in trace["evidence"]:
                 if ev["status"] != "active" or not ev["source"] or not ev["targets"]:
                     continue
-                weight = ev["weight"] * tau.get(ev["source"], 1.0)
+                weight = ev["weight"] * config.social_weight
                 if weight <= 0.0:
                     continue
                 if ev["channel"] == "vote":
@@ -1480,64 +1528,188 @@ def _vote_likelihood(hyp, voter, target, cfg) -> float:
     return cfg.crew_vote_imp if target_imp else cfg.crew_vote_crew
 
 
-def test_outcome_trust_degrades_to_selectivity_without_evidence() -> None:
-    """No murder_clears and no pins means nothing was learned; tau must not move."""
+# --- Lever #2: the skip-vote likelihood -------------------------------------------
+
+
+def _ballot(event_id: str, voter: str, target: str | None, meeting_id: int = 0):
+    return VoteObserved(
+        event_id=event_id, tick=10, meeting_id=meeting_id, voter=voter, target=target
+    )
+
+
+def test_skip_ballot_is_discarded_unless_the_lever_is_on() -> None:
+    """Default off: the shipped posterior must be exactly unchanged."""
+
+    evidence = derive_evidence(_history(_ballot("v1", "red", None)))
+
+    assert not evidence.votes
+    [entry] = [a for a in evidence.audit if a.evidence_id == "vote:v1"]
+    assert entry.status == "ignored"
+    assert entry.reason == "skip vote has no target likelihood"
+
+
+def test_skip_ballot_becomes_evidence_about_the_voter() -> None:
+    evidence = derive_evidence(
+        _history(_ballot("v1", "red", None)),
+        config=InferenceConfig(skip_vote_likelihood=True),
+    )
+
+    [vote] = evidence.votes
+    assert vote.voter == "red" and vote.target is None
+    [entry] = [a for a in evidence.audit if a.evidence_id == "vote:v1"]
+    assert entry.status == "active"
+    assert entry.targets == (), "a skip names nobody"
+
+
+def test_skipping_is_evidence_the_voter_is_CREW() -> None:
+    """P(skip|crew)=0.50 against P(skip|impostor)=0.24, so a skip lowers suspicion."""
+
+    history = _history(_ballot("v1", "red", None))
+    before = infer(history)
+    after = infer(history, config=InferenceConfig(skip_vote_likelihood=True))
+
+    def mass(result) -> float:
+        return sum(h.probability for h in result.hypotheses if "red" in h.imposters)
+
+    assert mass(after) < mass(before), "a skip must make the voter LESS suspicious"
+
+
+def test_our_own_skip_is_still_not_evidence() -> None:
+    """`white` is the seat itself; its own ballot tells it nothing it did not know."""
+
+    evidence = derive_evidence(
+        _history(_ballot("v1", "white", None)),
+        config=InferenceConfig(skip_vote_likelihood=True),
+    )
+
+    assert not evidence.votes
+    [entry] = [a for a in evidence.audit if a.evidence_id == "vote:v1"]
+    assert entry.reason == "own derived vote is not new evidence"
+
+
+def test_repeated_skips_decay_like_repeated_targets() -> None:
+    """A habitual skipper is one habit, not N independent observations."""
+
+    evidence = derive_evidence(
+        _history(
+            _ballot("v1", "red", None, meeting_id=0),
+            _ballot("v2", "red", None, meeting_id=1),
+        ),
+        config=InferenceConfig(skip_vote_likelihood=True),
+    )
+
+    first, second = sorted(evidence.votes, key=lambda v: v.evidence_id)
+    assert second.weight < first.weight
+
+
+def test_social_weight_sharpens_without_reordering() -> None:
+    """The defining property: it is a TEMPERATURE, not a re-ranking.
+
+    `log_weight` sums claims and votes only -- structural evidence acts by removing
+    pairs from `eligible`, never by adding to the sum -- so one scalar over every social
+    contribution scales every hypothesis's log weight equally. The softmax then sharpens
+    or flattens while the ORDER is untouched. This is why the knob moves coverage far
+    more than precision, and it is the reason it can be fitted to calibration alone.
+    """
 
     history = _history(
-        _utterance(101, "blue", "red vented"),
-        VoteObserved(
-            event_id="vote:100:blue", tick=110, meeting_id=100,
-            voter="blue", target="red",
+        _utterance(1, "red", "blue sus", meeting_id=0),
+        _ballot("v1", "green", "blue", meeting_id=0),
+        _ballot("v2", "pink", "cyan", meeting_id=0),
+    )
+    low = infer(history, config=InferenceConfig(social_weight=0.13))
+    high = infer(history, config=InferenceConfig(social_weight=1.0))
+
+    order_low = [h.imposters for h in low.hypotheses]
+    order_high = [h.imposters for h in high.hypotheses]
+    assert order_low == order_high, "a temperature change must not reorder hypotheses"
+    assert max(h.probability for h in high.hypotheses) > max(
+        h.probability for h in low.hypotheses
+    ), "the larger weight must be the sharper posterior"
+
+
+def test_social_weight_zero_leaves_the_posterior_flat() -> None:
+    """0.0 means 'ignore social evidence', and must be exactly uniform.
+
+    The structural layer still runs -- eligibility is unaffected -- so this is the clean
+    baseline for asking what our ejects are worth on hard constraints alone.
+    """
+
+    result = infer(
+        _history(
+            _utterance(1, "red", "blue sus", meeting_id=0),
+            _ballot("v1", "green", "blue", meeting_id=0),
         ),
+        config=InferenceConfig(social_weight=0.0),
     )
-    on = infer(history, config=InferenceConfig(speaker_trust=True)).as_trace()
-    outcome = infer(
-        history,
-        config=InferenceConfig(speaker_trust=True, speaker_outcome_trust=True),
-    ).as_trace()
 
-    assert outcome["speaker_trust"] == on["speaker_trust"]
-    assert outcome["marginals"] == on["marginals"]
+    probabilities = {round(h.probability, 9) for h in result.hypotheses}
+    assert len(probabilities) == 1, "no social evidence can distinguish the hypotheses"
 
 
-def test_outcome_trust_penalises_an_accuser_of_a_murder_victim() -> None:
-    """A murdered player is CREW, so whoever accused them was demonstrably wrong."""
+def test_social_weight_env_rejects_out_of_range_and_junk() -> None:
+    """An unusable value must degrade to the shipped default, never to a clamp.
 
-    base = (
-        _utterance(101, "blue", "yellow vented"),
-        VoteObserved(
-            event_id="vote:100:blue", tick=110, meeting_id=100,
-            voter="blue", target="yellow",
-        ),
-    )
-    # `yellow` then turns up as a body -- blue's accusation was against a crewmate.
-    history = _history(
-        *base,
-        DeathObserved(
-            event_id="death:yellow", tick=200, color="yellow", source="body"
-        ),
-    )
-    config = InferenceConfig(speaker_trust=True, speaker_outcome_trust=True)
-    selectivity_only = infer(
-        history, config=InferenceConfig(speaker_trust=True)
-    ).as_trace()["speaker_trust"]
-    with_outcome = infer(history, config=config).as_trace()["speaker_trust"]
-
-    assert with_outcome["blue"] < selectivity_only["blue"], (
-        "blue accused a player later proved crew; trust must fall"
-    )
-    assert 0.0 <= with_outcome["blue"] <= 1.0
-
-
-def test_outcome_trust_is_its_own_preset_in_the_trust_family() -> None:
-    """One env var per lever: `outcome` lives in the trust family, not a new var."""
+    Clamping would silently run an arm nobody chose, and this scalar sets how sharp the
+    entire posterior is -- so a typo would quietly change every decision.
+    """
 
     from crewborg.deduction.config import inference_overrides
 
-    resolved = inference_overrides({"CREWBORG_SPEAKER_TRUST": "outcome"})
-    assert resolved["speaker_trust"] is True
-    assert resolved["speaker_outcome_trust"] is True
-    # `on` must NOT quietly acquire it.
-    assert "speaker_outcome_trust" not in inference_overrides(
-        {"CREWBORG_SPEAKER_TRUST": "on"}
-    )
+    assert inference_overrides({"CREWBORG_SOCIAL_WEIGHT": "0.13"}) == {
+        "social_weight": 0.13
+    }
+    assert inference_overrides({"CREWBORG_SOCIAL_WEIGHT": "0"}) == {"social_weight": 0.0}
+    for junk in ("", "  ", "abc", "-0.5", "99", "1e9", "nan"):
+        assert inference_overrides({"CREWBORG_SOCIAL_WEIGHT": junk}) == {}, junk
+
+
+def test_lower_bar_presets_keep_the_override_ordering() -> None:
+    """The three bar constants must stay ordered, or a branch inverts its own purpose.
+
+    `decide` overrides the bar with ABSOLUTE values:
+        skip_loss >= cutoff      -> forced_vote_probability
+        wrong_eject_loss > 0     -> dangerous_wrong_eject_probability
+    `forced_vote_probability` exists to make us vote MORE readily when skipping is what
+    loses the game. Lowering `base_probability` past it turns that branch into a bar
+    RAISE -- which is exactly what a Gate 1 smoke caught at base 0.40 against the
+    shipped 0.51. So every lower-bar preset has to carry it down too.
+    """
+
+    from crewborg.deduction.config import gate_overrides
+    from crewborg.deduction.decision import DecisionConfig
+
+    shipped = DecisionConfig()
+    assert shipped.forced_vote_probability < shipped.base_probability
+    assert shipped.base_probability < shipped.dangerous_wrong_eject_probability
+
+    for preset, bar in (("loose+p40", 0.40), ("loose+p30", 0.30),
+                        ("loose+bayes", 0.30)):
+        got = gate_overrides({"CREWBORG_DECISION_GATE": preset})
+        cfg = DecisionConfig(**got)
+        assert cfg.base_probability == bar
+        assert cfg.forced_vote_probability < cfg.base_probability, preset
+        assert cfg.base_probability < cfg.dangerous_wrong_eject_probability, preset
+        # Nothing outside the three bar constants moves: this is ONE lever.
+        loose = gate_overrides({"CREWBORG_DECISION_GATE": "loose"})
+        extra = {k: v for k, v in got.items()
+                 if k not in ("base_probability", "forced_vote_probability",
+                              "dangerous_wrong_eject_probability")}
+        assert extra == loose
+
+
+def test_forced_vote_constant_is_inert_but_must_not_invert() -> None:
+    """Measured over 5279 league decisions, `forced_vote_probability` changes nothing.
+
+    0.04, 0.21 and 0.40 give bit-identical coverage, precision and value at base 0.30,
+    because the branch fires on 5.9% of decisions and never binds. It is kept below
+    `base` anyway: an inverted branch is a latent bug the moment someone moves `base`,
+    which is exactly how a Gate 1 smoke caught it at 0.40 against the shipped 0.51.
+    """
+
+    from crewborg.deduction.config import gate_overrides
+    from crewborg.deduction.decision import DecisionConfig
+
+    for preset in ("loose+p40", "loose+p30", "loose+bayes"):
+        cfg = DecisionConfig(**gate_overrides({"CREWBORG_DECISION_GATE": preset}))
+        assert cfg.forced_vote_probability < cfg.base_probability, preset

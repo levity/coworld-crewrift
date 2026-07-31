@@ -31,10 +31,10 @@ DeductionHistory
 stages. No stage accepts `Belief`, a suspicion value, a previous solver result,
 or a cached conclusion — **and no stage reads the environment.** Both configs are
 the caller's; the runtime resolves `CREWBORG_DECISION_GATE` (the gate) and
-`CREWBORG_SPEAKER_TRUST` (the posterior) once in `modes/attend_meeting.py`, so an
-offline sweep cannot silently inherit either preset from the shell. They stay
-separate env vars on purpose: trust changes the posterior, the gate changes what is
-done with it, and bundling them would make an A/B uninterpretable. Rerunning after a parser or likelihood change
+`CREWBORG_SOCIAL_WEIGHT` (the posterior) once in `modes/attend_meeting.py`, so an
+offline sweep cannot silently inherit either setting from the shell. They stay
+separate env vars on purpose: the social weight changes the posterior, the gate changes
+what is done with it, and bundling them would make an A/B uninterpretable. Rerunning after a parser or likelihood change
 reinterprets the complete original input. A likelihood-only sweep can reuse an
 assignment table; evidence-weight or correlation changes rerun the cheap
 derivation stage from exact history.
