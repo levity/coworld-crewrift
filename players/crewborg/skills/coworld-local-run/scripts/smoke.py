@@ -91,7 +91,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--timeout", type=float, default=120.0, help="run-episode --timeout-seconds.")
     ap.add_argument("--manifest", help="Use this manifest path instead of downloading the coworld.")
     ap.add_argument("--out", default="/tmp/coworld_smoke", help="Output dir for episode artifacts.")
+    # THE THIRD FOOTGUN. A version's behaviour lives in its `--secret-env`, so without
+    # this the smoke test runs the image DEFAULTS and reports PASS for a configuration
+    # nobody is going to ship. Measured 2026-07-31: crewborg-lw:v33 was to run
+    # CREWBORG_SOCIAL_WEIGHT=0.275, the Gate-1 run exercised the 0.40 default, and the
+    # verdict looked identical either way -- the same shape of failure as a lever that
+    # is wired to nothing. Pass the SAME --secret-env flags here as at upload.
+    ap.add_argument("--secret-env", action="append", default=[], metavar="K=V",
+                    help="Env for the policy container, as at upload (repeatable). "
+                         "Without it the smoke tests image defaults, not your version.")
     args = ap.parse_args(argv)
+
+    for item in args.secret_env:
+        if "=" not in item:
+            sys.exit(f"--secret-env expects K=V, got {item!r}")
 
     assert_amd64(args.image)
     manifest = Path(args.manifest) if args.manifest else ensure_manifest(args.coworld)
@@ -102,6 +115,13 @@ def main(argv: list[str] | None = None) -> int:
            "--timeout-seconds", str(args.timeout)]
     for tok in args.run:
         cmd += ["--run", tok]
+    for item in args.secret_env:
+        cmd += ["--secret-env", item]
+    if args.secret_env:
+        print(f"  policy env: {' '.join(args.secret_env)}", file=sys.stderr)
+    else:
+        print("  policy env: NONE -- testing image defaults, not a version's config",
+              file=sys.stderr)
     proc = coworld(*cmd)
 
     # Verdict
