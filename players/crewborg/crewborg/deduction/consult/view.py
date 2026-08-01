@@ -135,10 +135,9 @@ class ConsultView:
         the player the evidence points at hardest -- mean marginal 0.616.
 
         A model shown that list votes for the corpse, `apply` rejects the pick as an
-        illegal target, and the call is spent for nothing. Offline it is worse than
-        nothing: `pick in imposters` scores a vote for the already-ejected impostor
-        CORRECT, which manufactured the entire "the LLM beats the solver after an
-        ejection" cell of the 2026-08-01 consult report. See
+        illegal target, and the call is spent for nothing -- and an offline scorer that
+        counts a vote for the already-ejected impostor as CORRECT reports it as a win.
+        That is where the "LLM beats the solver after an ejection" cell came from:
         `crewrift-experiments/2026-08-01-post-ejection-consult-liveness.md`.
 
         Deriving liveness from `legal_targets` rather than from a second field is what
@@ -156,11 +155,12 @@ class ConsultView:
         )
 
     def top(self, k: int) -> tuple[Candidate, ...]:
-        """The k best-supported votable candidates -- what a consult may offer.
+        """The k best-supported votable candidates -- the one shortlist a consult offers.
 
-        `murder_cleared` players are excluded by `ranked` already (a body was found, so
-        they are dead and not a legal target). The filter stays because it is a
-        soundness claim about the SHORTLIST, not an artifact of how liveness is derived.
+        `ranked` already drops `murder_cleared` players (a body was found, so they are
+        dead and not a legal target). Keeping the filter here anyway states the shortlist
+        invariant directly rather than resting it on how `legal_targets` was derived,
+        which a caller supplies.
         """
 
         return tuple(c for c in self.ranked if not c.murder_cleared)[: max(1, k)]
@@ -338,21 +338,17 @@ class ConsultView:
         # an ejected impostor as a legal, correct answer, while a pod would have thrown
         # the same pick away as an illegal target. That is exactly the parity this class
         # exists to guarantee, broken in the direction that flatters the experiment.
+        cutoff = float("inf") if tick is None else int(tick)
         dead = {
             event.get("actor")
             for event in timeline
             if event.get("kind") == "death"
             and event.get("actor")
-            and (tick is None or int(event.get("tick") or 0) <= int(tick))
+            and int(event.get("tick") or 0) <= cutoff
         }
-        if roster:
-            live = tuple(sorted(set(roster) - dead - {self_color}))
-        else:
-            # No roster to subtract from: fall back to the marginal vector, still minus
-            # anyone the timeline has already buried.
-            live = tuple(
-                sorted(c for c in marginals if c != self_color and c not in dead)
-            )
+        # `roster` is not in the row shape this documents, so fall back to the marginal
+        # vector when a caller omits it -- still minus whoever the timeline has buried.
+        live = tuple(sorted((set(roster) or set(marginals)) - dead - {self_color}))
         return cls(
             self_color=self_color,
             candidates=tuple(

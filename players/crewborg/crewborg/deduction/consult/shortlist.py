@@ -25,7 +25,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from crewborg.deduction.consult.base import SKIP, BaseConsult, ConsultOutcome
-from crewborg.deduction.consult.view import Candidate, ConsultView
+from crewborg.deduction.consult.view import ConsultView
 
 CHAT_MAX_CHARS = 160
 
@@ -116,19 +116,12 @@ class ShortlistConsult(BaseConsult):
             return f"top marginal {top.p:.2f} outside contested band"
         return None
 
-    def _shortlist(self, view: ConsultView) -> tuple[Candidate, ...]:
-        """The candidates offered, computed ONCE for both `payload` and `apply`.
-
-        These read the same list or the consult accepts a pick it never showed. They did
-        not: `payload` dropped `murder_cleared` candidates and `apply` did not, so a
-        model naming a player it was never offered was admitted. `view.top` now owns that
-        filter, and both callers come through here.
-        """
-
-        return view.top(int(self.param("k")))
-
     def payload(self, view: ConsultView) -> dict[str, Any]:
-        shortlist = self._shortlist(view)
+        # `view.top` owns the shortlist, filters and all, because `payload` and `apply`
+        # must read the SAME list or the consult accepts a pick it never showed. They
+        # did not: `payload` dropped `murder_cleared` candidates inline and `apply` did
+        # not, so a model naming a player it was never offered was admitted.
+        shortlist = view.top(int(self.param("k")))
         names = {c.color for c in shortlist}
         return {
             "task": "pick_impostor_from_shortlist",
@@ -152,7 +145,7 @@ class ShortlistConsult(BaseConsult):
 
     def apply(self, response: BaseModel, view: ConsultView) -> ConsultOutcome:
         assert isinstance(response, ShortlistResponse)
-        shortlist = {c.color for c in self._shortlist(view)}
+        shortlist = {c.color for c in view.top(int(self.param("k")))}
         pick = (response.pick or "").strip().lower()
         deterministic = view.deterministic_vote
 

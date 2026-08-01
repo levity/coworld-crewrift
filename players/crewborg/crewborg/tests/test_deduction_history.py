@@ -1225,7 +1225,7 @@ def test_shortlist_rejects_a_low_confidence_pick() -> None:
 # the ejected impostor is precisely the player the evidence points at hardest.
 
 
-def _ejected_view(**kwargs):
+def _ejected_view():
     """`red` was voted out last meeting and the posterior still likes them for it."""
 
     return _view(
@@ -1233,7 +1233,6 @@ def _ejected_view(**kwargs):
         target="green",
         timeline=(GameEvent(400, "death", actor="red", detail="ejection"),),
         legal=("green", "pink"),
-        **kwargs,
     )
 
 
