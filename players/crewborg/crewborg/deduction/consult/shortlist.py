@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from crewborg.deduction.consult.base import SKIP, BaseConsult, ConsultOutcome
 from crewborg.deduction.consult.view import ConsultView
@@ -53,6 +53,28 @@ class ShortlistResponse(BaseModel):
     evidence: list[str] = Field(default_factory=list, max_length=4)
     reason: str = ""
     chat: str | None = Field(default=None, max_length=CHAT_MAX_CHARS)
+
+    @field_validator("chat", mode="before")
+    @classmethod
+    def _clip_chat(cls, value: Any) -> Any:
+        """TRUNCATE an over-long chat line; never reject the answer over it.
+
+        `chat` is flavour -- one line the crewmate says before voting. `pick` and
+        `confidence` are the decision. Enforcing the length as a hard schema bound meant a
+        model that wrote 170 characters had its entire impostor call thrown away, and
+        `run_consult`'s never-raises contract turned that into a silent fallback to the
+        solver. Measured over 2,147 real meetings on 2026-08-01: 503 (23%) were lost this
+        way, and the rate rose with board difficulty -- 59% in the low-posterior buckets,
+        where a hedged answer runs long and where we most needed the data. Losing the
+        hardest cases preferentially is the worst possible way to lose a quarter of them.
+
+        The prompt still asks for <=160 (memory/shortlist.md), and the schema still
+        advertises maxLength; this only decides what to do when the model ignores both.
+        """
+
+        if isinstance(value, str) and len(value) > CHAT_MAX_CHARS:
+            return value[:CHAT_MAX_CHARS]
+        return value
 
 
 class ShortlistConsult(BaseConsult):

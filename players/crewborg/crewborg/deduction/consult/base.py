@@ -138,7 +138,15 @@ def response_schema(model: type[BaseModel]) -> dict[str, Any]:
 
 
 def _coerce(raw: Any, template: Any) -> Any:
-    """Parse an env-string parameter into the type of its default."""
+    """Parse an env-string parameter into the type of its default.
+
+    The `except` used to `return template`, which bailed out of the caster loop on the
+    FIRST failure instead of trying the next one. For a float default that meant `int`
+    was tried, `int("0.0")` raised, and the override silently became the default: an arm
+    named `min_p=0.0` ran at 0.35. Cost a 2h scoring run on 2026-07-31 that recorded the
+    right spec string in every trace line while running the shipped band. `0` worked and
+    `0.0` did not, which is exactly the kind of difference nobody thinks to test.
+    """
 
     if isinstance(template, bool):
         return str(raw).strip().lower() in {"1", "true", "yes", "on"}
@@ -148,8 +156,8 @@ def _coerce(raw: Any, template: Any) -> Any:
         try:
             return caster(raw)
         except (TypeError, ValueError):
-            return template
-    return raw
+            continue
+    return template if isinstance(template, (int, float, bool)) else raw
 
 
 @lru_cache(maxsize=32)
