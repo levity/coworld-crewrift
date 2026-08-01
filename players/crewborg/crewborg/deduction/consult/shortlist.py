@@ -139,7 +139,11 @@ class ShortlistConsult(BaseConsult):
         return None
 
     def payload(self, view: ConsultView) -> dict[str, Any]:
-        shortlist = [c for c in view.top(int(self.param("k"))) if not c.murder_cleared]
+        # `view.top` owns the shortlist, filters and all, because `payload` and `apply`
+        # must read the SAME list or the consult accepts a pick it never showed. They
+        # did not: `payload` dropped `murder_cleared` candidates inline and `apply` did
+        # not, so a model naming a player it was never offered was admitted.
+        shortlist = view.top(int(self.param("k")))
         names = {c.color for c in shortlist}
         return {
             "task": "pick_impostor_from_shortlist",

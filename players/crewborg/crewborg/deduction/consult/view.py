@@ -32,7 +32,14 @@ SKIP = "skip"
 
 @dataclass(frozen=True)
 class Candidate:
-    """One live player as the posterior sees them."""
+    """One player as the posterior sees them -- ALIVE OR DEAD.
+
+    `candidates` mirrors the solver's whole marginal vector, and that vector spans the
+    dead: an ejected player keeps whatever probability the evidence gave them, because
+    ejection reveals no role (`inference.derive_evidence`). Use `ConsultView.ranked` to
+    get the votable ones; see its docstring for why nothing else should be shown to a
+    model.
+    """
 
     color: str
     p: float
@@ -115,10 +122,48 @@ class ConsultView:
 
     @property
     def ranked(self) -> tuple[Candidate, ...]:
-        return tuple(sorted(self.candidates, key=lambda c: c.p, reverse=True))
+        """The VOTABLE candidates, best-supported first.
+
+        Filtered to `legal_targets` -- the live roster minus self -- and not merely
+        sorted. `candidates` carries the solver's full marginal vector, which includes
+        the dead, and an EJECTED player is the dangerous case: ejection reveals no role,
+        so the evidence that got them voted out survives in the posterior and they can
+        still rank first. Measured over 6,829 league meetings (2026-08-01): with the
+        shipped `shortlist` band, 15.3% of consult-eligible meetings put a dead player on
+        the three-name shortlist and 7.9% put one at the TOP of it. Once an impostor has
+        been ejected it is 92-97% of meetings, because the ejected impostor is exactly
+        the player the evidence points at hardest -- mean marginal 0.616.
+
+        A model shown that list votes for the corpse, `apply` rejects the pick as an
+        illegal target, and the call is spent for nothing -- and an offline scorer that
+        counts a vote for the already-ejected impostor as CORRECT reports it as a win.
+        That is where the "LLM beats the solver after an ejection" cell came from:
+        `crewrift-experiments/2026-08-01-post-ejection-consult-liveness.md`.
+
+        Deriving liveness from `legal_targets` rather than from a second field is what
+        makes that unrepeatable: the only players a consult can be shown are the ones it
+        may legally vote for, so the two cannot drift apart.
+        """
+
+        votable = set(self.legal_targets)
+        return tuple(
+            sorted(
+                (c for c in self.candidates if c.color in votable),
+                key=lambda c: c.p,
+                reverse=True,
+            )
+        )
 
     def top(self, k: int) -> tuple[Candidate, ...]:
-        return self.ranked[: max(1, k)]
+        """The k best-supported votable candidates -- the one shortlist a consult offers.
+
+        `ranked` already drops `murder_cleared` players (a body was found, so they are
+        dead and not a legal target). Keeping the filter here anyway states the shortlist
+        invariant directly rather than resting it on how `legal_targets` was derived,
+        which a caller supplies.
+        """
+
+        return tuple(c for c in self.ranked if not c.murder_cleared)[: max(1, k)]
 
     def is_legal(self, target: str | None) -> bool:
         return bool(target) and (target == SKIP or target in self.legal_targets)
@@ -281,7 +326,29 @@ class ConsultView:
                 pair = tuple(item.get("imposters") or ())
                 hypotheses.append((pair, float(item.get("p") or 0.0)))
         self_color = self_color or row.get("self_color")
-        live = tuple(sorted(c for c, p in marginals.items() if p > 0 and c != self_color))
+        roster = tuple(row.get("roster") or ())
+        tick = row.get("tick")
+        timeline = tuple(row.get("timeline") or ())
+        # Liveness comes from the DEATHS, never from `p > 0`.
+        #
+        # `p > 0` was the old rule and it is wrong in one specific, expensive way: a
+        # murdered player is zeroed by `murder_clears` and so reads as dead, but an
+        # EJECTED player keeps their probability -- ejection reveals no role -- and so
+        # read as alive. The offline scorer therefore accepted a vote for the corpse of
+        # an ejected impostor as a legal, correct answer, while a pod would have thrown
+        # the same pick away as an illegal target. That is exactly the parity this class
+        # exists to guarantee, broken in the direction that flatters the experiment.
+        cutoff = float("inf") if tick is None else int(tick)
+        dead = {
+            event.get("actor")
+            for event in timeline
+            if event.get("kind") == "death"
+            and event.get("actor")
+            and int(event.get("tick") or 0) <= cutoff
+        }
+        # `roster` is not in the row shape this documents, so fall back to the marginal
+        # vector when a caller omits it -- still minus whoever the timeline has buried.
+        live = tuple(sorted((set(roster) or set(marginals)) - dead - {self_color}))
         return cls(
             self_color=self_color,
             candidates=tuple(
@@ -306,13 +373,13 @@ class ConsultView:
                     meeting_id=e.get("meeting_id"),
                     detail=e.get("detail"),
                 )
-                for e in row.get("timeline") or ()
+                for e in timeline
             ),
             legal_targets=live,
-            roster=tuple(row.get("roster") or ()),
+            roster=roster,
             imposter_count=int(row.get("imposter_count") or 2),
             meeting_id=row.get("meeting_id"),
-            tick=row.get("tick"),
+            tick=tick,
         )
 
 

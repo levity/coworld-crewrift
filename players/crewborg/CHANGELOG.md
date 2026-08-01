@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-08-01 - A consult may never be shown a corpse
+
+- `ConsultView.ranked` filters to `legal_targets` instead of sorting the solver's whole
+  marginal vector. That vector spans the dead, and an ejected player keeps their
+  probability because ejection reveals no role, so the shortlist was offering players who
+  cannot be voted for: 15.3% of consult-eligible meetings, 92-97% once an impostor had
+  been ejected.
+- `ConsultView.from_row` derives liveness from the timeline's deaths rather than `p > 0`,
+  which buried the murdered and resurrected the ejected — the offline scorer accepted
+  picks a pod rejects as illegal targets.
+- `ShortlistConsult.payload` and `.apply` read one `_shortlist`; they had diverged over
+  `murder_cleared`, so a model could name a player it was never shown and be obeyed.
+- No solver change: the posterior is not mishandled after an ejection. See
+  `crewrift-experiments/2026-08-01-post-ejection-consult-liveness.md`.
+
 ## 2026-07-26 - Crew-brain separation, kill window, and upload provenance
 
 - Separate the two crewmate brains in the tree. The claim parser moved out of

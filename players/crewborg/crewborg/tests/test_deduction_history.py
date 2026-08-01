@@ -1153,16 +1153,31 @@ def test_consult_can_convert_a_skip_into_a_vote(monkeypatch) -> None:
 # payload and `apply`.
 
 
-def _view(pairs, *, action="eject", target=None, pins=(), self_color="blue", timeline=()):
+def _view(
+    pairs,
+    *,
+    action="eject",
+    target=None,
+    pins=(),
+    self_color="blue",
+    timeline=(),
+    cleared=(),
+    legal=None,
+):
+    """`legal` defaults to everyone -- pass it to bury a player the posterior still likes."""
+
     return ConsultView(
         self_color=self_color,
         candidates=tuple(
-            Candidate(c, p, murder_cleared=False, pinned=c in pins) for c, p in pairs
+            Candidate(c, p, murder_cleared=c in cleared, pinned=c in pins)
+            for c, p in pairs
         ),
         joint_hypotheses=(),
         deterministic={"action": action, "target": target, "probability": max(p for _c, p in pairs)},
         timeline=tuple(timeline),
-        legal_targets=tuple(sorted(c for c, _p in pairs)),
+        legal_targets=(
+            tuple(sorted(c for c, _p in pairs)) if legal is None else tuple(legal)
+        ),
         roster=tuple(sorted(c for c, _p in pairs)),
     )
 
@@ -1198,6 +1213,112 @@ def test_shortlist_rejects_a_low_confidence_pick() -> None:
     view = _view([("red", 0.48), ("green", 0.41)], target="red")
     outcome = consult.apply(ShortlistResponse(pick="green", confidence=0.4), view)
     assert outcome.vote == "red" and outcome.fields["declined"] == "below_min_confidence"
+
+
+# --- liveness: a consult may never be shown a corpse ---------------------------------
+#
+# The failure these pin down is not hypothetical. `ranked` used to sort the solver's whole
+# marginal vector, which spans the dead, and an EJECTED player keeps their probability
+# because ejection reveals no role. Over 6,829 league meetings (2026-08-01) that put a
+# dead player on the shipped three-name shortlist in 15.3% of consult-eligible meetings,
+# at the TOP of it in 7.9%, and in 92-97% of meetings once an impostor had been ejected --
+# the ejected impostor is precisely the player the evidence points at hardest.
+
+
+def _ejected_view():
+    """`red` was voted out last meeting and the posterior still likes them for it."""
+
+    return _view(
+        [("red", 0.62), ("green", 0.44), ("pink", 0.31)],
+        target="green",
+        timeline=(GameEvent(400, "death", actor="red", detail="ejection"),),
+        legal=("green", "pink"),
+    )
+
+
+def test_ranked_excludes_the_dead_however_suspicious() -> None:
+    view = _ejected_view()
+    assert [c.color for c in view.ranked] == ["green", "pink"]
+    assert "red" not in {c.color for c in view.top(3)}
+    # The full vector is still there for a consult that wants it -- only the votable
+    # projection is filtered.
+    assert "red" in {c.color for c in view.candidates}
+
+
+def test_shortlist_never_offers_an_ejected_player_as_a_pick() -> None:
+    consult = ShortlistConsult({})
+    view = _ejected_view()
+    assert "red" not in consult.payload(view)["allowed_picks"]
+    outcome = consult.apply(ShortlistResponse(pick="red", confidence=0.99), view)
+    assert outcome.vote == "green" and not outcome.followed_llm
+    assert outcome.fields["declined"] == "pick_off_shortlist"
+
+
+def test_the_contested_band_is_measured_on_the_top_LIVE_candidate() -> None:
+    """A dead leader used to push the board out of the band and silence the consult.
+
+    `red` at 0.62 is inside 0.35-0.65 and would have been the top of `ranked`, so the
+    band test passed for the wrong reason. With `red` buried the question the consult
+    actually faces is green-vs-pink at 0.44, which is squarely the coin-flip band this
+    experiment exists for.
+    """
+
+    assert ShortlistConsult({}).applies(_ejected_view()) is None
+    # And a board whose only LIVE candidate is one player is not a reordering problem.
+    solo = _view(
+        [("red", 0.62), ("green", 0.44)],
+        target="green",
+        timeline=(GameEvent(400, "death", actor="red", detail="ejection"),),
+        legal=("green",),
+    )
+    assert ShortlistConsult({}).applies(solo) == "fewer than two live candidates"
+
+
+def test_offline_rows_bury_an_ejected_player_that_still_has_probability() -> None:
+    """The parity guarantee, on the case that broke it.
+
+    `p > 0` was the old offline liveness rule. A murdered player is zeroed by
+    `murder_clears` and so read as dead, but an ejected one keeps their mass and read as
+    ALIVE -- so the scorer accepted a vote for a corpse that a pod would have thrown away
+    as an illegal target, and `pick in imposters` then scored it CORRECT.
+    """
+
+    row = {
+        "marginals": {"red": 0.62, "green": 0.44, "pink": 0.31, "cyan": 0.0},
+        "murder_clears": ["cyan"],
+        "roster": ["blue", "red", "green", "pink", "cyan"],
+        "self_color": "blue",
+        "tick": 900,
+        "timeline": [
+            {"tick": 400, "kind": "death", "actor": "red", "detail": "ejection"},
+            {"tick": 500, "kind": "death", "actor": "cyan", "detail": "body"},
+            # After the decision tick, so it has not happened yet.
+            {"tick": 950, "kind": "death", "actor": "pink", "detail": "body"},
+        ],
+        "action": "eject",
+        "target": "green",
+    }
+    view = ConsultView.from_row(row)
+    assert view.legal_targets == ("green", "pink")
+    assert not view.is_legal("red") and not view.is_legal("cyan")
+    assert view.is_legal("pink")
+    assert [c.color for c in view.ranked] == ["green", "pink"]
+
+
+def test_payload_and_apply_read_the_same_shortlist() -> None:
+    """They diverged: `payload` dropped `murder_cleared`, `apply` did not.
+
+    A model could therefore name a player it was never shown and be obeyed. Both now go
+    through `_shortlist`, so the offered set and the accepted set cannot drift.
+    """
+
+    consult = ShortlistConsult({"k": "3"})
+    view = _view(
+        [("red", 0.48), ("green", 0.41), ("pink", 0.30)], target="red", cleared=("pink",)
+    )
+    assert "pink" not in consult.payload(view)["allowed_picks"]
+    outcome = consult.apply(ShortlistResponse(pick="pink", confidence=0.99), view)
+    assert outcome.fields["declined"] == "pick_off_shortlist"
 
 
 def test_promotion_is_one_parameter_in_both_directions() -> None:
