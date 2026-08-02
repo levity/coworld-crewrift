@@ -144,7 +144,10 @@ def test_a_negated_kill_report_accuses_nobody(nlp_model) -> None:
 # --- end-to-end: chat suss drives the imposter bandwagon --------------------
 
 
-def test_imposter_bandwagons_on_chat_suss_alone(nlp_model) -> None:
+def test_imposter_bandwagons_on_chat_suss_alone(nlp_model, monkeypatch) -> None:
+    # The imposter is silent by default now; this covers the chat-heat READ, so it runs
+    # the legacy talker explicitly rather than losing the coverage.
+    monkeypatch.setenv("CREWBORG_IMPOSTER_CHAT", "1")
     mode = AttendMeetingMode()
     belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"})
     belief.voting = VotingState(

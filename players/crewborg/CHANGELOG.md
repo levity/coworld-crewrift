@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-08-02 - The imposter no longer speaks in meetings
+
+- Default behaviour change: the imposter selects the same deflection target on the same
+  path at the same tick and casts the same ballot, and sends no chat.
+  `CREWBORG_IMPOSTER_CHAT=1` restores the legacy talker — it exists only so a future A/B
+  can build both arms from one image.
+- Measured over two hosted A/Bs, 400 episodes, zero ops failures. Silence does NOT change
+  how often we are ejected (28.6% either way — the tell is the BALLOT, not the chat). It
+  changes WHEN: ejections before our own first kill fell 16.4% -> 4.0% pooled (z=-4.06,
+  p=0.00005), because the accusation drew a vote before we had done anything. Surviving
+  those meetings is worth **+0.435 kills/ep** against the same-episode rival impostor
+  (combined DiD, z=3.26, p=0.0011) — about a third more killing against a league baseline
+  near 1.3.
+- **Not measured, and the reason this is a merge and not a league submission:** team win
+  moved 77.6% -> 70.4% in the isolating arm. n=98/arm makes that z=-1.15, p=0.25 — noise by
+  any conventional bar, wrong direction, and unresolvable at that size (~250/arm needed for
+  10pp). Watch it.
+- Record: `crewrift-experiments/2026-08-02-imposter-ballot-restraint.md`.
+
 ## 2026-08-01 - A consult may never be shown a corpse
 
 - `ConsultView.ranked` filters to `legal_targets` instead of sorting the solver's whole
