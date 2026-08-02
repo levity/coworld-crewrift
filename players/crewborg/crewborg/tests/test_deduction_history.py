@@ -1935,3 +1935,56 @@ def test_vote_commit_preset_degrades_to_backstop() -> None:
     assert vote_commit({"CREWBORG_VOTE_COMMIT": "ON-PIN"}) == "on-pin"
     assert vote_commit({"CREWBORG_VOTE_COMMIT": "asap"}) == "backstop"
     assert vote_commit({"CREWBORG_VOTE_COMMIT": ""}) == "backstop"
+
+
+def test_vote_commit_tick_moves_the_early_solve(monkeypatch) -> None:
+    """`on-pin@15` solves and votes at tick 15, not at the shipped 240.
+
+    The tick IS the lever: at 240 the field has already voted (0.16 crew seats
+    left per meeting) and at 15 it has not (2.07).
+    """
+
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    monkeypatch.setenv("CREWBORG_SOCIAL_WEIGHT", "1.0")
+    monkeypatch.setenv("CREWBORG_VOTE_COMMIT", "on-pin@15")
+    belief = _meeting_belief_with_history((
+        _utterance(101, "blue", "red vented"),
+        _utterance(102, "yellow", "red vented"),
+        _utterance(103, "green", "red vented"),
+    ))
+    belief.last_tick = belief.phase_start_tick + 20      # past 15, far from 240
+    mode = AttendMeetingMode()
+    mode.emit = EventEmitter(ListTraceSink(), ListMetricsSink())
+
+    chat = mode.decide(belief, ActionState())
+    vote = mode.decide(belief, ActionState())
+
+    assert chat.kind == "chat"
+    assert vote.kind == "vote"
+    assert vote.target_color == "red"
+
+
+def test_vote_commit_waits_for_the_voting_panel(monkeypatch) -> None:
+    """No early commit while the panel is undecoded — the backstop still runs.
+
+    `valid_vote_targets` falls back to the roster when the panel is empty, and
+    that fallback is silent; at tick 15 we are inside the window where it fires.
+    """
+
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    monkeypatch.setenv("CREWBORG_SOCIAL_WEIGHT", "1.0")
+    monkeypatch.setenv("CREWBORG_VOTE_COMMIT", "on-pin@15")
+    belief = _meeting_belief_with_history((
+        _utterance(101, "blue", "red vented"),
+        _utterance(102, "yellow", "red vented"),
+        _utterance(103, "green", "red vented"),
+    ))
+    belief.last_tick = belief.phase_start_tick + 20
+    # VotingState is frozen, so swap the whole panel out rather than mutating it.
+    belief.voting = VotingState(timer_present=True, self_marker_color="white",
+                                candidates=())          # panel not decoded yet
+    mode = AttendMeetingMode()
+    mode.emit = EventEmitter(ListTraceSink(), ListMetricsSink())
+
+    for _ in range(3):
+        assert mode.decide(belief, ActionState()).kind != "vote"

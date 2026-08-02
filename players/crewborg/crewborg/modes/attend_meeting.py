@@ -12,7 +12,11 @@ from players.player_sdk import EmptyModeParams, Mode
 from crewborg import nlp as chat_nlp
 from crewborg.deduction.collector import history_from_belief
 from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
-from crewborg.deduction.config import gate_overrides, inference_overrides, vote_commit
+from crewborg.deduction.config import (
+    gate_overrides,
+    inference_overrides,
+    vote_commit_tick,
+)
 from crewborg.deduction.consult import ConsultView, resolve_consult, run_consult
 from crewborg.deduction.decision import DecisionConfig
 from crewborg.deduction.decision import MeetingDecision as DeductionMeetingDecision
@@ -200,9 +204,16 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
 
         live_targets = tuple(sorted(valid_vote_targets(belief)))
         meeting_age = belief.last_tick - belief.phase_start_tick
+        # The early solve normally exists only to decide what to SAY, at a fixed
+        # 240. Under `on-pin@<tick>` it also carries the ballot, and the tick moves
+        # with it -- the claim and the dot have to land while anyone is still
+        # listening, and the field has voted by ~60.
+        early_at = vote_commit_tick()
+        if early_at is None:
+            early_at = DEDUCTION_EARLY_CHAT_TICKS
         if (
             not self._deduction_early_chat_attempted
-            and meeting_age >= DEDUCTION_EARLY_CHAT_TICKS
+            and meeting_age >= early_at
         ):
             self._deduction_early_chat_attempted = True
             solve_started = perf_counter()
@@ -234,9 +245,10 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             # complete history. So this can relocate an eject in time but can never
             # remove one, and the skip path is byte-identical to shipped.
             if (
-                vote_commit() == "on-pin"
+                vote_commit_tick() is not None
                 and early.action == "eject"
                 and early.target is not None
+                and self._panel_ready(belief)
             ):
                 self._early_commit = early
 
@@ -399,6 +411,33 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         if chat is not None and chat in self._sent_chat_texts:
             chat = None
         return outcome.vote, chat
+
+    def _panel_ready(self, belief: Belief) -> bool:
+        """Is the voting panel decoded enough to trust `valid_vote_targets`?
+
+        THE REASON THIS EXISTS. `valid_vote_targets` falls back to the ROSTER when
+        the panel is empty, and that fallback is silent. At the shipped tick 240 it
+        never mattered -- by then the panel has long been decoded. Committing at
+        tick 15 runs straight into the window where it has not, and the failure is
+        invisible: we would vote off a roster that may not match the panel, on a
+        `GameSpec` frozen from a partial player count (see `_current_history`, whose
+        cache key exists for exactly this reason).
+
+        So require the panel itself, not the fallback: candidates present, and the
+        living ones agreeing with the roster's own count of the living. If it is not
+        ready we simply do not commit early -- the backstop still runs on the
+        complete history, so the cost of being wrong here is zero.
+        """
+
+        candidates = belief.voting.candidates
+        if not candidates:
+            return False
+        panel_alive = {c.color for c in candidates if c.alive}
+        roster_alive = {color for color, record in belief.roster.items()
+                        if record.life_status == "alive"}
+        if not panel_alive or not roster_alive:
+            return False
+        return panel_alive == roster_alive
 
     def _commit_early_vote(
         self,

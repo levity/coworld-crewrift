@@ -389,14 +389,41 @@ VOTE_COMMIT_ENV = "CREWBORG_VOTE_COMMIT"
 # 4.2% -> 5.1% (+0.9 pp) -- about +0.7 pp of crew win at current coverage, and it
 # scales with coverage. The transfer assumption is stated in `pin_conviction.commit`:
 # the follow-gaps come from ordinary mid-meeting boards, not from a lone early dot.
-VOTE_COMMIT_PRESETS: dict[str, str] = {
-    "backstop": "backstop",
-    "on-pin": "on-pin",
+# `on-pin@<tick>` moves the early solve as well as the commit. THE TICK IS THE
+# WHOLE LEVER, and 240 is the wrong value for it.
+#
+# `on-pin` at the shipped 240 was A/B'd (v34 vs v35, 100+100, diverse roster) and
+# LOST: it fired on 98% of named ballots and the guards held, but by tick 240 the
+# live field has already voted. Measured on that A/B's own episodes, crew seats
+# still to vote per meeting:
+#
+#     tick    0     15     30     60    100    240
+#     seats 3.01   2.07   1.68   0.93   0.22   0.16
+#
+# and the transcript is 84.1% spoken by tick 15 against 86.5% by 240 -- so the
+# 240-tick wait buys 2.4 points of chat and costs 13x the audience.
+#
+# Truncated re-solve over 589 league decisions (`tick_commit_guard.py`), against
+# the full-audit rebuild: at tick 15 the solver picks the same target on 91.7% of
+# shared ejects, reaches 73% of them (the rest still fire at the backstop, so none
+# are lost), and precision RISES 63.7% -> 76.7% because the early-decidable ejects
+# are the confident ones. Net delivered value is flat. Tick 30 is marginally the
+# best net at somewhat less audience.
+#
+# NOT structural-only. That was the first design and it is dead: of 117 ejects the
+# policy flags `structural`, only 9 have a unique eligible pair under structure
+# alone -- the social channel breaks the tie on the rest -- so a structural-only
+# gate would fire ~9 times per 400 episodes.
+VOTE_COMMIT_TICKS: dict[str, int] = {
+    "on-pin": 240,       # the A/B'd arm; kept so the losing configuration is nameable
+    "on-pin@60": 60,
+    "on-pin@30": 30,
+    "on-pin@15": 15,
 }
 
 
 def vote_commit(env: Mapping[str, str] | None = None) -> str:
-    """When to cast the crew ballot: `backstop` (shipped) or `on-pin`.
+    """When to cast the crew ballot: `backstop` (shipped) or an `on-pin[@tick]`.
 
     An unset or misspelt value degrades to `backstop`, i.e. to shipped behaviour,
     which is the same rule every other preset family here follows.
@@ -404,4 +431,13 @@ def vote_commit(env: Mapping[str, str] | None = None) -> str:
 
     source = os.environ if env is None else env
     raw = source.get(VOTE_COMMIT_ENV, "").strip().lower()
-    return VOTE_COMMIT_PRESETS.get(raw, "backstop")
+    return raw if raw in VOTE_COMMIT_TICKS else "backstop"
+
+
+def vote_commit_tick(env: Mapping[str, str] | None = None) -> int | None:
+    """The meeting age at which the early solve runs, or None under `backstop`.
+
+    `None` means the caller keeps the shipped constant and never commits early.
+    """
+
+    return VOTE_COMMIT_TICKS.get(vote_commit(env))
