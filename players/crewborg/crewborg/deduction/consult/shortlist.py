@@ -25,7 +25,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from crewborg.deduction.consult.base import SKIP, BaseConsult, ConsultOutcome
-from crewborg.deduction.consult.view import ConsultView
+from crewborg.deduction.consult.view import Candidate, ConsultView
 
 CHAT_MAX_CHARS = 160
 
@@ -123,6 +123,11 @@ class ShortlistConsult(BaseConsult):
         # time. It is a real question, not a settled one, which is why it is a parameter
         # and why the offline paired score has to clear the 50.2% bar before it ships.
         "allow_promote": True,
+        # Withhold the solver's answer entirely -- see `payload`. Off by default because
+        # the shipped consult is meant to REORDER the solver's list, which needs the list.
+        # On, it measures whether the model has any independent signal, which is a
+        # question the sighted arm structurally cannot answer.
+        "blind": False,
     }
 
     def applies(self, view: ConsultView) -> str | None:
@@ -138,13 +143,52 @@ class ShortlistConsult(BaseConsult):
             return f"top marginal {top.p:.2f} outside contested band"
         return None
 
+    def candidates(self, view: ConsultView) -> tuple[Candidate, ...]:
+        """The shortlist, in ONE place because `payload` and `apply` must not disagree.
+
+        They did once -- `payload` dropped `murder_cleared` inline and `apply` did not, so
+        a model naming a player it was never offered was admitted. Any future filter goes
+        here for the same reason.
+
+        DO NOT ADD A `max_gap` THAT PRUNES BY MARGINAL. It was tried on 2026-08-01 and is
+        a nonstarter. Dropping candidates more than 0.15 behind the leader removes a
+        genuine decoy on 36% of boards, but it also DESTROYS THE ONLY IMPOSTOR on 183 of
+        2,183 addressed meetings (8.4%): the impostor is pruned and no survivor is one, so
+        the meeting is unwinnable by construction and every answer on it is wrong.
+
+        The deeper objection is that it prunes by the solver's own `p` -- inside an
+        experiment whose whole purpose is to test whether that `p` can be trusted on these
+        boards. Trusting the ranking to decide who deserves consideration bakes the
+        solver's error into the question, and the consult exists to SUPPORT the solver,
+        not to propagate its mistakes. A decoy makes the task harder; pruning makes it
+        impossible. Harder is acceptable, impossible is not.
+        """
+
+        return view.top(int(self.param("k")))
+
     def payload(self, view: ConsultView) -> dict[str, Any]:
-        # `view.top` owns the shortlist, filters and all, because `payload` and `apply`
-        # must read the SAME list or the consult accepts a pick it never showed. They
-        # did not: `payload` dropped `murder_cleared` candidates inline and `apply` did
-        # not, so a model naming a player it was never offered was admitted.
-        shortlist = view.top(int(self.param("k")))
+        shortlist = self.candidates(view)
         names = {c.color for c in shortlist}
+        if self.param("blind"):
+            # THE SOLVER'S ANSWER IS DISCLOSED FIVE WAYS, so blinding must remove all of
+            # them. Deleting `solver_would_vote` alone changes nothing: `shortlist` is
+            # rank-ordered AND prints `p`, `solver_conclusion` restates the target and its
+            # probability, and `joint_hypotheses` is p-ordered with the argmax first. A
+            # model that names element zero reproduces the solver exactly.
+            #
+            # This is the arm that answers whether the model contributes anything at all.
+            # Measured sighted (2026-08-01, 2147 meetings): 92-100% agreement, 20
+            # discordant pairs in 597, McNemar p=1.000 -- i.e. the output was a function
+            # of an input we left in the payload, and no prompt change is measurable until
+            # that channel is cut. Alphabetical order, no probabilities, no solver.
+            candidates = sorted(names)
+            return {
+                "task": "pick_impostor_from_shortlist",
+                "you_are": view.self_color,
+                "your_role": view.self_role,
+                "game_log": view.game_log(),
+                "allowed_picks": candidates,
+            }
         return {
             "task": "pick_impostor_from_shortlist",
             "you_are": view.self_color,
@@ -167,7 +211,7 @@ class ShortlistConsult(BaseConsult):
 
     def apply(self, response: BaseModel, view: ConsultView) -> ConsultOutcome:
         assert isinstance(response, ShortlistResponse)
-        shortlist = {c.color for c in view.top(int(self.param("k")))}
+        shortlist = {c.color for c in self.candidates(view)}
         pick = (response.pick or "").strip().lower()
         deterministic = view.deterministic_vote
 

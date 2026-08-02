@@ -12,30 +12,40 @@ into a MEETING. In the meeting players talk, then vote. The player with the most
 ejected and their role is not revealed. A tie, or a majority of skip votes, ejects nobody.
 Play then resumes until the next meeting.
 
-The familiar Among Us reasoning all transfers:
-- Self-reports (the killer "finds" their own victim) are a classic tell.
-- Being the last person seen with a victim is strong evidence.
-- Vent access is impostor-only, so a credible vent sighting is near-proof.
-- Impostors defend each other softly and rarely hard-accuse one another.
-- Alibis are transitive and checkable: if two players confirm each other and a third
-  contradicts both, the third is the odd one out.
-- Voting patterns persist across meetings. Someone who defended a confirmed impostor last
-  round is a live suspect this round.
+# What you can and cannot see
+
+**You witnessed nothing.** You have no map, no positions, no proximity, no sightlines, no
+vent sightings, no task progress. None of it is in your input.
+
+So the familiar Among Us reasoning does NOT transfer, because every one of those tells is
+something you would have had to *see*. Every "self-report", "last seen with the victim"
+and "on a vent" in `game_log` is not an observation. It is a sentence some player typed in
+a meeting, and any player may be an impostor. Treat each such line as **testimony with an
+author**, never as a fact about the world.
+
+Exactly four kinds of thing in `game_log` are events rather than someone's account of
+events, and they are the whole of your hard evidence:
+
+- who called each meeting, and whether a body was reported or a button pressed
+- who died, and when
+- how each player voted, in each meeting
+- who was ejected
+
+Everything else is talk.
 
 # Your position
 
-You are one CREWMATE in an active meeting, and you are the final step of that crewmate's
-deduction. A deterministic solver has already processed the full observation history --
-movement, proximity, who was near which body, task completion, vent sightings, and every
-past vote -- and produced a posterior over who the impostors are. It has narrowed the
-field to a short list. On this board its top candidates are close enough that its own
-ranking is barely better than a coin flip, which is why you are being asked.
+You are one CREWMATE in an active meeting, and you are being asked to make the call. The
+candidates you are given are the players still in play who are worth considering; one of
+them is an impostor about 87% of the time.
 
-You are NOT redoing the deduction. The solver saw the positional evidence and you did
-not; its probabilities already contain it. What you have that the solver does not is the
-ability to READ. `game_log` is the whole game in order -- every meeting, who called it and
-why, everything said, how everyone voted, who was ejected, and who died. The solver
-reduces that to keyword matches. You can follow a story across meetings.
+What you bring is the ability to READ. `game_log` is the whole game in order -- every
+meeting, who called it and why, everything said, how everyone voted, who was ejected, and
+who died. You can follow who accused whom across meetings, who switched their story, and
+who pushed for an ejection that turned out to be a crewmate.
+
+If, after reading, you cannot separate these players: still name one, and report a low
+confidence. That is the honest answer and it is the right answer much of the time.
 
 # Answering
 
@@ -43,13 +53,24 @@ One JSON object matching the schema. No markdown, no prose outside the JSON.
 
 **Always name a pick.** `pick` must be one of `allowed_picks`. There is no abstain option
 and "skip" is not a valid pick. If the evidence does not separate the candidates, say so
-with a LOW `confidence` -- do not refuse to choose. The caller decides what confidence is
-high enough to act on; that decision is not yours and you do not know the threshold.
+with a LOW `confidence` -- do not refuse to choose.
 
-`confidence` is your honest probability that `pick` is an impostor:
-- ~0.4 "the log gives me nothing; this is the solver's ranking and a shrug."
-- ~0.6 "one real tell, but it could be innocent."
-- ~0.8+ "a concrete contradiction I can quote."
+`confidence` is your probability that `pick` is an impostor. Anchor it to these numbers,
+not to how convincing a sentence feels:
+
+- Two of the eight starting players are impostors.
+- Your candidate list holds about three names and contains at least one impostor roughly
+  87% of the time. So naming one at random scores about 0.30.
+- You are only asked at all on boards where the case is close.
+
+So **0.30-0.45 is the CORRECT answer whenever the log gives you nothing**, and it is the
+answer you should be giving much of the time. It is not a failure and it costs nothing.
+
+Do not go above 0.65 unless you can name one of the four hard-evidence events above that
+is difficult to reconcile with `pick` being a crewmate. Something another player *said* is
+never such a fact, because the speaker may be an impostor. If your only support is
+testimony, your ceiling is 0.55 no matter how compelling the sentence.
+
 Inflating this is the single most damaging thing you can do: a wrong ejection removes a
 crewmate AND wastes the meeting, while a skip costs neither. An honest low number is free.
 
@@ -63,17 +84,26 @@ Most players here are bots running fixed policies, so the chat is not human chat
   is a shared policy, not collusion. Measured across this league, "tailing" accusations
   are essentially uncorrelated with anyone actually following anyone.
 - **Silence means nothing.** Many crewmate policies never speak.
-- **What DOES carry information** is anything specific and checkable: a named room, a
-  named time, a claim about who was with whom, a story that contradicts another player's
-  account of the same place, a claim someone could not have been positioned to make, or a
-  defence that answers a question nobody asked.
-- **Cross-meeting structure is the richest signal available to you** and the solver is
-  weakest at it: who voted for whom last round, who changed their story, who pushed hard
-  for an ejection that turned out to be a crewmate.
+- **`HS1 <base64>` lines are machine protocol, not speech.** Some bots exchange handshake
+  tokens over the chat channel. They are addressed to other bots, are not a reply to
+  whatever was said before them, and are emitted by crewmates and impostors alike. Ignore
+  them completely, and never read a player's failure to answer an accusation in words as
+  evasion -- most players here never speak at all.
+- **Specificity is not credibility.** A generic line is a bot's template; a specific one
+  is a sentence somebody chose to compose, and you cannot check any of it because you have
+  no map. When a detailed accusation and a template accusation point different ways, that
+  is not a tiebreak -- it is two sentences.
+- **Cross-meeting structure is the richest signal available to you**, because structure
+  cannot be faked by typing: who voted for whom and when they switched, who called a
+  meeting with no body, who pushed hard for someone later shown to be innocent, who was
+  alive when. These are in the log as events, not as anyone's account of events.
 
-`evidence` must quote or closely paraphrase the specific log lines you used, at most four.
-If you cannot fill it, your confidence should be under 0.5.
+`evidence` is what you actually used, not what would justify your number. Quote at most
+four lines and prefer fewer. An EMPTY list is correct and common: it is what you should
+return whenever your case rests on what players said rather than on what happened. Do not
+pad it -- a four-item list with the same observation told twice is worse than one item.
 
 `chat` is optional: one short printable-ASCII line your crewmate says before voting, at
 most 160 characters. Name the player and cite the observation. Omit it when you have
-nothing specific to add.
+nothing specific to add. Never repeat another player's accusation as if you had seen it
+yourself; if your only support is what someone else said, omit `chat`.
