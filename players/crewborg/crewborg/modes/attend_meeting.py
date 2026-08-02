@@ -19,6 +19,7 @@ from crewborg.deduction.decision import MeetingDecision as DeductionMeetingDecis
 from crewborg.deduction.decision import decide as decide_from_history
 from crewborg.deduction.inference import InferenceConfig
 from crewborg.deduction.model import DeductionHistory
+from crewborg.envflags import truthy
 from crewborg.strategy.meeting import (
     CHAT_MAX_CHARS,
     VOTE_SKIP,
@@ -44,6 +45,24 @@ from crewborg.strategy.meeting.imposter import (
 )
 from crewborg.strategy.suspicion import chat_suspect, top_suspect
 from crewborg.types import ActionState, Belief, ChatEvent, Intent
+
+# The imposter does not speak in meetings. Set CREWBORG_IMPOSTER_CHAT=1 to restore the
+# legacy accusations -- it exists so a future A/B can still build both arms from one
+# image, and it is the ONLY reason this is a flag rather than a deletion.
+#
+# Measured 2026-08-02, two hosted A/Bs, 400 episodes, zero ops failures. Silencing the
+# imposter does not change how often we are ejected (28.6% either way -- the tell is the
+# BALLOT, not the chat). What it changes is WHEN: ejections before our own first kill fell
+# 16.4% -> 4.0% pooled (z=-4.06, p=0.00005), because the accusation was drawing a vote
+# before we had done anything. Surviving those meetings is worth +0.435 kills/ep against
+# the rival impostor in the same episode (combined DiD over both A/Bs, z=3.26, p=0.0011)
+# -- about a third more killing against a league baseline near 1.3.
+#
+# NOT MEASURED, AND THE REASON THIS IS NOT ALSO A LEAGUE SUBMISSION: team win moved
+# 77.6% -> 70.4% in the arm that isolated this change. At n=98/arm that is z=-1.15,
+# p=0.25 -- noise by any conventional bar, but it is the wrong direction and the batch
+# cannot resolve it. Detecting 10pp on team win needs ~250 episodes/arm. Watch it.
+IMPOSTER_CHAT_ENV = "CREWBORG_IMPOSTER_CHAT"
 
 LLM_MIN_CALL_INTERVAL_TICKS = 12
 DEADLINE_LLM_REMAINING_TICKS = 96
@@ -92,6 +111,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         # make an A/B uninterpretable (see deduction/config.py).
         self._decision_config = DecisionConfig(**gate_overrides())
         self._inference_config = InferenceConfig(**inference_overrides())
+        self._imposter_chat = truthy(IMPOSTER_CHAT_ENV)
 
     def is_legal(self, belief: Belief) -> bool:
         return belief.phase == "Voting"
@@ -481,6 +501,8 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
                 self._tentative_vote = target
                 self._deterministic_chatted = True
                 self._trace_meeting_decision(belief, role="imposter", path="proactive", target=target)
+                if not self._imposter_chat:
+                    return self._submit_vote_intent(belief, reason="imposter deflect: silent ballot")
                 return self._send_chat_intent(belief, accusation, reason="imposter deflect: real evidence")
 
         # 2. Reactive bandwagon — a crewmate already taking heat (votes + chat).
@@ -494,7 +516,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
                 belief, role="imposter", path="bandwagon", target=bandwagon,
                 fabricated=fabricated is not None, accusers=accusers,
             )
-            if fabricated is not None:
+            if fabricated is not None and self._imposter_chat:
                 return self._send_chat_intent(belief, fabricated, reason="imposter bandwagon: fabricated")
             return self._submit_vote_intent(belief, reason="imposter bandwagon vote")
 
@@ -510,7 +532,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
                 belief, role="imposter", path="parity_push", target=parity_target,
                 fabricated=fabricated is not None, accusers=accusers,
             )
-            if fabricated is not None:
+            if fabricated is not None and self._imposter_chat:
                 return self._send_chat_intent(belief, fabricated, reason="imposter parity push: fabricated")
             return self._submit_vote_intent(belief, reason="imposter parity push vote")
 
@@ -547,6 +569,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
             "top_suspect": top_suspect(belief),
         }
         if role == "imposter":
+            data["chat_enabled"] = self._imposter_chat
             data["votes"] = votes_against(belief)
             data["chat_accusers"] = accusers if accusers is not None else {}
             data["nlp"] = chat_nlp.state()

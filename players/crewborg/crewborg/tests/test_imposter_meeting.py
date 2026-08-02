@@ -122,7 +122,9 @@ def test_fabricated_and_real_accusations_share_the_format() -> None:
 # --- imposter meeting flow --------------------------------------------------
 
 
-def test_imposter_proactively_accuses_a_sus_crewmate_with_real_evidence() -> None:
+def test_imposter_proactively_accuses_a_sus_crewmate_with_real_evidence(monkeypatch) -> None:
+    # Covers the accusation TEXT, which only exists behind the flag now.
+    monkeypatch.setenv("CREWBORG_IMPOSTER_CHAT", "1")
     mode = AttendMeetingMode()
     belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"})
     belief.roster["red"] = PlayerRecord(
@@ -137,7 +139,9 @@ def test_imposter_proactively_accuses_a_sus_crewmate_with_real_evidence() -> Non
     assert vote.kind == "vote" and vote.target_color == "red"
 
 
-def test_imposter_bandwagons_with_fabrication_when_it_has_no_real_lead() -> None:
+def test_imposter_bandwagons_with_fabrication_when_it_has_no_real_lead(monkeypatch) -> None:
+    # Covers the accusation TEXT, which only exists behind the flag now.
+    monkeypatch.setenv("CREWBORG_IMPOSTER_CHAT", "1")
     mode = AttendMeetingMode()
     belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"})
     belief.suspicion = {"red": 0.3, "blue": 0.3}  # flat — no real deflection
@@ -235,7 +239,9 @@ def test_parity_push_does_not_fire_two_removals_from_parity() -> None:
     assert parity_closing_vote_target(belief) is None
 
 
-def test_imposter_parity_pushes_instead_of_skipping_one_removal_short() -> None:
+def test_imposter_parity_pushes_instead_of_skipping_one_removal_short(monkeypatch) -> None:
+    # Covers the accusation TEXT, which only exists behind the flag now.
+    monkeypatch.setenv("CREWBORG_IMPOSTER_CHAT", "1")
     mode = AttendMeetingMode()
     belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"}, last_tick=0)
     belief.suspicion = {"red": 0.3, "blue": 0.3, "yellow": 0.3}  # flat — no real lead
@@ -258,3 +264,64 @@ def test_imposter_without_a_known_teammate_still_skips_a_flat_endgame() -> None:
     belief.last_tick = 200
     vote = mode.decide(belief, ActionState())
     assert vote.kind == "vote" and vote.target_color is None  # falls back to skip
+
+
+# --- the imposter does not speak (CREWBORG_IMPOSTER_CHAT) --------------------
+#
+# Default-ON behaviour, so these tests are the ones that catch a silent revert. Two
+# hosted A/Bs (400 episodes) put ejections before our own first kill at 16.4% -> 4.0%
+# (p=0.00005) and kills against the same-episode rival at +0.435/ep (p=0.0011).
+# Ejections in TOTAL did not move (28.6% either way) -- the tell is the ballot.
+
+
+def _vent_suspect_belief() -> Belief:
+    belief = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"},
+                    phase_start_tick=0, last_tick=0)
+    belief.roster["red"] = PlayerRecord(
+        color="red", life_status="alive",
+        events=[PlayerEvent(kind="vent", start_tick=1, end_tick=20, region_index=0)],
+    )
+    belief.suspicion = {"red": 0.85}
+    return belief
+
+
+def test_imposter_votes_its_deflection_target_without_saying_anything() -> None:
+    sink = ListTraceSink()
+    mode = AttendMeetingMode()
+    mode.emit = EventEmitter(sink, ListMetricsSink())
+
+    intent = mode.decide(_vent_suspect_belief(), ActionState())
+    assert intent.kind == "vote" and intent.target_color == "red"
+    [event] = [e for e in sink.events if e.name == "domain.meeting_decision"]
+    assert event.data["path"] == "proactive"  # same path and target as the talker
+    assert event.data["chat_enabled"] is False
+
+
+def test_no_imposter_path_speaks_by_default() -> None:
+    bandwagon = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"})
+    bandwagon.suspicion = {"red": 0.3, "blue": 0.3}
+    bandwagon.voting = _voting(dots=(VoteDot(voter=2, target=1),))
+    bandwagon.roster["blue"] = PlayerRecord(color="blue", life_status="alive")
+    parity = Belief(phase="Voting", self_role="imposter", teammate_colors={"green"}, last_tick=0)
+    parity.suspicion = {"red": 0.3, "blue": 0.3, "yellow": 0.3}
+    parity.voting = _parity_voting()
+    parity.roster["red"] = PlayerRecord(color="red", life_status="alive")
+
+    for belief, expected in ((_vent_suspect_belief(), "red"), (bandwagon, "blue"), (parity, "red")):
+        intent = AttendMeetingMode().decide(belief, ActionState())
+        assert intent.kind == "vote" and intent.target_color == expected
+
+
+def test_imposter_chat_flag_restores_the_legacy_talker(monkeypatch) -> None:
+    # The flag's only job is letting a future A/B build both arms from one image.
+    monkeypatch.setenv("CREWBORG_IMPOSTER_CHAT", "1")
+    intent = AttendMeetingMode().decide(_vent_suspect_belief(), ActionState())
+    assert intent.kind == "chat" and intent.text == "red sus: lurking on a vent"
+
+
+def test_the_crew_seat_still_speaks() -> None:
+    # The change is imposter-side only; silencing crew would be a second variable.
+    belief = _vent_suspect_belief()
+    belief.self_role = "crewmate"
+    intent = AttendMeetingMode().decide(belief, ActionState())
+    assert intent.kind == "chat"

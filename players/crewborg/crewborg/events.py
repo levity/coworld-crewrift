@@ -264,6 +264,10 @@ class CrewborgEventTracer:
                 # control arm reads as a treatment arm.
                 "decision_gate_overrides": gate_overrides() or None,
                 "inference_overrides": inference_overrides() or None,
+                # Default-ON behaviour still has to be readable from a trace: an arm that
+                # sets CREWBORG_IMPOSTER_CHAT=1 to recover the legacy talker is otherwise
+                # indistinguishable from one that forgot to.
+                "imposter_chat": truthy("CREWBORG_IMPOSTER_CHAT"),
             },
         )
 
