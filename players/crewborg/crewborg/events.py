@@ -70,7 +70,7 @@ from players.player_sdk import EventEmitter, StepContext
 from crewborg.action import BTN_A, BTN_B
 from crewborg.deduction.config import enabled as deduction_flag_set
 from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
-from crewborg.deduction.config import gate_overrides, inference_overrides
+from crewborg.deduction.config import gate_overrides, inference_overrides, vote_commit
 from crewborg.envflags import truthy
 from crewborg.perception.constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from crewborg.strategy.commander.trace import CommanderTrace
@@ -268,6 +268,10 @@ class CrewborgEventTracer:
                 # sets CREWBORG_IMPOSTER_CHAT=1 to recover the legacy talker is otherwise
                 # indistinguishable from one that forgot to.
                 "imposter_chat": truthy("CREWBORG_IMPOSTER_CHAT"),
+                # WHEN the ballot is cast, not what it says. Traced here for the
+                # same reason as the rest: an arm has to be readable from a
+                # fetched trace, and this one changes no other field.
+                "vote_commit": vote_commit(),
             },
         )
 

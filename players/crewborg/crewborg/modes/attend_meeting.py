@@ -12,7 +12,11 @@ from players.player_sdk import EmptyModeParams, Mode
 from crewborg import nlp as chat_nlp
 from crewborg.deduction.collector import history_from_belief
 from crewborg.deduction.config import enabled_for_role as deduction_history_enabled
-from crewborg.deduction.config import gate_overrides, inference_overrides
+from crewborg.deduction.config import (
+    gate_overrides,
+    inference_overrides,
+    vote_commit_tick,
+)
 from crewborg.deduction.consult import ConsultView, resolve_consult, run_consult
 from crewborg.deduction.decision import DecisionConfig
 from crewborg.deduction.decision import MeetingDecision as DeductionMeetingDecision
@@ -98,6 +102,10 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._decision_traced = False
         self._deduction_early_chat_attempted = False
         self._deduction_finalized = False
+        # Set by the early solve when `CREWBORG_VOTE_COMMIT=on-pin` and it named a
+        # target: the decision to submit on the next tick, once the early chat has
+        # gone out. `None` under shipped behaviour, always.
+        self._early_commit: DeductionMeetingDecision | None = None
         # The meeting's history, rebuilt only when the ledger actually grows.
         # `history_from_belief` revalidates every retained event through pydantic
         # (~6 ms at 10k events, ~26 ms at 20k, against a 41.7 ms tick budget) and
@@ -196,9 +204,16 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
 
         live_targets = tuple(sorted(valid_vote_targets(belief)))
         meeting_age = belief.last_tick - belief.phase_start_tick
+        # The early solve normally exists only to decide what to SAY, at a fixed
+        # 240. Under `on-pin@<tick>` it also carries the ballot, and the tick moves
+        # with it -- the claim and the dot have to land while anyone is still
+        # listening, and the field has voted by ~60.
+        early_at = vote_commit_tick()
+        if early_at is None:
+            early_at = DEDUCTION_EARLY_CHAT_TICKS
         if (
             not self._deduction_early_chat_attempted
-            and meeting_age >= DEDUCTION_EARLY_CHAT_TICKS
+            and meeting_age >= early_at
         ):
             self._deduction_early_chat_attempted = True
             solve_started = perf_counter()
@@ -219,6 +234,24 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
                     include_factor_table=False,
                 ),
             )
+            # VOTE COMMIT. `on-pin` submits the ballot as soon as this early solve
+            # names someone, instead of holding it to the backstop ~900 ticks later
+            # where no other seat is still voting and nothing can follow it. Staged
+            # rather than submitted here so the early chat still goes out first --
+            # the accusation and the dot land together, which is the point.
+            #
+            # A SKIP IS NEVER COMMITTED EARLY. Only an eject is moved forward; if the
+            # early solve declines, the full solve still runs at the backstop on the
+            # complete history. So this can relocate an eject in time but can never
+            # remove one, and the skip path is byte-identical to shipped.
+            if (
+                vote_commit_tick() is not None
+                and early.action == "eject"
+                and early.target is not None
+                and self._panel_ready(belief)
+            ):
+                self._early_commit = early
+
             text = self._deduction_chat(
                 early,
                 live_targets=live_targets,
@@ -230,6 +263,9 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
                     text,
                     reason="sharing early append-only deduction",
                 )
+
+        if self._early_commit is not None and not self._deduction_finalized:
+            return self._commit_early_vote(belief, history, live_targets)
 
         # WHEN TO FINALISE. Off: at the 48-tick auto-submit backstop, consuming the most
         # chat possible. On: earlier, because an LLM call may only start while it can
@@ -375,6 +411,76 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         if chat is not None and chat in self._sent_chat_texts:
             chat = None
         return outcome.vote, chat
+
+    def _panel_ready(self, belief: Belief) -> bool:
+        """Is the voting panel decoded enough to trust `valid_vote_targets`?
+
+        THE REASON THIS EXISTS. `valid_vote_targets` falls back to the ROSTER when
+        the panel is empty, and that fallback is silent. At the shipped tick 240 it
+        never mattered -- by then the panel has long been decoded. Committing at
+        tick 15 runs straight into the window where it has not, and the failure is
+        invisible: we would vote off a roster that may not match the panel, on a
+        `GameSpec` frozen from a partial player count (see `_current_history`, whose
+        cache key exists for exactly this reason).
+
+        So require the panel itself, not the fallback: candidates present, and the
+        living ones agreeing with the roster's own count of the living. If it is not
+        ready we simply do not commit early -- the backstop still runs on the
+        complete history, so the cost of being wrong here is zero.
+        """
+
+        candidates = belief.voting.candidates
+        if not candidates:
+            return False
+        panel_alive = {c.color for c in candidates if c.alive}
+        roster_alive = {color for color, record in belief.roster.items()
+                        if record.life_status == "alive"}
+        if not panel_alive or not roster_alive:
+            return False
+        return panel_alive == roster_alive
+
+    def _commit_early_vote(
+        self,
+        belief: Belief,
+        history: DeductionHistory,
+        live_targets: tuple[str, ...],
+    ) -> Intent:
+        """Submit the ballot the early solve staged, ~900 ticks before the backstop.
+
+        The decision itself is NOT recomputed: it is the one already traced as
+        `deduction_history_early`, so the arm cannot differ from its own telemetry.
+
+        It is ALSO re-emitted as `deduction_history_decision`, carrying
+        `committed_early: true`. That keeps every downstream audit
+        (`deduction_audit.py`, `crew_decision_audit.py`, the panel) reading one event
+        for "the ballot this seat actually cast", instead of silently seeing zero
+        decisions in the treatment arm and reporting it as a coverage collapse.
+        """
+
+        decision = self._early_commit
+        assert decision is not None and decision.target is not None
+        self._deduction_finalized = True
+        # Re-check liveness: the staged target must still be votable. It was drawn
+        # from `live_targets` on the same tick this fires, but the panel can change
+        # between meetings and a stale target would submit an invalid ballot.
+        if decision.target not in live_targets:
+            self._early_commit = None
+            self._deduction_finalized = False
+            return Intent(kind="idle", reason="early-commit target no longer votable")
+        self._tentative_vote = decision.target
+        payload = self._deduction_trace(
+            belief,
+            history,
+            decision,
+            solve_ms=0.0,
+            include_factor_table=True,
+        )
+        payload["committed_early"] = True
+        self.emit.event("deduction_history_decision", payload)
+        return self._submit_vote_intent(
+            belief,
+            reason=f"early-commit append-only deduction: {decision.reason}",
+        )
 
     def _deduction_trace(
         self,
@@ -752,6 +858,7 @@ class AttendMeetingMode(Mode[Belief, ActionState, Intent]):
         self._decision_traced = False
         self._deduction_early_chat_attempted = False
         self._deduction_finalized = False
+        self._early_commit = None
         self._history = None
         self._history_key = None
 
