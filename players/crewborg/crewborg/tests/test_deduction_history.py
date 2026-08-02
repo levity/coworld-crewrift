@@ -1834,3 +1834,104 @@ def test_forced_vote_constant_is_inert_but_must_not_invert() -> None:
     for preset in ("loose+p40", "loose+p30", "loose+bayes"):
         cfg = DecisionConfig(**gate_overrides({"CREWBORG_DECISION_GATE": preset}))
         assert cfg.forced_vote_probability < cfg.base_probability, preset
+
+# --- CREWBORG_VOTE_COMMIT: when the ballot is cast --------------------------
+#
+# The shipped path holds the vote to the 48-tick backstop, tick ~1152 of 1200.
+# Measured over 17,648 league meetings, that is after every other seat has voted:
+# `vote_aft` is zero in 100% of our ballots, so nothing can follow our dot, while
+# five league policies demonstrably do follow the visible board and all commit by
+# tick ~315. `on-pin` moves an eject forward to the early solve that already runs
+# at tick 240. See `deduction/config.py::VOTE_COMMIT_PRESETS`.
+
+
+def _early_meeting_belief(events: tuple) -> Belief:
+    """A belief past the early-solve tick (240) but far from the backstop."""
+
+    belief = _meeting_belief_with_history(events)
+    belief.last_tick = belief.phase_start_tick + 400   # remaining 800, age 400
+    return belief
+
+
+def test_vote_commit_defaults_to_backstop_and_holds_the_vote(monkeypatch) -> None:
+    """Unset, the early solve still only talks -- the unflagged path is unchanged."""
+
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    monkeypatch.setenv("CREWBORG_SOCIAL_WEIGHT", "1.0")
+    monkeypatch.delenv("CREWBORG_VOTE_COMMIT", raising=False)
+    belief = _early_meeting_belief((
+        _utterance(101, "blue", "red vented"),
+        _utterance(102, "yellow", "red vented"),
+        _utterance(103, "green", "red vented"),
+    ))
+    mode = AttendMeetingMode()
+    mode.emit = EventEmitter(ListTraceSink(), ListMetricsSink())
+
+    first = mode.decide(belief, ActionState())
+    second = mode.decide(belief, ActionState())
+
+    assert first.kind == "chat"
+    # Still 752 ticks from the backstop, so shipped behaviour waits.
+    assert second.kind == "idle"
+
+
+def test_vote_commit_on_pin_submits_at_the_early_solve(monkeypatch) -> None:
+    """`on-pin` casts the ballot right after the early accusation goes out."""
+
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    monkeypatch.setenv("CREWBORG_SOCIAL_WEIGHT", "1.0")
+    monkeypatch.setenv("CREWBORG_VOTE_COMMIT", "on-pin")
+    belief = _early_meeting_belief((
+        _utterance(101, "blue", "red vented"),
+        _utterance(102, "yellow", "red vented"),
+        _utterance(103, "green", "red vented"),
+    ))
+    mode = AttendMeetingMode()
+    sink = ListTraceSink()
+    mode.emit = EventEmitter(sink, ListMetricsSink())
+
+    chat = mode.decide(belief, ActionState())
+    vote = mode.decide(belief, ActionState())
+
+    assert chat.kind == "chat"
+    assert vote.kind == "vote"
+    assert vote.target_color == "red"
+    # It must still emit a decision record, or every downstream audit reads the
+    # treatment arm as having made no decisions at all.
+    [trace] = [
+        event for event in sink.events
+        if event.name == "domain.deduction_history_decision"
+    ]
+    assert trace.data["committed_early"] is True
+    assert trace.data["remaining_ticks"] == 800
+
+
+def test_vote_commit_on_pin_never_commits_a_skip_early(monkeypatch) -> None:
+    """A declined early solve falls through to the backstop, unchanged.
+
+    This is what makes the lever one-directional: it can move an eject forward in
+    time but can never turn a considered skip into an early one, so the skip path
+    is byte-identical to shipped.
+    """
+
+    monkeypatch.setenv("CREWBORG_DEDUCTION_HISTORY", "1")
+    monkeypatch.setenv("CREWBORG_VOTE_COMMIT", "on-pin")
+    belief = _early_meeting_belief(())        # no evidence -> nothing to eject
+    mode = AttendMeetingMode()
+    mode.emit = EventEmitter(ListTraceSink(), ListMetricsSink())
+
+    for _ in range(3):
+        intent = mode.decide(belief, ActionState())
+        assert intent.kind != "vote"
+
+
+def test_vote_commit_preset_degrades_to_backstop() -> None:
+    """A typo must land on shipped behaviour, like every other preset family."""
+
+    from crewborg.deduction.config import vote_commit
+
+    assert vote_commit({}) == "backstop"
+    assert vote_commit({"CREWBORG_VOTE_COMMIT": "on-pin"}) == "on-pin"
+    assert vote_commit({"CREWBORG_VOTE_COMMIT": "ON-PIN"}) == "on-pin"
+    assert vote_commit({"CREWBORG_VOTE_COMMIT": "asap"}) == "backstop"
+    assert vote_commit({"CREWBORG_VOTE_COMMIT": ""}) == "backstop"

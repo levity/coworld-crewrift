@@ -358,3 +358,50 @@ def gate_overrides(env: Mapping[str, str] | None = None) -> Overrides:
     """
 
     return _preset(GATE_PRESETS, GATE_ENV, env)
+
+
+VOTE_COMMIT_ENV = "CREWBORG_VOTE_COMMIT"
+
+# WHEN the crew ballot is cast, which is a different question from what it says.
+#
+# Shipped behaviour holds the vote until the 48-tick auto-submit backstop -- tick
+# ~1152 of a 1200-tick vote timer -- for the stated reason of "consuming the most chat
+# possible" (`modes/attend_meeting.py`). Measured 2026-08-01 over 17,648 league
+# meetings (`crewrift-analysis/pin_conviction.py`), that reason does not survive:
+#
+#   * 98.6% of all meeting chat has already landed by tick 300, and 99.8% by 1152, so
+#     the wait buys 1.2% more transcript;
+#   * our ballot does not respond to chat anyway (placebo-controlled conditional
+#     logit: gap -0.24, z = -0.3) nor to the vote board (+0.02);
+#   * and it costs the entire audience. FIVE league policies demonstrably follow the
+#     visible vote board -- softmaxwell +0.88 (z = 14.6), crewborg-aaln +0.65,
+#     daf-actinf +0.48, notsus +0.37, hunter-relhalpha +0.16, all placebo-clean --
+#     and every one of them commits by tick ~315. `vote_aft` is zero in 100% of our
+#     ballots: nothing has ever voted after us, in any meeting we have ever played.
+#
+# `on-pin` submits as soon as the EARLY solve (already run at
+# `DEDUCTION_EARLY_CHAT_TICKS` = 240, today only to decide what to say) names a
+# target. A skip is NOT committed early: the full solve still runs at the backstop, so
+# this can only ever move an eject forward, never remove one.
+#
+# Sizing, simulated over the real ballots and the real plurality rule: our named
+# target's ejection 23.0% -> 27.7%, impostors 18.8% -> 22.6% (+3.8 pp), crewmates
+# 4.2% -> 5.1% (+0.9 pp) -- about +0.7 pp of crew win at current coverage, and it
+# scales with coverage. The transfer assumption is stated in `pin_conviction.commit`:
+# the follow-gaps come from ordinary mid-meeting boards, not from a lone early dot.
+VOTE_COMMIT_PRESETS: dict[str, str] = {
+    "backstop": "backstop",
+    "on-pin": "on-pin",
+}
+
+
+def vote_commit(env: Mapping[str, str] | None = None) -> str:
+    """When to cast the crew ballot: `backstop` (shipped) or `on-pin`.
+
+    An unset or misspelt value degrades to `backstop`, i.e. to shipped behaviour,
+    which is the same rule every other preset family here follows.
+    """
+
+    source = os.environ if env is None else env
+    raw = source.get(VOTE_COMMIT_ENV, "").strip().lower()
+    return VOTE_COMMIT_PRESETS.get(raw, "backstop")
